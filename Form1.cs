@@ -20,10 +20,21 @@ public class RiderInfo
   public List<RiderLap> Laps { get; set; } = new List<RiderLap>();
   public DateTime FirstCrossing { get; set; }
   public DateTime LastCrossing { get; set; }
+  public DateTime? RaceStartTime { get; set; } // Store race start time for this rider
   public int TotalLaps => Laps.Count;
   public TimeSpan? BestLapTime => Laps.Where(l => l.LapTime.HasValue).Min(l => l.LapTime);
   public TimeSpan? LastLapTime => Laps.LastOrDefault()?.LapTime;
-  public TimeSpan TotalTime => LastCrossing - FirstCrossing;
+  
+  // Total time should be from race start (if available) to last crossing
+  public TimeSpan TotalTime
+  {
+    get
+    {
+      // Use race start time if available, otherwise fall back to first crossing
+      var startTime = RaceStartTime ?? FirstCrossing;
+      return LastCrossing - startTime;
+    }
+  }
 
   // Predicted next lap time based on recent performance
   public TimeSpan? PredictedLapTime
@@ -570,7 +581,8 @@ public partial class Form1 : Form
         {
           TagID = tagID,
           FirstCrossing = crossingTime,
-          LastCrossing = crossingTime
+          LastCrossing = crossingTime,
+          RaceStartTime = raceStartTime // Set race start time for accurate total time calculation
         };
 
         var firstLap = new RiderLap
@@ -1005,10 +1017,13 @@ public partial class Form1 : Form
           // Next crossing prediction
           var nextCrossingStr = "N/A";
           var timeToNextStr = "N/A";
-          if (rider.EstimatedNextCrossing.HasValue)
+          if (rider.EstimatedNextCrossing.HasValue && raceStartTime.HasValue)
           {
             var nextTime = rider.EstimatedNextCrossing.Value;
-            nextCrossingStr = nextTime.ToString("HH:mm:ss");
+            
+            // Convert to race time instead of wall clock time
+            var raceTimeAtCrossing = nextTime - raceStartTime.Value;
+            nextCrossingStr = raceTimeAtCrossing.ToString(@"mm\:ss");
 
             var timeToNext = nextTime - DateTime.Now;
             if (timeToNext > TimeSpan.Zero)
@@ -1558,7 +1573,8 @@ public partial class Form1 : Form
 
       // Add current time indicator at the top
       var currentTimeFont = new Font("Arial", 10, FontStyle.Bold);
-      var currentTimeText = $"NOW: {DateTime.Now:HH:mm:ss}";
+      var elapsedTime = TimeSpan.FromMilliseconds(raceElapsedMs);
+      var currentTimeText = $"NOW: {elapsedTime:mm\\:ss}";
       var timeTextSize = g.MeasureString(currentTimeText, currentTimeFont);
       var timeTextX = progressX - timeTextSize.Width / 2;
       var timeTextY = chartTop - 45;
@@ -1699,51 +1715,82 @@ public partial class Form1 : Form
 
     if (rider.Laps.Count == 0) return;
 
-    var currentTime = 0.0;
     var lapColors = GetLapColors();
 
-    // Draw completed laps
+    // Draw completed laps based on actual race timeline
     for (int i = 0; i < rider.Laps.Count; i++)
     {
       var lap = rider.Laps[i];
-      var lapDuration = lap.LapTime?.TotalMilliseconds ?? 0;
-
-      if (i == 0 && lap.LapTime == null)
+      
+      // Calculate when this lap started and ended in race time
+      DateTime lapStartTime;
+      TimeSpan? lapDuration;
+      
+      if (i == 0)
       {
-        // First lap - use time from race start to first crossing
-        lapDuration = (lap.CrossingTime - raceStartTime!.Value).TotalMilliseconds;
+        // First lap starts at race start
+        lapStartTime = raceStartTime!.Value;
+        if (lap.LapTime == null)
+        {
+          // Calculate first lap time from race start to crossing
+          lapDuration = lap.CrossingTime - raceStartTime.Value;
+        }
+        else
+        {
+          lapDuration = lap.LapTime;
+        }
+      }
+      else
+      {
+        // Subsequent laps start when previous lap ended
+        lapStartTime = rider.Laps[i - 1].CrossingTime;
+        lapDuration = lap.LapTime;
       }
 
-      var lapWidth = (int)(bounds.Width * (lapDuration / raceDurationMs));
+      if (!lapDuration.HasValue || lapDuration.Value.TotalMilliseconds <= 0)
+        continue;
+
+      // Calculate position in race timeline
+      var lapStartMs = (lapStartTime - raceStartTime!.Value).TotalMilliseconds;
+      var lapDurationMs = lapDuration.Value.TotalMilliseconds;
+      var lapEndMs = lapStartMs + lapDurationMs;
+
+      // Skip if lap is completely outside race duration
+      if (lapStartMs >= raceDurationMs)
+        break;
+
+      // Clamp to race duration
+      var clampedEndMs = Math.Min(lapEndMs, raceDurationMs);
+      var clampedDurationMs = clampedEndMs - lapStartMs;
+
+      if (clampedDurationMs <= 0)
+        continue;
+
+      var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / raceDurationMs));
+      var lapWidth = (int)(bounds.Width * (clampedDurationMs / raceDurationMs));
+      
       var lapRect = new Rectangle(
-        bounds.X + (int)(bounds.Width * (currentTime / raceDurationMs)),
+        lapStartX,
         bounds.Y + 2,
         lapWidth,
         bounds.Height - 4
       );
 
-      if (lapRect.Width > 0 && lapRect.X < bounds.Right)
+      if (lapRect.Width > 0 && lapRect.X < bounds.Right && lapRect.Right > bounds.X)
       {
         var colorIndex = i % lapColors.Length;
         g.FillRectangle(new SolidBrush(lapColors[colorIndex]), lapRect);
         g.DrawRectangle(Pens.Black, lapRect);
 
         // Add lap rectangle as hoverable element
-        var actualLapTime = i == 0 && lap.LapTime == null
-          ? TimeSpan.FromMilliseconds(lapDuration)
-          : lap.LapTime;
-
-        if (actualLapTime.HasValue)
+        elements.Add(new LapChartElement
         {
-          elements.Add(new LapChartElement
-          {
-            Bounds = lapRect,
-            RiderId = rider.TagID,
-            LapNumber = i + 1,
-            LapTime = actualLapTime,
-            IsRider = false
-          });
-        }
+          Bounds = lapRect,
+          RiderId = rider.TagID,
+          LapNumber = i + 1,
+          LapTime = lapDuration,
+          IsRider = false
+        });
 
         // Draw lap number if there's space
         if (lapRect.Width > 20)
@@ -1757,30 +1804,39 @@ public partial class Form1 : Form
           font.Dispose();
         }
       }
-
-      currentTime += lapDuration;
     }
 
     // Draw predicted future laps
-    if (rider.PredictedLapTime.HasValue && currentTime < raceDurationMs)
+    if (rider.PredictedLapTime.HasValue && rider.Laps.Count > 0)
     {
+      var lastLapEndTime = rider.Laps.Last().CrossingTime;
       var predictedLapMs = rider.PredictedLapTime.Value.TotalMilliseconds;
       var lapNumber = rider.TotalLaps + 1;
+      var currentPredictedTime = lastLapEndTime;
 
-      while (currentTime < raceDurationMs)
+      while (currentPredictedTime < raceStartTime!.Value.AddMilliseconds(raceDurationMs))
       {
-        var remainingTime = raceDurationMs - currentTime;
-        var lapDuration = Math.Min(predictedLapMs, remainingTime);
+        var lapStartMs = (currentPredictedTime - raceStartTime.Value).TotalMilliseconds;
+        var lapEndMs = lapStartMs + predictedLapMs;
+        
+        // Clamp to race duration
+        var clampedEndMs = Math.Min(lapEndMs, raceDurationMs);
+        var clampedDurationMs = clampedEndMs - lapStartMs;
 
-        var lapWidth = (int)(bounds.Width * (lapDuration / raceDurationMs));
+        if (clampedDurationMs <= 0)
+          break;
+
+        var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / raceDurationMs));
+        var lapWidth = (int)(bounds.Width * (clampedDurationMs / raceDurationMs));
+        
         var lapRect = new Rectangle(
-          bounds.X + (int)(bounds.Width * (currentTime / raceDurationMs)),
+          lapStartX,
           bounds.Y + 2,
           lapWidth,
           bounds.Height - 4
         );
 
-        if (lapRect.Width > 0 && lapRect.X < bounds.Right)
+        if (lapRect.Width > 0 && lapRect.X < bounds.Right && lapRect.Right > bounds.X)
         {
           // Use a faded color for predicted laps
           var baseColor = lapColors[(lapNumber - 1) % lapColors.Length];
@@ -1808,7 +1864,7 @@ public partial class Form1 : Form
           }
         }
 
-        currentTime += lapDuration;
+        currentPredictedTime = currentPredictedTime.AddMilliseconds(predictedLapMs);
         lapNumber++;
 
         // Safety check to prevent infinite loop
@@ -2007,12 +2063,26 @@ public partial class Form1 : Form
       raceStartTime = DateTime.Now;
       raceEndTime = raceStartTime.Value + raceDuration;
       raceStarted = true;
+      
+      // Update race start time for all existing riders
+      lock (ridersLock)
+      {
+        foreach (var rider in riders.Values)
+        {
+          rider.RaceStartTime = raceStartTime;
+        }
+      }
+      
       UpdateRaceStartControls();
       AddMessage($"🏁 Race started manually at {raceStartTime.Value:HH:mm:ss}");
 
       // Reset warnings
       fiveMinuteWarningShown = false;
       oneMinuteWarningShown = false;
+      
+      // Update displays to reflect new total times
+      ridersDisplayNeedsUpdate = true;
+      lapChartNeedsUpdate = true;
     }
   }
 }
