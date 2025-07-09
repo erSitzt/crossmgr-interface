@@ -66,6 +66,9 @@ partial class Form1
   private System.Windows.Forms.Button buttonStartRace;
   private System.Windows.Forms.Label labelRaceStatus;
   private System.Windows.Forms.Label labelFilterEnabled;
+  private System.Windows.Forms.Label labelAdditionalLaps;
+  private System.Windows.Forms.NumericUpDown numericUpDownAdditionalLaps;
+  private System.Windows.Forms.Button buttonSetAdditionalLaps;
 
   private void InitializeComponent()
   {
@@ -110,12 +113,16 @@ partial class Form1
     this.buttonStartRace = new System.Windows.Forms.Button();
     this.labelRaceStatus = new System.Windows.Forms.Label();
     this.labelFilterEnabled = new System.Windows.Forms.Label();
+    this.labelAdditionalLaps = new System.Windows.Forms.Label();
+    this.numericUpDownAdditionalLaps = new System.Windows.Forms.NumericUpDown();
+    this.buttonSetAdditionalLaps = new System.Windows.Forms.Button();
     this.tabControl.SuspendLayout();
     this.tabPageLive.SuspendLayout();
     this.tabPageRiders.SuspendLayout();
     ((System.ComponentModel.ISupportInitialize)(this.dataGridViewRiders)).BeginInit();
     this.tabPageStats.SuspendLayout();
     ((System.ComponentModel.ISupportInitialize)(this.numericUpDownRaceDuration)).BeginInit();
+    ((System.ComponentModel.ISupportInitialize)(this.numericUpDownAdditionalLaps)).BeginInit();
     this.tabPageLapChart.SuspendLayout();
     this.tabPageRaceSettings.SuspendLayout();
     this.groupBoxRaceStart.SuspendLayout();
@@ -227,6 +234,9 @@ partial class Form1
     // 
     // tabPageRaceSettings
     // 
+    this.tabPageRaceSettings.Controls.Add(this.labelAdditionalLaps);
+    this.tabPageRaceSettings.Controls.Add(this.numericUpDownAdditionalLaps);
+    this.tabPageRaceSettings.Controls.Add(this.buttonSetAdditionalLaps);
     this.tabPageRaceSettings.Controls.Add(this.groupBoxRaceStart);
     this.tabPageRaceSettings.Controls.Add(this.labelTagFilter);
     this.tabPageRaceSettings.Controls.Add(this.textBoxTagFilter);
@@ -563,6 +573,47 @@ partial class Form1
     this.labelFilterEnabled.TabIndex = 18;
     this.labelFilterEnabled.Text = "Enabled";
     // 
+    // labelAdditionalLaps
+    // 
+    this.labelAdditionalLaps.AutoSize = true;
+    this.labelAdditionalLaps.Location = new System.Drawing.Point(20, 50);
+    this.labelAdditionalLaps.Name = "labelAdditionalLaps";
+    this.labelAdditionalLaps.Size = new System.Drawing.Size(149, 15);
+    this.labelAdditionalLaps.TabIndex = 13;
+    this.labelAdditionalLaps.Text = "Additional Laps After Time:";
+    // 
+    // numericUpDownAdditionalLaps
+    // 
+    this.numericUpDownAdditionalLaps.Location = new System.Drawing.Point(175, 48);
+    this.numericUpDownAdditionalLaps.Maximum = new decimal(new int[] {
+    10,
+    0,
+    0,
+    0});
+    this.numericUpDownAdditionalLaps.Minimum = new decimal(new int[] {
+    1,
+    0,
+    0,
+    0});
+    this.numericUpDownAdditionalLaps.Name = "numericUpDownAdditionalLaps";
+    this.numericUpDownAdditionalLaps.Size = new System.Drawing.Size(120, 23);
+    this.numericUpDownAdditionalLaps.TabIndex = 14;
+    this.numericUpDownAdditionalLaps.Value = new decimal(new int[] {
+    1,
+    0,
+    0,
+    0});
+    // 
+    // buttonSetAdditionalLaps
+    // 
+    this.buttonSetAdditionalLaps.Location = new System.Drawing.Point(301, 48);
+    this.buttonSetAdditionalLaps.Name = "buttonSetAdditionalLaps";
+    this.buttonSetAdditionalLaps.Size = new System.Drawing.Size(75, 23);
+    this.buttonSetAdditionalLaps.TabIndex = 15;
+    this.buttonSetAdditionalLaps.Text = "Set";
+    this.buttonSetAdditionalLaps.UseVisualStyleBackColor = true;
+    this.buttonSetAdditionalLaps.Click += new System.EventHandler(this.buttonSetAdditionalLaps_Click);
+    // 
     // Form1
     // 
     this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
@@ -590,6 +641,7 @@ partial class Form1
     this.tabPageStats.ResumeLayout(false);
     this.tabPageStats.PerformLayout();
     ((System.ComponentModel.ISupportInitialize)(this.numericUpDownRaceDuration)).EndInit();
+    ((System.ComponentModel.ISupportInitialize)(this.numericUpDownAdditionalLaps)).EndInit();
     this.tabPageLapChart.ResumeLayout(false);
     this.tabPageRaceSettings.ResumeLayout(false);
     this.tabPageRaceSettings.PerformLayout();

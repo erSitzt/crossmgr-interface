@@ -43,7 +43,7 @@ def send_identification(sock):
     print(f"Received from server: {response.strip()}")
     print("Handshake complete!")
 
-def simulate_race(sock, num_riders=5, race_duration_minutes=2):
+def simulate_race(sock, num_riders=15, race_duration_minutes=5):
     """Simulate a race with multiple riders"""
     print(f"\nStarting race simulation with {num_riders} riders for {race_duration_minutes} minutes")
     
@@ -62,7 +62,17 @@ def simulate_race(sock, num_riders=5, race_duration_minutes=2):
     print("Expected tags (RIDER*): RIDER001, RIDER002, RIDER003")
     print("Other tags (should be filtered if prefix 'RIDER' is set): BIKE004, BIKE005, RFID12345, TAG999, UNKNOWN01")
     
-    rider_lap_times = {rider: 45 + random.uniform(-10, 15) for rider in riders}  # Base lap times in seconds
+    # Set random base lap times between 30-40 seconds for each rider
+    rider_base_lap_times = {rider: random.uniform(30, 40) for rider in riders}
+    
+    # Make some riders get faster over time (simulate stronger finishers)
+    rider_improvement_rates = {}
+    for i, rider in enumerate(riders):
+        if i < 3:  # First 3 riders get stronger over time
+            rider_improvement_rates[rider] = random.uniform(-0.3, -0.1)  # Negative = getting faster
+        else:
+            rider_improvement_rates[rider] = random.uniform(-0.1, 0.2)   # Mix of improvement and fatigue
+    
     rider_last_crossing = {}
     
     race_start = time.time()
@@ -70,15 +80,21 @@ def simulate_race(sock, num_riders=5, race_duration_minutes=2):
     
     lap_number = {rider: 0 for rider in riders}
     
+    print(f"\nRider base lap times:")
+    for rider in riders:
+        improvement = rider_improvement_rates.get(rider, 0)
+        improvement_str = "improving" if improvement < 0 else "tiring" if improvement > 0 else "steady"
+        print(f"  {rider}: {rider_base_lap_times[rider]:.1f}s base ({improvement_str})")
+    
     while time.time() < race_end:
         # Determine which rider should cross next
         current_time = time.time()
         
         for rider in riders:
             # Calculate when this rider should cross next
-            base_lap_time = rider_lap_times[rider]
-            # Add some variation (±10%)
-            lap_time = base_lap_time + random.uniform(-base_lap_time * 0.1, base_lap_time * 0.1)
+            base_lap_time = rider_base_lap_times[rider]
+            # Add variation of 1-5 seconds per lap
+            lap_time = base_lap_time + random.uniform(1, 5)
             
             if rider not in rider_last_crossing:
                 # First crossing for this rider
@@ -96,8 +112,9 @@ def simulate_race(sock, num_riders=5, race_duration_minutes=2):
                     send_tag_read(sock, rider, lap_number[rider])
                     print(f"  {rider} completed lap {lap_number[rider]} (lap time: {time_since_last:.1f}s)")
                     
-                    # Slightly adjust lap time for next lap (simulation of fatigue/improvement)
-                    rider_lap_times[rider] += random.uniform(-2, 3)
+                    # Slightly adjust base lap time for next lap (simulation of fatigue/improvement)
+                    improvement_rate = rider_improvement_rates.get(rider, 0)
+                    rider_base_lap_times[rider] += random.uniform(-1, 2) + improvement_rate
         
         # Wait a bit before checking again
         time.sleep(1)
@@ -133,8 +150,8 @@ def main():
         # Wait a moment
         time.sleep(2)
         
-        # Simulate a 2-minute race with 5 riders
-        simulate_race(sock, num_riders=5, race_duration_minutes=2)
+        # Simulate a race to test leader changes during additional laps
+        simulate_race(sock, num_riders=20, race_duration_minutes=5)
         
     except KeyboardInterrupt:
         print("\nTest interrupted by user")

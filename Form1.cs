@@ -88,12 +88,17 @@ public partial class Form1 : Form
   private bool ridersDisplayNeedsUpdate = false;
   private bool manualStartMode = false;
   private bool raceStarted = false;
+  private bool raceFinished = false;
+  private bool waitingForLeaderFinish = false;
+  private string? leaderAtTimeExpiry = null;
+  private int leaderLapsAtTimeExpiry = 0; // Track leader's lap count when time expired
 
   // Race duration settings
   private TimeSpan raceDuration = TimeSpan.FromMinutes(20); // Default 20 minutes
   private DateTime? raceEndTime = null;
   private bool fiveMinuteWarningShown = false;
   private bool oneMinuteWarningShown = false;
+  private int additionalLapsAfterTimeExpiry = 1; // Configurable number of laps after time expires
 
   // Tag filtering
   private string tagFilterPrefix = "";
@@ -150,6 +155,9 @@ public partial class Form1 : Form
 
     // Initialize race duration from the numeric control
     raceDuration = TimeSpan.FromMinutes((double)numericUpDownRaceDuration.Value);
+
+    // Initialize additional laps setting
+    additionalLapsAfterTimeExpiry = (int)numericUpDownAdditionalLaps.Value;
 
     // Initialize tag filter controls
     textBoxTagFilter.PlaceholderText = "e.g., RIDER, 1000, BIKE (comma-separated)";
@@ -552,6 +560,13 @@ public partial class Form1 : Form
   {
     lock (ridersLock)
     {
+      // If race is finished, still record crossings but note they are post-race
+      bool isPostRace = raceFinished;
+      if (isPostRace)
+      {
+        AddMessage($"🏁 Post-race crossing: {tagID} at {crossingTime:HH:mm:ss.fff} (recorded but not counted in final results)");
+      }
+
       // If in manual start mode and race hasn't started yet, ignore tags
       if (manualStartMode && !raceStarted)
       {
@@ -568,6 +583,25 @@ public partial class Form1 : Form
         UpdateRaceStartControls();
         AddMessage($"🏁 Race started! Duration: {raceDuration.TotalMinutes} minutes, End time: {raceEndTime:HH:mm:ss}");
         AddMessage($"🎯 Predicted total laps will be calculated based on leader performance.");
+      }
+
+      // Check if race time has expired and we need to wait for leader
+      if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !waitingForLeaderFinish)
+      {
+        // Find current leader
+        var currentLeader = riders.Values
+          .OrderByDescending(r => r.TotalLaps)
+          .ThenBy(r => r.TotalTime)
+          .FirstOrDefault();
+
+        if (currentLeader != null)
+        {
+          leaderAtTimeExpiry = currentLeader.TagID;
+          leaderLapsAtTimeExpiry = currentLeader.TotalLaps;
+          waitingForLeaderFinish = true;
+          var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+          AddMessage($"⏰ Race time expired! Waiting for leader {leaderAtTimeExpiry} to complete {additionalLapsAfterTimeExpiry} more {lapsText} to finish the race.");
+        }
       }
 
       // Update last tag info
@@ -617,6 +651,39 @@ public partial class Form1 : Form
 
         rider.Laps.Add(newLap);
         rider.LastCrossing = crossingTime;
+
+        // Check if race should finish during additional laps phase
+        if (waitingForLeaderFinish)
+        {
+          // Find current leader after this lap
+          var currentLeader = riders.Values
+            .OrderByDescending(r => r.TotalLaps)
+            .ThenBy(r => r.TotalTime)
+            .FirstOrDefault();
+
+          if (currentLeader != null)
+          {
+            // Check if leadership has changed
+            if (currentLeader.TagID != leaderAtTimeExpiry)
+            {
+              AddMessage($"🔄 LEADER CHANGE! New leader: {currentLeader.TagID} (was {leaderAtTimeExpiry})");
+
+              // Update leader tracking - new leader must complete additional laps from their current position
+              var previousLeader = leaderAtTimeExpiry;
+              leaderAtTimeExpiry = currentLeader.TagID;
+              leaderLapsAtTimeExpiry = currentLeader.TotalLaps; // Current lap count becomes the new baseline
+
+              var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+              AddMessage($"🏁 New leader {leaderAtTimeExpiry} must complete {additionalLapsAfterTimeExpiry} more {lapsText} to finish the race.");
+            }
+
+            // Check if current leader has completed the required additional laps
+            if (currentLeader.TagID == tagID && rider.TotalLaps >= leaderLapsAtTimeExpiry + additionalLapsAfterTimeExpiry)
+            {
+              FinishRace();
+            }
+          }
+        }
 
         // Mark that riders display needs update (don't update immediately to avoid freezing)
         ridersDisplayNeedsUpdate = true;
@@ -690,6 +757,10 @@ public partial class Form1 : Form
       raceStartTime = null;
       raceEndTime = null;
       raceStarted = false;
+      raceFinished = false;
+      waitingForLeaderFinish = false;
+      leaderAtTimeExpiry = null;
+      leaderLapsAtTimeExpiry = 0;
       lastTagID = "None";
       lastTagTime = DateTime.MinValue;
       ridersDisplayNeedsUpdate = true;
@@ -1528,8 +1599,12 @@ public partial class Form1 : Form
 
       // Calculate race duration and timing
       var raceDurationMs = raceDuration.TotalMilliseconds;
+
+      // Calculate extended duration to show estimated finish times for all riders
+      var extendedDurationMs = CalculateExtendedChartDuration(raceDurationMs);
+
       var raceElapsedMs = (DateTime.Now - raceStartTime.Value).TotalMilliseconds;
-      var raceProgressPercent = Math.Min(raceElapsedMs / raceDurationMs, 1.0);
+      var raceProgressPercent = Math.Min(raceElapsedMs / extendedDurationMs, 1.0);
 
       // Sort riders by position (same as leaderboard)
       var sortedRiders = riders.Values
@@ -1554,7 +1629,8 @@ public partial class Form1 : Form
 
       // Draw title
       var titleFont = new Font("Arial", 14, FontStyle.Bold);
-      var title = $"Lap Visualization - Race: {raceElapsedMs / 60000:F1}min / {raceDuration.TotalMinutes:F0}min";
+      var raceTimeElapsed = TimeSpan.FromMilliseconds(raceElapsedMs);
+      var title = $"Lap Visualization - Race: {raceTimeElapsed:mm\\:ss} / {raceDuration:mm\\:ss}";
       g.DrawString(title, titleFont, Brushes.Black, margin, margin);
       titleFont.Dispose();
 
@@ -1562,7 +1638,7 @@ public partial class Form1 : Form
       var barFont = new Font("Arial", 10);
 
       // Draw time scale at top
-      DrawTimeScale(g, new Rectangle(margin + labelWidth, chartTop - 25, chartWidth, 20), raceDurationMs);
+      DrawTimeScale(g, new Rectangle(margin + labelWidth, chartTop - 25, chartWidth, 20), extendedDurationMs);
 
       // Draw race progress line - thick and prominent
       var progressX = margin + labelWidth + (int)(chartWidth * raceProgressPercent);
@@ -1606,7 +1682,7 @@ public partial class Form1 : Form
         var y = chartTop + i * (riderBarHeight + riderSpacing);
         var barRect = new Rectangle(margin + labelWidth, y, chartWidth, riderBarHeight);
 
-        DrawRiderLapBar(g, rider, barRect, raceDurationMs, i + 1, lapChartElements);
+        DrawRiderLapBar(g, rider, barRect, extendedDurationMs, i + 1, lapChartElements);
 
         // Draw rider label
         var labelRect = new Rectangle(margin, y, labelWidth - 10, riderBarHeight);
@@ -2037,9 +2113,34 @@ public partial class Form1 : Form
 
   private void UpdateRaceStartControls()
   {
-    buttonStartRace.Enabled = manualStartMode && !raceStarted;
+    buttonStartRace.Enabled = manualStartMode && !raceStarted && !raceFinished;
 
-    if (raceStarted)
+    if (raceFinished)
+    {
+      labelRaceStatus.Text = "Race: FINISHED";
+      labelRaceStatus.ForeColor = Color.Blue;
+    }
+    else if (waitingForLeaderFinish)
+    {
+      // Calculate remaining laps for current leader
+      var currentLeader = riders.Values
+        .OrderByDescending(r => r.TotalLaps)
+        .ThenBy(r => r.TotalTime)
+        .FirstOrDefault();
+
+      if (currentLeader != null && currentLeader.TagID == leaderAtTimeExpiry)
+      {
+        var remainingLaps = (leaderLapsAtTimeExpiry + additionalLapsAfterTimeExpiry) - currentLeader.TotalLaps;
+        var lapsText = remainingLaps == 1 ? "lap" : "laps";
+        labelRaceStatus.Text = $"Race: Leader {leaderAtTimeExpiry} - {remainingLaps} {lapsText} to go";
+      }
+      else
+      {
+        labelRaceStatus.Text = $"Race: Waiting for Leader {leaderAtTimeExpiry}";
+      }
+      labelRaceStatus.ForeColor = Color.Purple;
+    }
+    else if (raceStarted)
     {
       labelRaceStatus.Text = "Race: Started";
       labelRaceStatus.ForeColor = Color.Green;
@@ -2084,5 +2185,72 @@ public partial class Form1 : Form
       ridersDisplayNeedsUpdate = true;
       lapChartNeedsUpdate = true;
     }
+  }
+
+  private void FinishRace()
+  {
+    raceFinished = true;
+    waitingForLeaderFinish = false;
+
+    // Calculate actual race finish time
+    var actualRaceFinishTime = DateTime.Now;
+    var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
+
+    AddMessage($"🏁 RACE FINISHED! Leader {leaderAtTimeExpiry} completed the final lap.");
+    AddMessage($"🏁 Actual race duration: {actualRaceDuration:mm\\:ss}");
+    AddMessage($"🏁 Race results are final. Additional crossings will still be recorded for reference.");
+
+    // Update race status
+    UpdateRaceStartControls();
+
+    // Force final update of displays
+    ridersDisplayNeedsUpdate = true;
+    lapChartNeedsUpdate = true;
+  }
+
+  private double CalculateExtendedChartDuration(double baseDurationMs)
+  {
+    lock (ridersLock)
+    {
+      if (riders.Count == 0 || !raceStartTime.HasValue)
+        return baseDurationMs;
+
+      // Find the slowest rider and estimate when they might finish
+      var slowestFinishTimeMs = baseDurationMs;
+
+      foreach (var rider in riders.Values)
+      {
+        if (rider.EstimatedNextCrossing.HasValue)
+        {
+          var estimatedFinishMs = (rider.EstimatedNextCrossing.Value - raceStartTime.Value).TotalMilliseconds;
+
+          // If rider has a predicted lap time, estimate additional laps they might complete
+          if (rider.PredictedLapTime.HasValue)
+          {
+            var predictedLapMs = rider.PredictedLapTime.Value.TotalMilliseconds;
+            var timeRemainingMs = baseDurationMs - (rider.LastCrossing - raceStartTime.Value).TotalMilliseconds;
+
+            if (timeRemainingMs > 0)
+            {
+              var additionalLaps = Math.Ceiling(timeRemainingMs / predictedLapMs);
+              estimatedFinishMs += additionalLaps * predictedLapMs;
+            }
+          }
+
+          slowestFinishTimeMs = Math.Max(slowestFinishTimeMs, estimatedFinishMs);
+        }
+      }
+
+      // Add 20% buffer to the extended duration, but cap it at 150% of base duration
+      var extendedDuration = slowestFinishTimeMs * 1.2;
+      return Math.Min(extendedDuration, baseDurationMs * 1.5);
+    }
+  }
+
+  private void buttonSetAdditionalLaps_Click(object? sender, EventArgs e)
+  {
+    additionalLapsAfterTimeExpiry = (int)numericUpDownAdditionalLaps.Value;
+    var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+    AddMessage($"⚙️ Additional laps after time expiry set to {additionalLapsAfterTimeExpiry} {lapsText}.");
   }
 }
