@@ -44,6 +44,7 @@ partial class Form1
   private System.Windows.Forms.TabPage tabPageRiders;
   private System.Windows.Forms.TabPage tabPageStats;
   private System.Windows.Forms.TabPage tabPageLapChart;
+  private System.Windows.Forms.TabPage tabPageRaceSettings;
   private System.Windows.Forms.DataGridView dataGridViewRiders;
   private System.Windows.Forms.Label labelRaceTime;
   private System.Windows.Forms.Label labelTotalRiders;
@@ -59,6 +60,12 @@ partial class Form1
   private System.Windows.Forms.Button buttonSetFilter;
   private System.Windows.Forms.CheckBox checkBoxFilterEnabled;
   private System.Windows.Forms.Panel panelLapChart;
+  private System.Windows.Forms.GroupBox groupBoxRaceStart;
+  private System.Windows.Forms.RadioButton radioButtonStartOnFirstTag;
+  private System.Windows.Forms.RadioButton radioButtonStartManual;
+  private System.Windows.Forms.Button buttonStartRace;
+  private System.Windows.Forms.Label labelRaceStatus;
+  private System.Windows.Forms.Label labelFilterEnabled;
 
   private void InitializeComponent()
   {
@@ -96,6 +103,13 @@ partial class Form1
     this.checkBoxFilterEnabled = new System.Windows.Forms.CheckBox();
     this.tabPageLapChart = new System.Windows.Forms.TabPage();
     this.panelLapChart = new System.Windows.Forms.Panel();
+    this.tabPageRaceSettings = new System.Windows.Forms.TabPage();
+    this.groupBoxRaceStart = new System.Windows.Forms.GroupBox();
+    this.radioButtonStartOnFirstTag = new System.Windows.Forms.RadioButton();
+    this.radioButtonStartManual = new System.Windows.Forms.RadioButton();
+    this.buttonStartRace = new System.Windows.Forms.Button();
+    this.labelRaceStatus = new System.Windows.Forms.Label();
+    this.labelFilterEnabled = new System.Windows.Forms.Label();
     this.tabControl.SuspendLayout();
     this.tabPageLive.SuspendLayout();
     this.tabPageRiders.SuspendLayout();
@@ -103,6 +117,8 @@ partial class Form1
     this.tabPageStats.SuspendLayout();
     ((System.ComponentModel.ISupportInitialize)(this.numericUpDownRaceDuration)).BeginInit();
     this.tabPageLapChart.SuspendLayout();
+    this.tabPageRaceSettings.SuspendLayout();
+    this.groupBoxRaceStart.SuspendLayout();
     this.SuspendLayout();
     // 
     // tabControl
@@ -114,10 +130,11 @@ partial class Form1
     this.tabControl.Controls.Add(this.tabPageRiders);
     this.tabControl.Controls.Add(this.tabPageStats);
     this.tabControl.Controls.Add(this.tabPageLapChart);
-    this.tabControl.Location = new System.Drawing.Point(12, 80);
+    this.tabControl.Controls.Add(this.tabPageRaceSettings);
+    this.tabControl.Location = new System.Drawing.Point(12, 50);
     this.tabControl.Name = "tabControl";
     this.tabControl.SelectedIndex = 0;
-    this.tabControl.Size = new System.Drawing.Size(1160, 520);
+    this.tabControl.Size = new System.Drawing.Size(1160, 550);
     this.tabControl.TabIndex = 10;
     // 
     // tabPageLive
@@ -207,6 +224,25 @@ partial class Form1
     this.panelLapChart.Size = new System.Drawing.Size(1146, 486);
     this.panelLapChart.TabIndex = 0;
     this.panelLapChart.Paint += new System.Windows.Forms.PaintEventHandler(this.panelLapChart_Paint);
+    // 
+    // tabPageRaceSettings
+    // 
+    this.tabPageRaceSettings.Controls.Add(this.groupBoxRaceStart);
+    this.tabPageRaceSettings.Controls.Add(this.labelTagFilter);
+    this.tabPageRaceSettings.Controls.Add(this.textBoxTagFilter);
+    this.tabPageRaceSettings.Controls.Add(this.buttonSetFilter);
+    this.tabPageRaceSettings.Controls.Add(this.checkBoxFilterEnabled);
+    this.tabPageRaceSettings.Controls.Add(this.labelFilterEnabled);
+    this.tabPageRaceSettings.Controls.Add(this.labelRaceDuration);
+    this.tabPageRaceSettings.Controls.Add(this.numericUpDownRaceDuration);
+    this.tabPageRaceSettings.Controls.Add(this.buttonSetDuration);
+    this.tabPageRaceSettings.Location = new System.Drawing.Point(4, 24);
+    this.tabPageRaceSettings.Name = "tabPageRaceSettings";
+    this.tabPageRaceSettings.Padding = new System.Windows.Forms.Padding(3);
+    this.tabPageRaceSettings.Size = new System.Drawing.Size(1152, 522);
+    this.tabPageRaceSettings.TabIndex = 4;
+    this.tabPageRaceSettings.Text = "Race Settings";
+    this.tabPageRaceSettings.UseVisualStyleBackColor = true;
     // 
     // labelStatus
     // 
@@ -300,7 +336,7 @@ partial class Form1
     // labelRaceDuration
     // 
     this.labelRaceDuration.AutoSize = true;
-    this.labelRaceDuration.Location = new System.Drawing.Point(620, 15);
+    this.labelRaceDuration.Location = new System.Drawing.Point(20, 20);
     this.labelRaceDuration.Name = "labelRaceDuration";
     this.labelRaceDuration.Size = new System.Drawing.Size(105, 15);
     this.labelRaceDuration.TabIndex = 10;
@@ -308,7 +344,7 @@ partial class Form1
     // 
     // numericUpDownRaceDuration
     // 
-    this.numericUpDownRaceDuration.Location = new System.Drawing.Point(730, 12);
+    this.numericUpDownRaceDuration.Location = new System.Drawing.Point(130, 17);
     this.numericUpDownRaceDuration.Maximum = new decimal(new int[] {
     180,
     0,
@@ -330,7 +366,7 @@ partial class Form1
     // 
     // buttonSetDuration
     // 
-    this.buttonSetDuration.Location = new System.Drawing.Point(796, 12);
+    this.buttonSetDuration.Location = new System.Drawing.Point(196, 17);
     this.buttonSetDuration.Name = "buttonSetDuration";
     this.buttonSetDuration.Size = new System.Drawing.Size(75, 23);
     this.buttonSetDuration.TabIndex = 12;
@@ -428,7 +464,7 @@ partial class Form1
     // labelTagFilter
     // 
     this.labelTagFilter.AutoSize = true;
-    this.labelTagFilter.Location = new System.Drawing.Point(620, 55);
+    this.labelTagFilter.Location = new System.Drawing.Point(20, 60);
     this.labelTagFilter.Name = "labelTagFilter";
     this.labelTagFilter.Size = new System.Drawing.Size(64, 15);
     this.labelTagFilter.TabIndex = 13;
@@ -436,14 +472,14 @@ partial class Form1
     // 
     // textBoxTagFilter
     // 
-    this.textBoxTagFilter.Location = new System.Drawing.Point(690, 52);
+    this.textBoxTagFilter.Location = new System.Drawing.Point(90, 57);
     this.textBoxTagFilter.Name = "textBoxTagFilter";
     this.textBoxTagFilter.Size = new System.Drawing.Size(100, 23);
     this.textBoxTagFilter.TabIndex = 14;
     // 
     // buttonSetFilter
     // 
-    this.buttonSetFilter.Location = new System.Drawing.Point(796, 52);
+    this.buttonSetFilter.Location = new System.Drawing.Point(196, 57);
     this.buttonSetFilter.Name = "buttonSetFilter";
     this.buttonSetFilter.Size = new System.Drawing.Size(75, 23);
     this.buttonSetFilter.TabIndex = 15;
@@ -454,12 +490,78 @@ partial class Form1
     // checkBoxFilterEnabled
     // 
     this.checkBoxFilterEnabled.AutoSize = true;
-    this.checkBoxFilterEnabled.Location = new System.Drawing.Point(877, 56);
+    this.checkBoxFilterEnabled.Location = new System.Drawing.Point(277, 61);
     this.checkBoxFilterEnabled.Name = "checkBoxFilterEnabled";
     this.checkBoxFilterEnabled.Size = new System.Drawing.Size(15, 14);
     this.checkBoxFilterEnabled.TabIndex = 16;
     this.checkBoxFilterEnabled.UseVisualStyleBackColor = true;
     this.checkBoxFilterEnabled.CheckedChanged += new System.EventHandler(this.checkBoxFilterEnabled_CheckedChanged);
+    // 
+    // groupBoxRaceStart
+    // 
+    this.groupBoxRaceStart.Controls.Add(this.radioButtonStartOnFirstTag);
+    this.groupBoxRaceStart.Controls.Add(this.radioButtonStartManual);
+    this.groupBoxRaceStart.Controls.Add(this.buttonStartRace);
+    this.groupBoxRaceStart.Controls.Add(this.labelRaceStatus);
+    this.groupBoxRaceStart.Location = new System.Drawing.Point(20, 100);
+    this.groupBoxRaceStart.Name = "groupBoxRaceStart";
+    this.groupBoxRaceStart.Size = new System.Drawing.Size(280, 100);
+    this.groupBoxRaceStart.TabIndex = 17;
+    this.groupBoxRaceStart.TabStop = false;
+    this.groupBoxRaceStart.Text = "Race Start Mode";
+    // 
+    // radioButtonStartOnFirstTag
+    // 
+    this.radioButtonStartOnFirstTag.AutoSize = true;
+    this.radioButtonStartOnFirstTag.Checked = true;
+    this.radioButtonStartOnFirstTag.Location = new System.Drawing.Point(10, 22);
+    this.radioButtonStartOnFirstTag.Name = "radioButtonStartOnFirstTag";
+    this.radioButtonStartOnFirstTag.Size = new System.Drawing.Size(130, 19);
+    this.radioButtonStartOnFirstTag.TabIndex = 0;
+    this.radioButtonStartOnFirstTag.TabStop = true;
+    this.radioButtonStartOnFirstTag.Text = "Start on first tag read";
+    this.radioButtonStartOnFirstTag.UseVisualStyleBackColor = true;
+    // 
+    // radioButtonStartManual
+    // 
+    this.radioButtonStartManual.AutoSize = true;
+    this.radioButtonStartManual.Location = new System.Drawing.Point(10, 47);
+    this.radioButtonStartManual.Name = "radioButtonStartManual";
+    this.radioButtonStartManual.Size = new System.Drawing.Size(93, 19);
+    this.radioButtonStartManual.TabIndex = 1;
+    this.radioButtonStartManual.Text = "Manual start";
+    this.radioButtonStartManual.UseVisualStyleBackColor = true;
+    // 
+    // buttonStartRace
+    // 
+    this.buttonStartRace.Enabled = false;
+    this.buttonStartRace.Location = new System.Drawing.Point(150, 45);
+    this.buttonStartRace.Name = "buttonStartRace";
+    this.buttonStartRace.Size = new System.Drawing.Size(75, 23);
+    this.buttonStartRace.TabIndex = 2;
+    this.buttonStartRace.Text = "Start Race";
+    this.buttonStartRace.UseVisualStyleBackColor = true;
+    this.buttonStartRace.Click += new System.EventHandler(this.buttonStartRace_Click);
+    // 
+    // labelRaceStatus
+    // 
+    this.labelRaceStatus.AutoSize = true;
+    this.labelRaceStatus.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+    this.labelRaceStatus.ForeColor = System.Drawing.Color.DarkRed;
+    this.labelRaceStatus.Location = new System.Drawing.Point(10, 75);
+    this.labelRaceStatus.Name = "labelRaceStatus";
+    this.labelRaceStatus.Size = new System.Drawing.Size(88, 15);
+    this.labelRaceStatus.TabIndex = 3;
+    this.labelRaceStatus.Text = "Race: Not Started";
+    // 
+    // labelFilterEnabled
+    // 
+    this.labelFilterEnabled.AutoSize = true;
+    this.labelFilterEnabled.Location = new System.Drawing.Point(298, 61);
+    this.labelFilterEnabled.Name = "labelFilterEnabled";
+    this.labelFilterEnabled.Size = new System.Drawing.Size(51, 15);
+    this.labelFilterEnabled.TabIndex = 18;
+    this.labelFilterEnabled.Text = "Enabled";
     // 
     // Form1
     // 
@@ -467,9 +569,6 @@ partial class Form1
     this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
     this.ClientSize = new System.Drawing.Size(1184, 612);
     this.Controls.Add(this.tabControl);
-    this.Controls.Add(this.buttonSetDuration);
-    this.Controls.Add(this.numericUpDownRaceDuration);
-    this.Controls.Add(this.labelRaceDuration);
     this.Controls.Add(this.buttonClearRiders);
     this.Controls.Add(this.buttonShowSummary);
     this.Controls.Add(this.labelConnections);
@@ -479,10 +578,6 @@ partial class Form1
     this.Controls.Add(this.buttonStop);
     this.Controls.Add(this.buttonStart);
     this.Controls.Add(this.labelStatus);
-    this.Controls.Add(this.labelTagFilter);
-    this.Controls.Add(this.textBoxTagFilter);
-    this.Controls.Add(this.buttonSetFilter);
-    this.Controls.Add(this.checkBoxFilterEnabled);
     this.MinimumSize = new System.Drawing.Size(800, 500);
     this.Name = "Form1";
     this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
@@ -496,6 +591,10 @@ partial class Form1
     this.tabPageStats.PerformLayout();
     ((System.ComponentModel.ISupportInitialize)(this.numericUpDownRaceDuration)).EndInit();
     this.tabPageLapChart.ResumeLayout(false);
+    this.tabPageRaceSettings.ResumeLayout(false);
+    this.tabPageRaceSettings.PerformLayout();
+    this.groupBoxRaceStart.ResumeLayout(false);
+    this.groupBoxRaceStart.PerformLayout();
     this.ResumeLayout(false);
     this.PerformLayout();
   }

@@ -14,7 +14,10 @@ A C# Windows Forms application that serves as an interface for CrossMgr RFID rac
 ### Race Management
 
 - **Race Duration**: Configurable race duration (default: 20 minutes, range: 1-180 minutes)
-- **Automatic Start**: Race automatically starts on first tag read
+- **Race Start Modes**:
+  - **Automatic Start**: Race automatically starts on first tag read (default)
+  - **Manual Start**: Operator controls race start with "Start Race" button
+- **First Lap Timing**: Proper first lap time calculation from race start
 - **End Time Tracking**: Displays race end time and remaining time
 - **Race Warnings**: Automatic warnings at 5 minutes and 1 minute remaining
 - **Race Reset**: Clear all data and reset race state
@@ -36,6 +39,57 @@ A C# Windows Forms application that serves as an interface for CrossMgr RFID rac
 - Protocol handshake logging
 - Tag read notifications with lap information
 - Connection status and client management
+
+#### Riders Tab
+
+- Real-time rider standings sorted by position
+- Lap count, best lap time, average lap time
+- Last crossing time and predicted next crossing
+- Overdue status highlighting
+
+#### Race Statistics Tab
+
+- Current race time and total riders/laps
+- Last tag read information
+- Next expected crossing prediction
+- Race end time and time remaining
+- Predicted total laps for race leader
+
+#### Lap Chart Tab
+
+- Visual lap chart showing all riders' progress
+- Horizontal timeline with completed and predicted laps
+- Color-coded rider positions (1st=Gold, 2nd=Silver, 3rd=Bronze)
+- Interactive features: click rider for lap times, hover for details
+- Real-time progress indicator and time scale
+
+#### Race Settings Tab
+
+All race configuration options are consolidated in this dedicated tab:
+
+- **Race Duration**: Set race length (1-180 minutes)
+- **Tag Filter**: Configure tag prefix filtering with enable/disable toggle
+- **Race Start Mode**: Choose between automatic start on first tag or manual start
+- **Race Start Controls**: Manual start button and race status display
+
+#### Race Start Controls
+
+The interface provides flexible race start options:
+
+**Start on First Tag Read (Default)**
+
+- Race automatically begins when any RFID tag is detected
+- Simple plug-and-play operation
+- Suitable for informal races or testing
+
+**Manual Start**
+
+- Operator controls when the race begins
+- Click "Start Race" button to begin timing
+- Tags read before race start are ignored
+- Ensures synchronized start for all riders
+- Proper first lap time calculation from race start
+- Race status indicator shows current state
 
 #### Riders Tab (Leaderboard)
 

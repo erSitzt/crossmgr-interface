@@ -75,6 +75,8 @@ public partial class Form1 : Form
   private string lastTagID = "None";
   private DateTime lastTagTime = DateTime.MinValue;
   private bool ridersDisplayNeedsUpdate = false;
+  private bool manualStartMode = false;
+  private bool raceStarted = false;
 
   // Race duration settings
   private TimeSpan raceDuration = TimeSpan.FromMinutes(20); // Default 20 minutes
@@ -153,6 +155,11 @@ public partial class Form1 : Form
     panelLapChart.MouseClick += PanelLapChart_MouseClick;
     panelLapChart.MouseMove += PanelLapChart_MouseMove;
     panelLapChart.MouseLeave += PanelLapChart_MouseLeave;
+
+    // Set up race start mode controls
+    radioButtonStartOnFirstTag.CheckedChanged += RaceStartMode_CheckedChanged;
+    radioButtonStartManual.CheckedChanged += RaceStartMode_CheckedChanged;
+    UpdateRaceStartControls();
   }
 
   private void buttonStart_Click(object? sender, EventArgs e)
@@ -534,11 +541,20 @@ public partial class Form1 : Form
   {
     lock (ridersLock)
     {
-      // Track race start time on first crossing
-      if (raceStartTime == null)
+      // If in manual start mode and race hasn't started yet, ignore tags
+      if (manualStartMode && !raceStarted)
+      {
+        // Create a dummy lap that won't be processed
+        return new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+      }
+
+      // Track race start time on first crossing (only if not manual start mode)
+      if (raceStartTime == null && !manualStartMode)
       {
         raceStartTime = crossingTime;
         raceEndTime = raceStartTime.Value + raceDuration;
+        raceStarted = true;
+        UpdateRaceStartControls();
         AddMessage($"🏁 Race started! Duration: {raceDuration.TotalMinutes} minutes, End time: {raceEndTime:HH:mm:ss}");
         AddMessage($"🎯 Predicted total laps will be calculated based on leader performance.");
       }
@@ -661,6 +677,7 @@ public partial class Form1 : Form
       riders.Clear();
       raceStartTime = null;
       raceEndTime = null;
+      raceStarted = false;
       lastTagID = "None";
       lastTagTime = DateTime.MinValue;
       ridersDisplayNeedsUpdate = true;
@@ -669,6 +686,9 @@ public partial class Form1 : Form
       // Reset warning flags
       fiveMinuteWarningShown = false;
       oneMinuteWarningShown = false;
+
+      // Reset race start controls
+      UpdateRaceStartControls();
 
       // Reset filter counter
       filteredTagCount = 0;
@@ -1532,35 +1552,35 @@ public partial class Form1 : Form
       // Draw race progress line - thick and prominent
       var progressX = margin + labelWidth + (int)(chartWidth * raceProgressPercent);
       var progressPen = new Pen(Color.Red, 4) { DashStyle = System.Drawing.Drawing2D.DashStyle.Solid };
-      
+
       // Draw progress line from top of time scale to bottom of chart
       g.DrawLine(progressPen, progressX, chartTop - 25, progressX, chartTop + chartHeight);
-      
+
       // Add current time indicator at the top
       var currentTimeFont = new Font("Arial", 10, FontStyle.Bold);
       var currentTimeText = $"NOW: {DateTime.Now:HH:mm:ss}";
       var timeTextSize = g.MeasureString(currentTimeText, currentTimeFont);
       var timeTextX = progressX - timeTextSize.Width / 2;
       var timeTextY = chartTop - 45;
-      
+
       // Draw background for current time text
-      var timeTextRect = new Rectangle((int)timeTextX - 3, (int)timeTextY - 2, 
+      var timeTextRect = new Rectangle((int)timeTextX - 3, (int)timeTextY - 2,
         (int)timeTextSize.Width + 6, (int)timeTextSize.Height + 4);
       g.FillRectangle(Brushes.Red, timeTextRect);
       g.DrawRectangle(Pens.Black, timeTextRect);
       g.DrawString(currentTimeText, currentTimeFont, Brushes.White, timeTextX, timeTextY);
       currentTimeFont.Dispose();
-      
+
       // Add a semi-transparent overlay to the right of the progress line to show "future time"
       if (progressX < margin + labelWidth + chartWidth)
       {
-        var futureRect = new Rectangle(progressX, chartTop, 
+        var futureRect = new Rectangle(progressX, chartTop,
           margin + labelWidth + chartWidth - progressX, chartHeight);
         var futureBrush = new SolidBrush(Color.FromArgb(30, 255, 0, 0));
         g.FillRectangle(futureBrush, futureRect);
         futureBrush.Dispose();
       }
-      
+
       progressPen.Dispose();
 
       // Draw each rider's bar
@@ -1576,16 +1596,16 @@ public partial class Form1 : Form
         var labelRect = new Rectangle(margin, y, labelWidth - 10, riderBarHeight);
         var labelText = $"#{i + 1}: {rider.TagID}";
         var labelBrush = GetPositionBrush(i);
-        
+
         // Highlight if this rider is selected
         if (selectedRiderId == rider.TagID)
         {
-          var highlightRect = new Rectangle(labelRect.X - 3, labelRect.Y - 3, 
+          var highlightRect = new Rectangle(labelRect.X - 3, labelRect.Y - 3,
             labelRect.Width + 6, labelRect.Height + 6);
           g.FillRectangle(Brushes.Yellow, highlightRect);
           g.DrawRectangle(new Pen(Color.Orange, 3), highlightRect);
         }
-        
+
         g.FillRectangle(labelBrush, labelRect);
         g.DrawRectangle(Pens.Black, labelRect);
 
@@ -1604,7 +1624,7 @@ public partial class Form1 : Form
       }
 
       barFont.Dispose();
-      
+
       // Draw hover tooltip if there's hovered lap info
       if (!string.IsNullOrEmpty(hoveredLapInfo))
       {
@@ -1638,13 +1658,13 @@ public partial class Form1 : Form
 
       // Draw major tick marks
       g.DrawLine(pen, x, bounds.Y, x, bounds.Y + bounds.Height);
-      
+
       // Draw time labels with better visibility
       var timeText = $"{minutes:F0}m";
       var textSize = g.MeasureString(timeText, font);
       var textX = x - textSize.Width / 2;
       var textY = bounds.Y + 2;
-      
+
       // Draw white background for text
       g.FillRectangle(Brushes.White, textX - 2, textY, textSize.Width + 4, textSize.Height);
       g.DrawString(timeText, font, Brushes.Black, textX, textY);
@@ -1653,15 +1673,15 @@ public partial class Form1 : Form
     // Draw minor tick marks (every minute)
     var minorIntervalMs = 1 * 60 * 1000; // 1 minute
     var minorIntervals = (int)(raceDurationMs / minorIntervalMs) + 1;
-    
+
     for (int i = 0; i <= minorIntervals; i++)
     {
       var timeMs = (double)(i * minorIntervalMs);
       if (timeMs > raceDurationMs) timeMs = raceDurationMs;
-      
+
       // Skip if this is a major tick mark
       if (timeMs % (5 * 60 * 1000) == 0) continue;
-      
+
       var x = bounds.X + (int)(bounds.Width * (timeMs / raceDurationMs));
       g.DrawLine(lightPen, x, bounds.Y + bounds.Height - 5, x, bounds.Y + bounds.Height);
     }
@@ -1709,10 +1729,10 @@ public partial class Form1 : Form
         g.DrawRectangle(Pens.Black, lapRect);
 
         // Add lap rectangle as hoverable element
-        var actualLapTime = i == 0 && lap.LapTime == null 
-          ? TimeSpan.FromMilliseconds(lapDuration) 
+        var actualLapTime = i == 0 && lap.LapTime == null
+          ? TimeSpan.FromMilliseconds(lapDuration)
           : lap.LapTime;
-          
+
         if (actualLapTime.HasValue)
         {
           elements.Add(new LapChartElement
@@ -1854,7 +1874,7 @@ public partial class Form1 : Form
   {
     // Find which element is being hovered
     var hoveredElement = lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(e.Location));
-    
+
     string? newHoverInfo = null;
     if (hoveredElement != null && !hoveredElement.IsRider && hoveredElement.LapTime.HasValue)
     {
@@ -1899,11 +1919,19 @@ public partial class Form1 : Form
         for (int i = 0; i < rider.Laps.Count; i++)
         {
           var lap = rider.Laps[i];
-          var lapTimeStr = lap.LapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+          TimeSpan? displayLapTime = lap.LapTime;
+
+          // Calculate first lap time from race start if it's null
+          if (i == 0 && lap.LapTime == null && raceStartTime.HasValue)
+          {
+            displayLapTime = lap.CrossingTime - raceStartTime.Value;
+          }
+
+          var lapTimeStr = displayLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
           details.AppendLine($"  Lap {i + 1}: {lapTimeStr} ({lap.CrossingTime:HH:mm:ss})");
         }
 
-        MessageBox.Show(details.ToString(), $"Lap Details - {riderId}", 
+        MessageBox.Show(details.ToString(), $"Lap Details - {riderId}",
           MessageBoxButtons.OK, MessageBoxIcon.Information);
       }
     }
@@ -1915,34 +1943,76 @@ public partial class Form1 : Form
 
     var font = new Font("Arial", 10, FontStyle.Bold);
     var textSize = g.MeasureString(text, font);
-    
+
     // Position tooltip near mouse but ensure it stays within bounds
     var tooltipX = mousePosition.X + 10;
     var tooltipY = mousePosition.Y - 30;
-    
+
     if (tooltipX + (int)textSize.Width > panelLapChart.Width)
       tooltipX = mousePosition.X - (int)textSize.Width - 10;
     if (tooltipY < 0)
       tooltipY = mousePosition.Y + 20;
-    
+
     var tooltipRect = new Rectangle(
-      tooltipX - 5, 
-      tooltipY - 3, 
-      (int)textSize.Width + 10, 
+      tooltipX - 5,
+      tooltipY - 3,
+      (int)textSize.Width + 10,
       (int)textSize.Height + 6);
-    
+
     // Draw tooltip background with shadow
-    var shadowRect = new Rectangle(tooltipRect.X + 2, tooltipRect.Y + 2, 
+    var shadowRect = new Rectangle(tooltipRect.X + 2, tooltipRect.Y + 2,
       tooltipRect.Width, tooltipRect.Height);
     g.FillRectangle(Brushes.Gray, shadowRect);
-    
+
     g.FillRectangle(Brushes.LightYellow, tooltipRect);
     g.DrawRectangle(Pens.Black, tooltipRect);
-    
+
     // Draw text
     g.DrawString(text, font, Brushes.Black, tooltipX, tooltipY);
-    
+
     font.Dispose();
   }
 
+  private void RaceStartMode_CheckedChanged(object? sender, EventArgs e)
+  {
+    manualStartMode = radioButtonStartManual.Checked;
+    UpdateRaceStartControls();
+  }
+
+  private void UpdateRaceStartControls()
+  {
+    buttonStartRace.Enabled = manualStartMode && !raceStarted;
+
+    if (raceStarted)
+    {
+      labelRaceStatus.Text = "Race: Started";
+      labelRaceStatus.ForeColor = Color.Green;
+    }
+    else if (manualStartMode)
+    {
+      labelRaceStatus.Text = "Race: Ready to Start";
+      labelRaceStatus.ForeColor = Color.Orange;
+    }
+    else
+    {
+      labelRaceStatus.Text = "Race: Waiting for First Tag";
+      labelRaceStatus.ForeColor = Color.DarkRed;
+    }
+  }
+
+  private void buttonStartRace_Click(object? sender, EventArgs e)
+  {
+    if (manualStartMode && !raceStarted)
+    {
+      raceStartTime = DateTime.Now;
+      raceEndTime = raceStartTime.Value + raceDuration;
+      raceStarted = true;
+      UpdateRaceStartControls();
+      AddMessage($"🏁 Race started manually at {raceStartTime.Value:HH:mm:ss}");
+
+      // Reset warnings
+      fiveMinuteWarningShown = false;
+      oneMinuteWarningShown = false;
+    }
+  }
 }
