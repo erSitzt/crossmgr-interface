@@ -24,7 +24,7 @@ public class RiderInfo
   public int TotalLaps => Laps.Count;
   public TimeSpan? BestLapTime => Laps.Where(l => l.LapTime.HasValue).Min(l => l.LapTime);
   public TimeSpan? LastLapTime => Laps.LastOrDefault()?.LapTime;
-  
+
   // Total time should be from race start (if available) to last crossing
   public TimeSpan TotalTime
   {
@@ -1020,7 +1020,7 @@ public partial class Form1 : Form
           if (rider.EstimatedNextCrossing.HasValue && raceStartTime.HasValue)
           {
             var nextTime = rider.EstimatedNextCrossing.Value;
-            
+
             // Convert to race time instead of wall clock time
             var raceTimeAtCrossing = nextTime - raceStartTime.Value;
             nextCrossingStr = raceTimeAtCrossing.ToString(@"mm\:ss");
@@ -1721,11 +1721,11 @@ public partial class Form1 : Form
     for (int i = 0; i < rider.Laps.Count; i++)
     {
       var lap = rider.Laps[i];
-      
+
       // Calculate when this lap started and ended in race time
       DateTime lapStartTime;
       TimeSpan? lapDuration;
-      
+
       if (i == 0)
       {
         // First lap starts at race start
@@ -1768,7 +1768,7 @@ public partial class Form1 : Form
 
       var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / raceDurationMs));
       var lapWidth = (int)(bounds.Width * (clampedDurationMs / raceDurationMs));
-      
+
       var lapRect = new Rectangle(
         lapStartX,
         bounds.Y + 2,
@@ -1818,7 +1818,7 @@ public partial class Form1 : Form
       {
         var lapStartMs = (currentPredictedTime - raceStartTime.Value).TotalMilliseconds;
         var lapEndMs = lapStartMs + predictedLapMs;
-        
+
         // Clamp to race duration
         var clampedEndMs = Math.Min(lapEndMs, raceDurationMs);
         var clampedDurationMs = clampedEndMs - lapStartMs;
@@ -1828,7 +1828,7 @@ public partial class Form1 : Form
 
         var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / raceDurationMs));
         var lapWidth = (int)(bounds.Width * (clampedDurationMs / raceDurationMs));
-        
+
         var lapRect = new Rectangle(
           lapStartX,
           bounds.Y + 2,
@@ -2063,7 +2063,7 @@ public partial class Form1 : Form
       raceStartTime = DateTime.Now;
       raceEndTime = raceStartTime.Value + raceDuration;
       raceStarted = true;
-      
+
       // Update race start time for all existing riders
       lock (ridersLock)
       {
@@ -2072,14 +2072,14 @@ public partial class Form1 : Form
           rider.RaceStartTime = raceStartTime;
         }
       }
-      
+
       UpdateRaceStartControls();
       AddMessage($"🏁 Race started manually at {raceStartTime.Value:HH:mm:ss}");
 
       // Reset warnings
       fiveMinuteWarningShown = false;
       oneMinuteWarningShown = false;
-      
+
       // Update displays to reflect new total times
       ridersDisplayNeedsUpdate = true;
       lapChartNeedsUpdate = true;
