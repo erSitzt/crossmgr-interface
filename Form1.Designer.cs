@@ -27,12 +27,14 @@ partial class Form1
   ///  the contents of this method with the code editor.
   /// </summary>
   private System.Windows.Forms.ListBox listBoxMessages;
+  private System.Windows.Forms.ListBox listBoxTagEvents;
   private System.Windows.Forms.Label labelStatus;
   private System.Windows.Forms.Button buttonStart;
   private System.Windows.Forms.Button buttonStop;
   private System.Windows.Forms.TextBox textBoxPort;
   private System.Windows.Forms.Label labelPort;
   private System.Windows.Forms.Button buttonClear;
+  private System.Windows.Forms.Button buttonClearTagEvents;
   private System.Windows.Forms.Label labelConnections;
   private System.Windows.Forms.Button buttonShowSummary;
   private System.Windows.Forms.Button buttonClearRiders;
@@ -41,6 +43,7 @@ partial class Form1
   private System.Windows.Forms.Button buttonSetDuration;
   private System.Windows.Forms.TabControl tabControl;
   private System.Windows.Forms.TabPage tabPageLive;
+  private System.Windows.Forms.TabPage tabPageTagEvents;
   private System.Windows.Forms.TabPage tabPageRiders;
   private System.Windows.Forms.TabPage tabPageStats;
   private System.Windows.Forms.TabPage tabPageLapChart;
@@ -88,6 +91,8 @@ partial class Form1
     this.tabControl = new System.Windows.Forms.TabControl();
     this.tabPageLive = new System.Windows.Forms.TabPage();
     this.listBoxMessages = new System.Windows.Forms.ListBox();
+    this.tabPageTagEvents = new System.Windows.Forms.TabPage();
+    this.listBoxTagEvents = new System.Windows.Forms.ListBox();
     this.tabPageRiders = new System.Windows.Forms.TabPage();
     this.dataGridViewRiders = new System.Windows.Forms.DataGridView();
     this.tabPageStats = new System.Windows.Forms.TabPage();
@@ -118,6 +123,7 @@ partial class Form1
     this.buttonSetAdditionalLaps = new System.Windows.Forms.Button();
     this.tabControl.SuspendLayout();
     this.tabPageLive.SuspendLayout();
+    this.tabPageTagEvents.SuspendLayout();
     this.tabPageRiders.SuspendLayout();
     ((System.ComponentModel.ISupportInitialize)(this.dataGridViewRiders)).BeginInit();
     this.tabPageStats.SuspendLayout();
@@ -134,6 +140,7 @@ partial class Form1
     | System.Windows.Forms.AnchorStyles.Left)
     | System.Windows.Forms.AnchorStyles.Right)));
     this.tabControl.Controls.Add(this.tabPageLive);
+    this.tabControl.Controls.Add(this.tabPageTagEvents);
     this.tabControl.Controls.Add(this.tabPageRiders);
     this.tabControl.Controls.Add(this.tabPageStats);
     this.tabControl.Controls.Add(this.tabPageLapChart);
@@ -152,7 +159,7 @@ partial class Form1
     this.tabPageLive.Padding = new System.Windows.Forms.Padding(3);
     this.tabPageLive.Size = new System.Drawing.Size(1152, 492);
     this.tabPageLive.TabIndex = 0;
-    this.tabPageLive.Text = "Live Feed";
+    this.tabPageLive.Text = "Race Events";
     this.tabPageLive.UseVisualStyleBackColor = true;
     // 
     // listBoxMessages
@@ -166,6 +173,28 @@ partial class Form1
     this.listBoxMessages.Size = new System.Drawing.Size(1146, 486);
     this.listBoxMessages.TabIndex = 0;
     // 
+    // tabPageTagEvents
+    // 
+    this.tabPageTagEvents.Controls.Add(this.listBoxTagEvents);
+    this.tabPageTagEvents.Location = new System.Drawing.Point(4, 24);
+    this.tabPageTagEvents.Name = "tabPageTagEvents";
+    this.tabPageTagEvents.Padding = new System.Windows.Forms.Padding(3);
+    this.tabPageTagEvents.Size = new System.Drawing.Size(1152, 492);
+    this.tabPageTagEvents.TabIndex = 1;
+    this.tabPageTagEvents.Text = "Tag Events";
+    this.tabPageTagEvents.UseVisualStyleBackColor = true;
+    // 
+    // listBoxTagEvents
+    // 
+    this.listBoxTagEvents.Dock = System.Windows.Forms.DockStyle.Fill;
+    this.listBoxTagEvents.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+    this.listBoxTagEvents.HorizontalScrollbar = true;
+    this.listBoxTagEvents.ItemHeight = 14;
+    this.listBoxTagEvents.Location = new System.Drawing.Point(3, 3);
+    this.listBoxTagEvents.Name = "listBoxTagEvents";
+    this.listBoxTagEvents.Size = new System.Drawing.Size(1146, 486);
+    this.listBoxTagEvents.TabIndex = 0;
+    // 
     // tabPageRiders
     // 
     this.tabPageRiders.Controls.Add(this.dataGridViewRiders);
@@ -173,7 +202,7 @@ partial class Form1
     this.tabPageRiders.Name = "tabPageRiders";
     this.tabPageRiders.Padding = new System.Windows.Forms.Padding(3);
     this.tabPageRiders.Size = new System.Drawing.Size(1152, 492);
-    this.tabPageRiders.TabIndex = 1;
+    this.tabPageRiders.TabIndex = 2;
     this.tabPageRiders.Text = "Riders";
     this.tabPageRiders.UseVisualStyleBackColor = true;
     // 
@@ -206,7 +235,7 @@ partial class Form1
     this.tabPageStats.Location = new System.Drawing.Point(4, 24);
     this.tabPageStats.Name = "tabPageStats";
     this.tabPageStats.Size = new System.Drawing.Size(1152, 492);
-    this.tabPageStats.TabIndex = 2;
+    this.tabPageStats.TabIndex = 3;
     this.tabPageStats.Text = "Race Statistics";
     this.tabPageStats.UseVisualStyleBackColor = true;
     // 
@@ -217,7 +246,7 @@ partial class Form1
     this.tabPageLapChart.Name = "tabPageLapChart";
     this.tabPageLapChart.Padding = new System.Windows.Forms.Padding(3);
     this.tabPageLapChart.Size = new System.Drawing.Size(1152, 492);
-    this.tabPageLapChart.TabIndex = 3;
+    this.tabPageLapChart.TabIndex = 4;
     this.tabPageLapChart.Text = "Lap Chart";
     this.tabPageLapChart.UseVisualStyleBackColor = true;
     // 
@@ -250,7 +279,7 @@ partial class Form1
     this.tabPageRaceSettings.Name = "tabPageRaceSettings";
     this.tabPageRaceSettings.Padding = new System.Windows.Forms.Padding(3);
     this.tabPageRaceSettings.Size = new System.Drawing.Size(1152, 522);
-    this.tabPageRaceSettings.TabIndex = 4;
+    this.tabPageRaceSettings.TabIndex = 5;
     this.tabPageRaceSettings.Text = "Race Settings";
     this.tabPageRaceSettings.UseVisualStyleBackColor = true;
     // 
@@ -636,6 +665,7 @@ partial class Form1
     this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Form1_FormClosing);
     this.tabControl.ResumeLayout(false);
     this.tabPageLive.ResumeLayout(false);
+    this.tabPageTagEvents.ResumeLayout(false);
     this.tabPageRiders.ResumeLayout(false);
     ((System.ComponentModel.ISupportInitialize)(this.dataGridViewRiders)).EndInit();
     this.tabPageStats.ResumeLayout(false);

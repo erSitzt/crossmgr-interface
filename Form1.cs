@@ -135,13 +135,13 @@ public partial class Form1 : Form
   private void TabControl_SelectedIndexChanged(object? sender, EventArgs e)
   {
     // If switching to Riders tab and we need an update, do it now
-    if (tabControl.SelectedIndex == 1 && ridersDisplayNeedsUpdate)
+    if (tabControl.SelectedIndex == 2 && ridersDisplayNeedsUpdate)
     {
       ridersDisplayNeedsUpdate = false;
       UpdateRidersDisplay();
     }
     // If switching to Lap Chart tab and we need an update, do it now
-    else if (tabControl.SelectedIndex == 3 && lapChartNeedsUpdate)
+    else if (tabControl.SelectedIndex == 4 && lapChartNeedsUpdate)
     {
       lapChartNeedsUpdate = false;
       panelLapChart.Invalidate(); // Trigger repaint
@@ -201,6 +201,11 @@ public partial class Form1 : Form
   private void buttonClear_Click(object? sender, EventArgs e)
   {
     listBoxMessages.Items.Clear();
+  }
+
+  private void buttonClearTagEvents_Click(object? sender, EventArgs e)
+  {
+    listBoxTagEvents.Items.Clear();
   }
 
   private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
@@ -272,7 +277,7 @@ public partial class Form1 : Form
         }
 
         var clientEndpoint = tcpClient.Client.RemoteEndPoint?.ToString() ?? "Unknown";
-        AddMessage($"Client connected from: {clientEndpoint}");
+        AddTagEvent($"Client connected from: {clientEndpoint}");
         UpdateConnectionCount();
 
         // Handle client in separate task
@@ -311,7 +316,7 @@ public partial class Form1 : Form
         // Debug: Log raw received data (only if not too verbose)
         if (allData.Length > 0 && allData.Length < 200)
         {
-          AddMessage($"[{clientEndpoint}] RAW: '{allData}' (hex: {string.Join("", Encoding.ASCII.GetBytes(allData).Select(b => b.ToString("X2")))})");
+          AddTagEvent($"[{clientEndpoint}] RAW: '{allData}' (hex: {string.Join("", Encoding.ASCII.GetBytes(allData).Select(b => b.ToString("X2")))})");
         }
 
         string[] lines = allData.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -349,7 +354,7 @@ public partial class Form1 : Form
     }
     catch (Exception ex)
     {
-      AddMessage($"Error handling client {clientEndpoint}: {ex.Message}");
+      AddTagEvent($"Error handling client {clientEndpoint}: {ex.Message}");
     }
     finally
     {
@@ -359,7 +364,7 @@ public partial class Form1 : Form
       }
 
       client.Close();
-      AddMessage($"Client disconnected: {clientEndpoint}");
+      AddTagEvent($"Client disconnected: {clientEndpoint}");
       UpdateConnectionCount();
     }
   }
@@ -368,7 +373,7 @@ public partial class Form1 : Form
   {
     try
     {
-      AddMessage($"[{clientEndpoint}] Received: '{message}' (Length: {message.Length})");
+      AddTagEvent($"[{clientEndpoint}] Received: '{message}' (Length: {message.Length})");
 
       if (message.StartsWith("GT"))
       {
@@ -386,13 +391,13 @@ public partial class Form1 : Form
           byte[] responseBytes = Encoding.ASCII.GetBytes(response);
           await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
 
-          AddMessage($"[{clientEndpoint}] Sent: {response.TrimEnd()}");
+          AddTagEvent($"[{clientEndpoint}] Sent: {response.TrimEnd()}");
         }
       }
       else if (message.StartsWith("S0000"))
       {
         // Setup command - acknowledge
-        AddMessage($"[{clientEndpoint}] Setup command received");
+        AddTagEvent($"[{clientEndpoint}] Setup command received");
         // CrossMgr typically doesn't need a response to S0000
       }
       else if (message.StartsWith("DA"))
@@ -406,20 +411,20 @@ public partial class Form1 : Form
         // Example: N0000DESKTOP-V48S27K-24428
         // Extract the reader name (skip N and first 4 digits)
         string readerName = message.Length > 5 ? message.Substring(5) : message;
-        AddMessage($"[{clientEndpoint}] 📋 Reader identification: {readerName} (full: {message})");
+        AddTagEvent($"[{clientEndpoint}] 📋 Reader identification: {readerName} (full: {message})");
 
         // According to CrossMgr protocol (based on Impinj2JChip.py), the client sends identifier
         // and then waits for the server to send GT command. Adding realistic delay to match
         // the expected timing where the reader waits for the server to respond.
         // Note: Client has 2-second socket timeout, so delay must be well under 2 seconds.
-        AddMessage($"[{clientEndpoint}] ⏳ Waiting 500ms before sending GT command (protocol timing)...");
+        AddTagEvent($"[{clientEndpoint}] ⏳ Waiting 500ms before sending GT command (protocol timing)...");
 
         // Use Task.Delay to avoid blocking the UI thread
         _ = Task.Run(async () =>
         {
           AddMessage($"[{clientEndpoint}] ⏳ Starting 500ms delay timer...");
           await Task.Delay(500); // 500ms delay - well under the 2-second client timeout
-          AddMessage($"[{clientEndpoint}] ⏰ Delay complete, sending GT command now...");
+          AddTagEvent($"[{clientEndpoint}] ⏰ Delay complete, sending GT command now...");
 
           try
           {
@@ -438,16 +443,16 @@ public partial class Form1 : Form
               byte[] gtBytes = Encoding.ASCII.GetBytes(gtCommand);
               await clientStream.WriteAsync(gtBytes, 0, gtBytes.Length);
 
-              AddMessage($"[{clientEndpoint}] 📤 Sent GT command to initialize reader (after delay)");
+              AddTagEvent($"[{clientEndpoint}] 📤 Sent GT command to initialize reader (after delay)");
             }
             else
             {
-              AddMessage($"[{clientEndpoint}] ❌ Cannot send GT - client disconnected during delay");
+              AddTagEvent($"[{clientEndpoint}] ❌ Cannot send GT - client disconnected during delay");
             }
           }
           catch (Exception ex)
           {
-            AddMessage($"[{clientEndpoint}] Error sending delayed GT command: {ex.Message}");
+            AddTagEvent($"[{clientEndpoint}] Error sending delayed GT command: {ex.Message}");
           }
         });
       }
@@ -523,7 +528,7 @@ public partial class Form1 : Form
         // Log filtered tag but don't process lap tracking
         filteredTagCount++;
         string filteredMessage = $"🚫 Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} [FILTERED #{filteredTagCount} - doesn't match prefix '{tagFilterPrefix}'] [{displayTime}]";
-        AddMessage($"[{clientEndpoint}] {filteredMessage}");
+        AddTagEvent($"[{clientEndpoint}] {filteredMessage}");
         return; // Skip lap processing for filtered tags
       }
 
@@ -539,7 +544,7 @@ public partial class Form1 : Form
 
       string formattedMessage = $"🏷️  Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} {lapInfoStr} [{displayTime}]";
 
-      AddMessage($"[{clientEndpoint}] {formattedMessage}");
+      AddTagEvent($"[{clientEndpoint}] {formattedMessage}");
 
       // Display rider summary after each crossing - simplified since we have the GUI
       // DisplayRiderSummary(tagID); // Commented out to reduce log noise
@@ -564,7 +569,8 @@ public partial class Form1 : Form
       bool isPostRace = raceFinished;
       if (isPostRace)
       {
-        AddMessage($"🏁 Post-race crossing: {tagID} at {crossingTime:HH:mm:ss.fff} (recorded but not counted in final results)");
+        AddRaceEvent($"🏁 Post-race crossing: {tagID} at {crossingTime:HH:mm:ss.fff} (recorded but not counted in final results)");
+        AddTagEvent($"Post-race crossing: {tagID}");
       }
 
       // If in manual start mode and race hasn't started yet, ignore tags
@@ -897,20 +903,51 @@ public partial class Form1 : Form
 
   private void AddMessage(string message)
   {
+    // Redirect to race events by default
+    AddRaceEvent(message);
+  }
+
+  private void AddTagEvent(string message)
+  {
     if (InvokeRequired)
     {
-      Invoke(new Action<string>(AddMessage), message);
+      Invoke(new Action<string>(AddTagEvent), message);
       return;
     }
 
-    string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
-    listBoxMessages.Items.Add($"[{timestamp}] {message}");
+    var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+    var formattedMessage = $"[{timestamp}] {message}";
+
+    listBoxTagEvents.Items.Add(formattedMessage);
 
     // Auto-scroll to bottom
-    listBoxMessages.TopIndex = Math.Max(0, listBoxMessages.Items.Count - 1);
+    listBoxTagEvents.TopIndex = listBoxTagEvents.Items.Count - 1;
 
-    // Limit number of items to prevent memory issues
-    if (listBoxMessages.Items.Count > 1000)
+    // Limit items to prevent memory issues
+    while (listBoxTagEvents.Items.Count > 10000)
+    {
+      listBoxTagEvents.Items.RemoveAt(0);
+    }
+  }
+
+  private void AddRaceEvent(string message)
+  {
+    if (InvokeRequired)
+    {
+      Invoke(new Action<string>(AddRaceEvent), message);
+      return;
+    }
+
+    var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+    var formattedMessage = $"[{timestamp}] {message}";
+
+    listBoxMessages.Items.Add(formattedMessage);
+
+    // Auto-scroll to bottom
+    listBoxMessages.TopIndex = listBoxMessages.Items.Count - 1;
+
+    // Limit items to prevent memory issues
+    while (listBoxMessages.Items.Count > 10000)
     {
       listBoxMessages.Items.RemoveAt(0);
     }
@@ -1025,7 +1062,7 @@ public partial class Form1 : Form
     }
 
     // Only update if we're on the Riders tab to improve performance
-    if (tabControl.SelectedIndex != 1) // Riders tab is index 1
+    if (tabControl.SelectedIndex != 2) // Riders tab is index 2
       return;
 
     lock (ridersLock)
@@ -1195,7 +1232,7 @@ public partial class Form1 : Form
       }
 
       // Show next expected crossing (only if on Race Statistics tab)
-      if (tabControl.SelectedIndex == 2) // Race Statistics tab
+      if (tabControl.SelectedIndex == 3) // Race Statistics tab
       {
         ShowNextExpectedCrossing();
 
@@ -1366,7 +1403,7 @@ public partial class Form1 : Form
       ridersDisplayNeedsUpdate = false;
       UpdateRidersDisplay();
     }
-    else if (tabControl.SelectedIndex == 1) // If on Riders tab, update predictions
+    else if (tabControl.SelectedIndex == 2) // If on Riders tab, update predictions
     {
       // Update only the time-sensitive columns to keep predictions current
       UpdateRiderPredictions();
@@ -1376,13 +1413,13 @@ public partial class Form1 : Form
     if (lapChartNeedsUpdate)
     {
       lapChartNeedsUpdate = false;
-      if (tabControl.SelectedIndex == 3) // Only update if on Lap Chart tab
+      if (tabControl.SelectedIndex == 4) // Only update if on Lap Chart tab
       {
         panelLapChart.Invalidate();
         lastProgressLineUpdate = DateTime.Now;
       }
     }
-    else if (tabControl.SelectedIndex == 3) // If on Lap Chart tab, update progress line every 5 seconds
+    else if (tabControl.SelectedIndex == 4) // If on Lap Chart tab, update progress line every 5 seconds
     {
       var timeSinceLastUpdate = DateTime.Now - lastProgressLineUpdate;
       if (timeSinceLastUpdate.TotalSeconds >= 5)
@@ -1402,7 +1439,7 @@ public partial class Form1 : Form
     }
 
     // Only update if we're on the Riders tab and have data
-    if (tabControl.SelectedIndex != 1 || dataGridViewRiders.Rows.Count == 0)
+    if (tabControl.SelectedIndex != 2 || dataGridViewRiders.Rows.Count == 0)
       return;
 
     lock (ridersLock)
