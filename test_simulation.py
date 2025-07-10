@@ -68,10 +68,12 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=5):
     # Make some riders get faster over time (simulate stronger finishers)
     rider_improvement_rates = {}
     for i, rider in enumerate(riders):
-        if i < 3:  # First 3 riders get stronger over time
-            rider_improvement_rates[rider] = random.uniform(-0.3, -0.1)  # Negative = getting faster
+        if i < 2:  # First 2 riders get stronger over time (potential overtakers)
+            rider_improvement_rates[rider] = random.uniform(-0.5, -0.2)  # Getting significantly faster
+        elif i < 4:  # Next 2 riders are steady strong performers
+            rider_improvement_rates[rider] = random.uniform(-0.2, 0.1)   # Slightly improving to steady
         else:
-            rider_improvement_rates[rider] = random.uniform(-0.1, 0.2)   # Mix of improvement and fatigue
+            rider_improvement_rates[rider] = random.uniform(0.0, 0.3)    # Getting slower (fatigue)
     
     rider_last_crossing = {}
     
@@ -151,7 +153,7 @@ def main():
         time.sleep(2)
         
         # Simulate a race to test leader changes during additional laps
-        simulate_race(sock, num_riders=20, race_duration_minutes=5)
+        simulate_race(sock, num_riders=8, race_duration_minutes=5)
         
     except KeyboardInterrupt:
         print("\nTest interrupted by user")

@@ -586,7 +586,7 @@ public partial class Form1 : Form
       }
 
       // Check if race time has expired and we need to wait for leader
-      if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !waitingForLeaderFinish)
+      if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !waitingForLeaderFinish && !raceFinished)
       {
         // Find current leader
         var currentLeader = riders.Values
@@ -1223,11 +1223,16 @@ public partial class Form1 : Form
               oneMinuteWarningShown = true;
             }
           }
-          else
+          else if (!raceFinished) // Only show this message if race isn't already finished
           {
             labelTimeRemaining.Text = "Time Remaining: Race Finished";
             labelTimeRemaining.ForeColor = Color.Red;
             AddMessage("🏁 RACE FINISHED!");
+          }
+          else
+          {
+            labelTimeRemaining.Text = "Time Remaining: Race Finished";
+            labelTimeRemaining.ForeColor = Color.Red;
           }
         }
         else
@@ -1673,7 +1678,36 @@ public partial class Form1 : Form
         futureBrush.Dispose();
       }
 
-      progressPen.Dispose();
+      // Draw race end time line (when original race duration expires)
+      var raceEndX = margin + labelWidth + (int)(chartWidth * (raceDuration.TotalMilliseconds / extendedDurationMs));
+      if (raceEndX != progressX) // Only draw if different from current progress
+      {
+        var raceEndPen = new Pen(Color.Orange, 3) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+        g.DrawLine(raceEndPen, raceEndX, chartTop - 25, raceEndX, chartTop + chartHeight);
+
+        // Add race end time indicator
+        var raceEndTimeFont = new Font("Arial", 9, FontStyle.Bold);
+        var raceEndTimeText = $"TIME: {raceDuration:mm\\:ss}";
+        var raceEndTextSize = g.MeasureString(raceEndTimeText, raceEndTimeFont);
+        var raceEndTextX = raceEndX - raceEndTextSize.Width / 2;
+        var raceEndTextY = chartTop - 45;
+
+        // Offset if too close to current time indicator
+        if (Math.Abs(raceEndTextX - timeTextX) < raceEndTextSize.Width)
+        {
+          raceEndTextY = chartTop - 25;
+        }
+
+        // Draw background for race end time text
+        var raceEndTextRect = new Rectangle((int)raceEndTextX - 3, (int)raceEndTextY - 2,
+          (int)raceEndTextSize.Width + 6, (int)raceEndTextSize.Height + 4);
+        g.FillRectangle(Brushes.Orange, raceEndTextRect);
+        g.DrawRectangle(Pens.Black, raceEndTextRect);
+        g.DrawString(raceEndTimeText, raceEndTimeFont, Brushes.Black, raceEndTextX, raceEndTextY);
+
+        raceEndPen.Dispose();
+        raceEndTimeFont.Dispose();
+      }
 
       // Draw each rider's bar
       for (int i = 0; i < sortedRiders.Count; i++)
@@ -1736,13 +1770,32 @@ public partial class Form1 : Form
     g.FillRectangle(Brushes.White, bounds);
     g.DrawRectangle(Pens.Black, bounds);
 
-    // Draw scale marks every 5 minutes
-    var intervalMs = 5 * 60 * 1000; // 5 minutes
-    var intervals = (int)(raceDurationMs / intervalMs) + 1;
+    // Choose appropriate interval based on total duration
+    var totalMinutes = raceDurationMs / 60000.0;
+    double majorIntervalMs;
+    double minorIntervalMs;
 
-    for (int i = 0; i <= intervals; i++)
+    if (totalMinutes <= 5)
     {
-      var timeMs = (double)(i * intervalMs);
+      majorIntervalMs = 1 * 60 * 1000; // 1 minute major, 30 second minor
+      minorIntervalMs = 30 * 1000;
+    }
+    else if (totalMinutes <= 15)
+    {
+      majorIntervalMs = 2 * 60 * 1000; // 2 minute major, 1 minute minor
+      minorIntervalMs = 1 * 60 * 1000;
+    }
+    else
+    {
+      majorIntervalMs = 5 * 60 * 1000; // 5 minute major, 1 minute minor
+      minorIntervalMs = 1 * 60 * 1000;
+    }
+
+    // Draw major tick marks
+    var majorIntervals = (int)(raceDurationMs / majorIntervalMs) + 1;
+    for (int i = 0; i <= majorIntervals; i++)
+    {
+      var timeMs = (double)(i * majorIntervalMs);
       if (timeMs > raceDurationMs) timeMs = raceDurationMs;
 
       var x = bounds.X + (int)(bounds.Width * (timeMs / raceDurationMs));
@@ -1752,7 +1805,7 @@ public partial class Form1 : Form
       g.DrawLine(pen, x, bounds.Y, x, bounds.Y + bounds.Height);
 
       // Draw time labels with better visibility
-      var timeText = $"{minutes:F0}m";
+      var timeText = minutes < 10 ? $"{minutes:F1}m" : $"{minutes:F0}m";
       var textSize = g.MeasureString(timeText, font);
       var textX = x - textSize.Width / 2;
       var textY = bounds.Y + 2;
@@ -1762,17 +1815,15 @@ public partial class Form1 : Form
       g.DrawString(timeText, font, Brushes.Black, textX, textY);
     }
 
-    // Draw minor tick marks (every minute)
-    var minorIntervalMs = 1 * 60 * 1000; // 1 minute
+    // Draw minor tick marks
     var minorIntervals = (int)(raceDurationMs / minorIntervalMs) + 1;
-
     for (int i = 0; i <= minorIntervals; i++)
     {
       var timeMs = (double)(i * minorIntervalMs);
       if (timeMs > raceDurationMs) timeMs = raceDurationMs;
 
       // Skip if this is a major tick mark
-      if (timeMs % (5 * 60 * 1000) == 0) continue;
+      if (timeMs % majorIntervalMs == 0) continue;
 
       var x = bounds.X + (int)(bounds.Width * (timeMs / raceDurationMs));
       g.DrawLine(lightPen, x, bounds.Y + bounds.Height - 5, x, bounds.Y + bounds.Height);
@@ -1889,21 +1940,21 @@ public partial class Form1 : Form
       var predictedLapMs = rider.PredictedLapTime.Value.TotalMilliseconds;
       var lapNumber = rider.TotalLaps + 1;
       var currentPredictedTime = lastLapEndTime;
+      var originalRaceDurationMs = raceDuration.TotalMilliseconds;
 
       while (currentPredictedTime < raceStartTime!.Value.AddMilliseconds(raceDurationMs))
       {
         var lapStartMs = (currentPredictedTime - raceStartTime.Value).TotalMilliseconds;
         var lapEndMs = lapStartMs + predictedLapMs;
 
-        // Clamp to race duration
-        var clampedEndMs = Math.Min(lapEndMs, raceDurationMs);
-        var clampedDurationMs = clampedEndMs - lapStartMs;
-
-        if (clampedDurationMs <= 0)
-          break;
+        // Don't clamp to race duration anymore - let it extend to the full chart duration
+        if (lapEndMs > raceDurationMs)
+        {
+          // This lap extends beyond the original race duration
+        }
 
         var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / raceDurationMs));
-        var lapWidth = (int)(bounds.Width * (clampedDurationMs / raceDurationMs));
+        var lapWidth = (int)(bounds.Width * (predictedLapMs / raceDurationMs));
 
         var lapRect = new Rectangle(
           lapStartX,
@@ -1914,10 +1965,23 @@ public partial class Form1 : Form
 
         if (lapRect.Width > 0 && lapRect.X < bounds.Right && lapRect.Right > bounds.X)
         {
-          // Use a faded color for predicted laps
+          // Use different styling for laps before and after original race time
           var baseColor = lapColors[(lapNumber - 1) % lapColors.Length];
-          var predictedColor = Color.FromArgb(128, baseColor.R, baseColor.G, baseColor.B);
-          var brush = new SolidBrush(predictedColor);
+          var isAfterRaceTime = lapStartMs > originalRaceDurationMs;
+
+          Color lapColor;
+          if (isAfterRaceTime)
+          {
+            // Laps after race time - use more transparent color
+            lapColor = Color.FromArgb(80, baseColor.R, baseColor.G, baseColor.B);
+          }
+          else
+          {
+            // Laps during race time - normal transparency
+            lapColor = Color.FromArgb(128, baseColor.R, baseColor.G, baseColor.B);
+          }
+
+          var brush = new SolidBrush(lapColor);
           g.FillRectangle(brush, lapRect);
 
           // Dashed border for predicted laps
@@ -2207,7 +2271,6 @@ public partial class Form1 : Form
     ridersDisplayNeedsUpdate = true;
     lapChartNeedsUpdate = true;
   }
-
   private double CalculateExtendedChartDuration(double baseDurationMs)
   {
     lock (ridersLock)
@@ -2215,35 +2278,74 @@ public partial class Form1 : Form
       if (riders.Count == 0 || !raceStartTime.HasValue)
         return baseDurationMs;
 
-      // Find the slowest rider and estimate when they might finish
-      var slowestFinishTimeMs = baseDurationMs;
+      var maxFinishTimeMs = baseDurationMs;
 
-      foreach (var rider in riders.Values)
+      // Find current leader to estimate when additional laps phase begins
+      var currentLeader = riders.Values
+        .OrderByDescending(r => r.TotalLaps)
+        .ThenBy(r => r.TotalTime)
+        .FirstOrDefault();
+
+      if (currentLeader == null)
+        return baseDurationMs * 1.5; // Fallback for early race
+
+      // Estimate when the leader will complete additional laps after time expiry
+      double leaderFinishTimeMs = baseDurationMs;
+      if (currentLeader.PredictedLapTime.HasValue)
       {
-        if (rider.EstimatedNextCrossing.HasValue)
+        var leaderLapTimeMs = currentLeader.PredictedLapTime.Value.TotalMilliseconds;
+
+        // Estimate leader's remaining laps during the timed portion
+        var leaderTimeRemaining = baseDurationMs - (currentLeader.LastCrossing - raceStartTime.Value).TotalMilliseconds;
+        if (leaderTimeRemaining > 0)
         {
-          var estimatedFinishMs = (rider.EstimatedNextCrossing.Value - raceStartTime.Value).TotalMilliseconds;
-
-          // If rider has a predicted lap time, estimate additional laps they might complete
-          if (rider.PredictedLapTime.HasValue)
-          {
-            var predictedLapMs = rider.PredictedLapTime.Value.TotalMilliseconds;
-            var timeRemainingMs = baseDurationMs - (rider.LastCrossing - raceStartTime.Value).TotalMilliseconds;
-
-            if (timeRemainingMs > 0)
-            {
-              var additionalLaps = Math.Ceiling(timeRemainingMs / predictedLapMs);
-              estimatedFinishMs += additionalLaps * predictedLapMs;
-            }
-          }
-
-          slowestFinishTimeMs = Math.Max(slowestFinishTimeMs, estimatedFinishMs);
+          var leaderLapsRemainingInTime = Math.Floor(leaderTimeRemaining / leaderLapTimeMs);
+          // After time expires, leader needs to complete additional laps
+          var leaderAdditionalLapTime = additionalLapsAfterTimeExpiry * leaderLapTimeMs;
+          leaderFinishTimeMs = baseDurationMs + leaderAdditionalLapTime;
         }
       }
 
-      // Add 20% buffer to the extended duration, but cap it at 150% of base duration
-      var extendedDuration = slowestFinishTimeMs * 1.2;
-      return Math.Min(extendedDuration, baseDurationMs * 1.5);
+      maxFinishTimeMs = Math.Max(maxFinishTimeMs, leaderFinishTimeMs);
+
+      // Now calculate when the slowest rider might finish
+      foreach (var rider in riders.Values)
+      {
+        if (rider.PredictedLapTime.HasValue)
+        {
+          var riderLapTimeMs = rider.PredictedLapTime.Value.TotalMilliseconds;
+          var riderElapsedTimeMs = (rider.LastCrossing - raceStartTime.Value).TotalMilliseconds;
+
+          // Estimate how many laps this rider will complete during the timed portion
+          var riderTimeRemaining = baseDurationMs - riderElapsedTimeMs;
+          if (riderTimeRemaining > 0)
+          {
+            var riderLapsInTime = Math.Floor(riderTimeRemaining / riderLapTimeMs);
+            var riderTotalLapsAtTimeExpiry = rider.TotalLaps + (int)riderLapsInTime;
+
+            // If rider is behind the leader when time expires, they can still finish
+            // Estimate time for rider to complete their remaining laps
+            var gapBehindLeader = Math.Max(0, currentLeader.TotalLaps - riderTotalLapsAtTimeExpiry);
+            var riderCatchUpTime = gapBehindLeader * riderLapTimeMs;
+            var riderAdditionalLapTime = additionalLapsAfterTimeExpiry * riderLapTimeMs;
+
+            var riderFinishTimeMs = baseDurationMs + riderCatchUpTime + riderAdditionalLapTime;
+            maxFinishTimeMs = Math.Max(maxFinishTimeMs, riderFinishTimeMs);
+          }
+          else
+          {
+            // Rider is already behind, estimate based on their current pace
+            var riderFinishTimeMs = riderElapsedTimeMs + (additionalLapsAfterTimeExpiry * riderLapTimeMs);
+            maxFinishTimeMs = Math.Max(maxFinishTimeMs, riderFinishTimeMs);
+          }
+        }
+      }
+
+      // Add a reasonable buffer (20%) but don't let it get too crazy
+      var extendedDuration = maxFinishTimeMs * 1.2;
+
+      // Cap at a reasonable maximum (3x base duration)
+      return Math.Min(extendedDuration, baseDurationMs * 3.0);
     }
   }
 
