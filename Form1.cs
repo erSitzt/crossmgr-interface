@@ -144,11 +144,17 @@ public partial class Form1 : Form
 
   private void TabControl_SelectedIndexChanged(object? sender, EventArgs e)
   {
-    // If switching to Riders tab and we need an update, do it now
-    if (tabControl.SelectedIndex == 2 && ridersDisplayNeedsUpdate)
+    // If switching to Riders tab, always update if we have rider data (to fix empty table issue)
+    if (tabControl.SelectedIndex == 2)
     {
-      ridersDisplayNeedsUpdate = false;
-      UpdateRidersDisplay();
+      lock (ridersLock)
+      {
+        if (riders.Count > 0 && (ridersDisplayNeedsUpdate || dataGridViewRiders.Rows.Count == 0))
+        {
+          ridersDisplayNeedsUpdate = false;
+          UpdateRidersDisplay();
+        }
+      }
     }
     // If switching to Lap Chart tab and we need an update, do it now
     else if (tabControl.SelectedIndex == 4 && lapChartNeedsUpdate)
@@ -1203,7 +1209,13 @@ public partial class Form1 : Form
           // Next crossing prediction
           var nextCrossingStr = "N/A";
           var timeToNextStr = "N/A";
-          if (rider.EstimatedNextCrossing.HasValue && raceStartTime.HasValue)
+
+          if (raceFinished)
+          {
+            nextCrossingStr = "Race Finished";
+            timeToNextStr = "Race Finished";
+          }
+          else if (rider.EstimatedNextCrossing.HasValue && raceStartTime.HasValue)
           {
             var nextTime = rider.EstimatedNextCrossing.Value;
 
@@ -1473,9 +1485,13 @@ public partial class Form1 : Form
 
   private void timerUpdate_Tick(object? sender, EventArgs e)
   {
+    // Don't update anything if race is completely finished
+    if (raceFinished)
+      return;
+
     UpdateStatisticsDisplay();
 
-    // Update riders display if needed (but not more than once per second to avoid freezing)
+    // Update riders display if needed - always update immediately to avoid empty table
     if (ridersDisplayNeedsUpdate)
     {
       ridersDisplayNeedsUpdate = false;
@@ -1515,6 +1531,10 @@ public partial class Form1 : Form
       Invoke(new Action(UpdateRiderPredictions));
       return;
     }
+
+    // Don't update predictions if race is completely finished
+    if (raceFinished)
+      return;
 
     // Only update if we're on the Riders tab and have data
     if (tabControl.SelectedIndex != 2 || dataGridViewRiders.Rows.Count == 0)
