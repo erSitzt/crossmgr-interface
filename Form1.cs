@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
+using System.IO;
 
 namespace CrossMgrInterface;
 
@@ -21,6 +22,7 @@ public class RiderInfo
   public DateTime FirstCrossing { get; set; }
   public DateTime LastCrossing { get; set; }
   public DateTime? RaceStartTime { get; set; } // Store race start time for this rider
+  public int FinalAllowedLap { get; set; } = int.MaxValue; // Maximum lap number allowed for this rider after race finish
   public int TotalLaps => Laps.Count;
   public TimeSpan? BestLapTime => Laps.Where(l => l.LapTime.HasValue).Min(l => l.LapTime);
   public TimeSpan? LastLapTime => Laps.LastOrDefault()?.LapTime;
@@ -89,9 +91,13 @@ public partial class Form1 : Form
   private bool manualStartMode = false;
   private bool raceStarted = false;
   private bool raceFinished = false;
+  private bool raceTimeExpired = false; // Track when race time has expired but ongoing lap not yet completed
   private bool waitingForLeaderFinish = false;
+  private bool waitingForFinalLaps = false; // Track when leader finished but other riders completing their current lap
+  private DateTime? finalLapsStartTime = null; // Track when final laps phase started
   private string? leaderAtTimeExpiry = null;
   private int leaderLapsAtTimeExpiry = 0; // Track leader's lap count when time expired
+  private int targetLapsToFinishRace = 0; // Absolute target lap count to finish race (set when ongoing lap completes)
 
   // Race duration settings
   private TimeSpan raceDuration = TimeSpan.FromMinutes(20); // Default 20 minutes
@@ -104,6 +110,10 @@ public partial class Form1 : Form
   private string tagFilterPrefix = "";
   private bool tagFilterEnabled = false;
   private int filteredTagCount = 0;
+
+  // Logging
+  private string logFilePath = "";
+  private readonly object logLock = new object();
 
   // Lap chart visualization
   private bool lapChartNeedsUpdate = false;
@@ -179,6 +189,9 @@ public partial class Form1 : Form
     radioButtonStartOnFirstTag.CheckedChanged += RaceStartMode_CheckedChanged;
     radioButtonStartManual.CheckedChanged += RaceStartMode_CheckedChanged;
     UpdateRaceStartControls();
+
+    // Initialize logging
+    InitializeLogging();
   }
 
   private void buttonStart_Click(object? sender, EventArgs e)
@@ -211,6 +224,9 @@ public partial class Form1 : Form
   private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
   {
     StopTcpListener();
+
+    // Write final log entry
+    WriteToLogFile("SYSTEM", $"=== CrossMgr Interface Log Ended at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
   }
 
   private void StartTcpListener(int port)
@@ -571,6 +587,23 @@ public partial class Form1 : Form
       {
         AddRaceEvent($"🏁 Post-race crossing: {tagID} at {crossingTime:HH:mm:ss.fff} (recorded but not counted in final results)");
         AddTagEvent($"Post-race crossing: {tagID}");
+        // Create a dummy lap that won't be processed
+        return new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+      }
+
+      // Check if we're in final laps phase and this rider has exceeded their allowed laps
+      if (waitingForFinalLaps && riders.ContainsKey(tagID))
+      {
+        var existingRider = riders[tagID];
+        var nextLapNumber = existingRider.TotalLaps + 1;
+
+        if (nextLapNumber > existingRider.FinalAllowedLap)
+        {
+          AddRaceEvent($"🚫 Tag read ignored: {tagID} has already completed their final allowed lap (lap {existingRider.FinalAllowedLap})");
+          AddTagEvent($"Final lap exceeded: {tagID}");
+          // Create a dummy lap that won't be processed
+          return new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+        }
       }
 
       // If in manual start mode and race hasn't started yet, ignore tags
@@ -592,7 +625,7 @@ public partial class Form1 : Form
       }
 
       // Check if race time has expired and we need to wait for leader
-      if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !waitingForLeaderFinish && !raceFinished)
+      if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !raceTimeExpired && !waitingForLeaderFinish && !raceFinished)
       {
         // Find current leader
         var currentLeader = riders.Values
@@ -604,9 +637,10 @@ public partial class Form1 : Form
         {
           leaderAtTimeExpiry = currentLeader.TagID;
           leaderLapsAtTimeExpiry = currentLeader.TotalLaps;
-          waitingForLeaderFinish = true;
+          raceTimeExpired = true;
           var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
-          AddMessage($"⏰ Race time expired! Waiting for leader {leaderAtTimeExpiry} to complete {additionalLapsAfterTimeExpiry} more {lapsText} to finish the race.");
+          AddMessage($"⏰ Race time expired! Leader {leaderAtTimeExpiry} currently has {leaderLapsAtTimeExpiry} laps completed.");
+          AddMessage($"� Race will finish after leader completes any ongoing lap plus {additionalLapsAfterTimeExpiry} additional {lapsText}.");
         }
       }
 
@@ -658,6 +692,32 @@ public partial class Form1 : Form
         rider.Laps.Add(newLap);
         rider.LastCrossing = crossingTime;
 
+        // Handle transition from time expired to additional laps phase
+        if (raceTimeExpired && !waitingForLeaderFinish)
+        {
+          // Check if this crossing is from the leader at time expiry or any leader
+          var currentLeader = riders.Values
+            .OrderByDescending(r => r.TotalLaps)
+            .ThenBy(r => r.TotalTime)
+            .FirstOrDefault();
+
+          if (currentLeader != null)
+          {
+            // Time has expired and we just got a lap completion - now set the final target
+            // The target is: current completed laps + additional laps
+            targetLapsToFinishRace = currentLeader.TotalLaps + additionalLapsAfterTimeExpiry;
+            waitingForLeaderFinish = true;
+            raceTimeExpired = false; // No longer in transition state
+
+            var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+            AddMessage($"🏁 Ongoing lap completed! Race will finish when any rider reaches {targetLapsToFinishRace} laps ({currentLeader.TotalLaps} + {additionalLapsAfterTimeExpiry} additional {lapsText}).");
+
+            // Update leader tracking to current state
+            leaderAtTimeExpiry = currentLeader.TagID;
+            leaderLapsAtTimeExpiry = currentLeader.TotalLaps - additionalLapsAfterTimeExpiry; // Base laps before additional phase
+          }
+        }
+
         // Check if race should finish during additional laps phase
         if (waitingForLeaderFinish)
         {
@@ -674,21 +734,27 @@ public partial class Form1 : Form
             {
               AddMessage($"🔄 LEADER CHANGE! New leader: {currentLeader.TagID} (was {leaderAtTimeExpiry})");
 
-              // Update leader tracking - new leader must complete additional laps from their current position
+              // Update leader tracking but keep the same target lap count
               var previousLeader = leaderAtTimeExpiry;
               leaderAtTimeExpiry = currentLeader.TagID;
-              leaderLapsAtTimeExpiry = currentLeader.TotalLaps; // Current lap count becomes the new baseline
+              // Note: We do NOT reset leaderLapsAtTimeExpiry or targetLapsToFinishRace
+              // The race still finishes when any rider reaches the original target
 
-              var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
-              AddMessage($"🏁 New leader {leaderAtTimeExpiry} must complete {additionalLapsAfterTimeExpiry} more {lapsText} to finish the race.");
+              AddMessage($"🏁 Race will finish when any rider (currently leader: {leaderAtTimeExpiry}) reaches {targetLapsToFinishRace} laps.");
             }
 
-            // Check if current leader has completed the required additional laps
-            if (currentLeader.TagID == tagID && rider.TotalLaps >= leaderLapsAtTimeExpiry + additionalLapsAfterTimeExpiry)
+            // Check if current leader (or any rider) has completed the required total laps
+            if (currentLeader.TagID == tagID && rider.TotalLaps >= targetLapsToFinishRace)
             {
               FinishRace();
             }
           }
+        }
+
+        // Check if we're in final laps phase and all riders have completed their final laps
+        if (waitingForFinalLaps)
+        {
+          CheckIfAllFinalLapsCompleted();
         }
 
         // Mark that riders display needs update (don't update immediately to avoid freezing)
@@ -764,9 +830,13 @@ public partial class Form1 : Form
       raceEndTime = null;
       raceStarted = false;
       raceFinished = false;
+      raceTimeExpired = false;
       waitingForLeaderFinish = false;
+      waitingForFinalLaps = false;
+      finalLapsStartTime = null;
       leaderAtTimeExpiry = null;
       leaderLapsAtTimeExpiry = 0;
+      targetLapsToFinishRace = 0;
       lastTagID = "None";
       lastTagTime = DateTime.MinValue;
       ridersDisplayNeedsUpdate = true;
@@ -918,7 +988,11 @@ public partial class Form1 : Form
     var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
     var formattedMessage = $"[{timestamp}] {message}";
 
+    // Add to UI
     listBoxTagEvents.Items.Add(formattedMessage);
+
+    // Write to log file
+    WriteToLogFile("TAG", message);
 
     // Auto-scroll to bottom
     listBoxTagEvents.TopIndex = listBoxTagEvents.Items.Count - 1;
@@ -941,7 +1015,11 @@ public partial class Form1 : Form
     var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
     var formattedMessage = $"[{timestamp}] {message}";
 
+    // Add to UI
     listBoxMessages.Items.Add(formattedMessage);
+
+    // Write to log file
+    WriteToLogFile("RACE", message);
 
     // Auto-scroll to bottom
     listBoxMessages.TopIndex = listBoxMessages.Items.Count - 1;
@@ -1979,7 +2057,10 @@ public partial class Form1 : Form
       var currentPredictedTime = lastLapEndTime;
       var originalRaceDurationMs = raceDuration.TotalMilliseconds;
 
-      while (currentPredictedTime < raceStartTime!.Value.AddMilliseconds(raceDurationMs))
+      // Calculate maximum laps to display based on race completion rules
+      int maxLapsToShow = CalculateMaxLapsForRaceCompletion(rider);
+
+      while (currentPredictedTime < raceStartTime!.Value.AddMilliseconds(raceDurationMs) && lapNumber <= maxLapsToShow)
       {
         var lapStartMs = (currentPredictedTime - raceStartTime.Value).TotalMilliseconds;
         var lapEndMs = lapStartMs + predictedLapMs;
@@ -2043,9 +2124,6 @@ public partial class Form1 : Form
 
         currentPredictedTime = currentPredictedTime.AddMilliseconds(predictedLapMs);
         lapNumber++;
-
-        // Safety check to prevent infinite loop
-        if (lapNumber > 1000) break;
       }
     }
 
@@ -2221,6 +2299,21 @@ public partial class Form1 : Form
       labelRaceStatus.Text = "Race: FINISHED";
       labelRaceStatus.ForeColor = Color.Blue;
     }
+    else if (waitingForFinalLaps)
+    {
+      // Count how many riders are still eligible to complete their final lap
+      var ridersStillActive = riders.Values.Count(r => r.TotalLaps < r.FinalAllowedLap &&
+                                                       (r.PredictedLapTime.HasValue ||
+                                                        (DateTime.Now - r.LastCrossing).TotalMinutes < 2));
+
+      labelRaceStatus.Text = $"Race: LEADER FINISHED - {ridersStillActive} riders completing final lap";
+      labelRaceStatus.ForeColor = Color.DarkBlue;
+    }
+    else if (raceTimeExpired)
+    {
+      labelRaceStatus.Text = $"Race: TIME EXPIRED - Waiting for ongoing lap to complete";
+      labelRaceStatus.ForeColor = Color.Orange;
+    }
     else if (waitingForLeaderFinish)
     {
       // Calculate remaining laps for current leader
@@ -2229,11 +2322,11 @@ public partial class Form1 : Form
         .ThenBy(r => r.TotalTime)
         .FirstOrDefault();
 
-      if (currentLeader != null && currentLeader.TagID == leaderAtTimeExpiry)
+      if (currentLeader != null)
       {
-        var remainingLaps = (leaderLapsAtTimeExpiry + additionalLapsAfterTimeExpiry) - currentLeader.TotalLaps;
+        var remainingLaps = targetLapsToFinishRace - currentLeader.TotalLaps;
         var lapsText = remainingLaps == 1 ? "lap" : "laps";
-        labelRaceStatus.Text = $"Race: Leader {leaderAtTimeExpiry} - {remainingLaps} {lapsText} to go";
+        labelRaceStatus.Text = $"Race: Leader {currentLeader.TagID} - {remainingLaps} {lapsText} to go (target: {targetLapsToFinishRace})";
       }
       else
       {
@@ -2290,16 +2383,29 @@ public partial class Form1 : Form
 
   private void FinishRace()
   {
-    raceFinished = true;
+    // Don't immediately finish - allow other riders to complete their current lap
     waitingForLeaderFinish = false;
+    waitingForFinalLaps = true;
+    finalLapsStartTime = DateTime.Now; // Track when final laps phase started
 
     // Calculate actual race finish time
     var actualRaceFinishTime = DateTime.Now;
     var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
 
-    AddMessage($"🏁 RACE FINISHED! Leader {leaderAtTimeExpiry} completed the final lap.");
-    AddMessage($"🏁 Actual race duration: {actualRaceDuration:mm\\:ss}");
-    AddMessage($"🏁 Race results are final. Additional crossings will still be recorded for reference.");
+    AddMessage($"🏁 LEADER FINISHED! {leaderAtTimeExpiry} completed the final lap in {actualRaceDuration:mm\\:ss}.");
+    AddMessage($"🏁 All other riders must complete only their current lap, then no more laps will be counted.");
+
+    // Store the current lap numbers for all riders at race finish
+    lock (ridersLock)
+    {
+      foreach (var rider in riders.Values)
+      {
+        // Each rider is allowed to complete exactly one more lap (their current lap)
+        // regardless of how many laps behind they are
+        rider.FinalAllowedLap = rider.TotalLaps + 1;
+        AddMessage($"📋 Rider {rider.TagID}: Currently has {rider.TotalLaps} laps, allowed to complete lap {rider.FinalAllowedLap}");
+      }
+    }
 
     // Update race status
     UpdateRaceStartControls();
@@ -2308,88 +2414,108 @@ public partial class Form1 : Form
     ridersDisplayNeedsUpdate = true;
     lapChartNeedsUpdate = true;
   }
-  private double CalculateExtendedChartDuration(double baseDurationMs)
+
+  private void CheckIfAllFinalLapsCompleted()
   {
-    lock (ridersLock)
+    // Check if all riders have either completed their final allowed lap or have timed out
+    bool allRidersFinished = true;
+    var timeoutMinutes = 5; // Give riders 5 minutes to complete their final lap after leader finishes
+
+    foreach (var rider in riders.Values)
     {
-      if (riders.Count == 0 || !raceStartTime.HasValue)
-        return baseDurationMs;
-
-      var maxFinishTimeMs = baseDurationMs;
-
-      // Find current leader to estimate when additional laps phase begins
-      var currentLeader = riders.Values
-        .OrderByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
-        .FirstOrDefault();
-
-      if (currentLeader == null)
-        return baseDurationMs * 1.5; // Fallback for early race
-
-      // Estimate when the leader will complete additional laps after time expiry
-      double leaderFinishTimeMs = baseDurationMs;
-      if (currentLeader.PredictedLapTime.HasValue)
+      // If rider hasn't reached their final allowed lap yet
+      if (rider.TotalLaps < rider.FinalAllowedLap)
       {
-        var leaderLapTimeMs = currentLeader.PredictedLapTime.Value.TotalMilliseconds;
+        // Check if too much time has passed since leader finished (timeout)
+        var timeSinceLeaderFinished = finalLapsStartTime.HasValue ?
+          DateTime.Now - finalLapsStartTime.Value : TimeSpan.Zero;
 
-        // Estimate leader's remaining laps during the timed portion
-        var leaderTimeRemaining = baseDurationMs - (currentLeader.LastCrossing - raceStartTime.Value).TotalMilliseconds;
-        if (leaderTimeRemaining > 0)
+        // If less than timeout period since leader finished, rider might still finish their lap
+        if (timeSinceLeaderFinished.TotalMinutes < timeoutMinutes)
         {
-          var leaderLapsRemainingInTime = Math.Floor(leaderTimeRemaining / leaderLapTimeMs);
-          // After time expires, leader needs to complete additional laps
-          var leaderAdditionalLapTime = additionalLapsAfterTimeExpiry * leaderLapTimeMs;
-          leaderFinishTimeMs = baseDurationMs + leaderAdditionalLapTime;
+          allRidersFinished = false;
+          break;
+        }
+        else
+        {
+          // Rider has timed out - they won't complete their final lap
+          AddMessage($"⏰ Rider {rider.TagID} timed out ({timeSinceLeaderFinished.TotalMinutes:F1} min since leader finished) - final lap not completed");
         }
       }
+    }
 
-      maxFinishTimeMs = Math.Max(maxFinishTimeMs, leaderFinishTimeMs);
-
-      // Now calculate when the slowest rider might finish
-      foreach (var rider in riders.Values)
-      {
-        if (rider.PredictedLapTime.HasValue)
-        {
-          var riderLapTimeMs = rider.PredictedLapTime.Value.TotalMilliseconds;
-          var riderElapsedTimeMs = (rider.LastCrossing - raceStartTime.Value).TotalMilliseconds;
-
-          // Estimate how many laps this rider will complete during the timed portion
-          var riderTimeRemaining = baseDurationMs - riderElapsedTimeMs;
-          if (riderTimeRemaining > 0)
-          {
-            var riderLapsInTime = Math.Floor(riderTimeRemaining / riderLapTimeMs);
-            var riderTotalLapsAtTimeExpiry = rider.TotalLaps + (int)riderLapsInTime;
-
-            // If rider is behind the leader when time expires, they can still finish
-            // Estimate time for rider to complete their remaining laps
-            var gapBehindLeader = Math.Max(0, currentLeader.TotalLaps - riderTotalLapsAtTimeExpiry);
-            var riderCatchUpTime = gapBehindLeader * riderLapTimeMs;
-            var riderAdditionalLapTime = additionalLapsAfterTimeExpiry * riderLapTimeMs;
-
-            var riderFinishTimeMs = baseDurationMs + riderCatchUpTime + riderAdditionalLapTime;
-            maxFinishTimeMs = Math.Max(maxFinishTimeMs, riderFinishTimeMs);
-          }
-          else
-          {
-            // Rider is already behind, estimate based on their current pace
-            var riderFinishTimeMs = riderElapsedTimeMs + (additionalLapsAfterTimeExpiry * riderLapTimeMs);
-            maxFinishTimeMs = Math.Max(maxFinishTimeMs, riderFinishTimeMs);
-          }
-        }
-      }
-
-      // Add a reasonable buffer (20%) but don't let it get too crazy
-      var extendedDuration = maxFinishTimeMs * 1.2;
-
-      // Cap at a reasonable maximum (3x base duration)
-      return Math.Min(extendedDuration, baseDurationMs * 3.0);
+    if (allRidersFinished)
+    {
+      CompletelyFinishRace();
     }
   }
 
-  private void buttonSetAdditionalLaps_Click(object? sender, EventArgs e)
+  private void CompletelyFinishRace()
   {
-    additionalLapsAfterTimeExpiry = (int)numericUpDownAdditionalLaps.Value;
-    var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
-    AddMessage($"⚙️ Additional laps after time expiry set to {additionalLapsAfterTimeExpiry} {lapsText}.");
+    raceFinished = true;
+    waitingForFinalLaps = false;
+    finalLapsStartTime = null; // Reset final laps tracking
+
+    var actualRaceFinishTime = DateTime.Now;
+    var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
+
+    AddMessage($"🏁 RACE COMPLETELY FINISHED! All riders have completed their final laps.");
+    AddMessage($"🏁 Final race duration: {actualRaceDuration:mm\\:ss}");
+    AddMessage($"🏁 Race results are now final. Additional tag reads will be ignored.");
+
+    // Update race status
+    UpdateRaceStartControls();
+
+    // Force final update of displays
+    ridersDisplayNeedsUpdate = true;
+    lapChartNeedsUpdate = true;
+  }
+
+  private void InitializeLogging()
+  {
+    try
+    {
+      // Create logs directory if it doesn't exist
+      var logsDir = Path.Combine(Application.StartupPath, "logs");
+      Directory.CreateDirectory(logsDir);
+
+      // Create log file with timestamp
+      var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+      logFilePath = Path.Combine(logsDir, $"CrossMgrInterface_{timestamp}.log");
+
+      // Write initial log header
+      var header = $"=== CrossMgr Interface Log Started at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===";
+      WriteToLogFile("SYSTEM", header);
+
+      AddMessage($"📝 Logging initialized: {logFilePath}");
+    }
+    catch (Exception ex)
+    {
+      // Don't crash if logging fails, just show a message
+      MessageBox.Show($"Warning: Could not initialize logging: {ex.Message}",
+        "Logging Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+  }
+
+  private void WriteToLogFile(string category, string message)
+  {
+    if (string.IsNullOrEmpty(logFilePath))
+      return;
+
+    try
+    {
+      lock (logLock)
+      {
+        var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        var logEntry = $"[{timestamp}] [{category}] {message}{Environment.NewLine}";
+
+        File.AppendAllText(logFilePath, logEntry, Encoding.UTF8);
+      }
+    }
+    catch (Exception)
+    {
+      // Silently ignore logging errors to prevent infinite loops
+      // and avoid disrupting the main application
+    }
   }
 }
