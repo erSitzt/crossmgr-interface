@@ -625,7 +625,7 @@ public partial class Form1 : Form
       }
 
       // Check if race time has expired and we need to wait for leader
-      if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !raceTimeExpired && !waitingForLeaderFinish && !raceFinished)
+      if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !raceTimeExpired && !waitingForLeaderFinish && !raceFinished && !waitingForFinalLaps)
       {
         // Find current leader
         var currentLeader = riders.Values
@@ -693,7 +693,7 @@ public partial class Form1 : Form
         rider.LastCrossing = crossingTime;
 
         // Handle transition from time expired to additional laps phase
-        if (raceTimeExpired && !waitingForLeaderFinish)
+        if (raceTimeExpired && !waitingForLeaderFinish && !waitingForFinalLaps && !raceFinished)
         {
           // Check if this crossing is from the leader at time expiry or any leader
           var currentLeader = riders.Values
@@ -2400,10 +2400,18 @@ public partial class Form1 : Form
     {
       foreach (var rider in riders.Values)
       {
-        // Each rider is allowed to complete exactly one more lap (their current lap)
-        // regardless of how many laps behind they are
-        rider.FinalAllowedLap = rider.TotalLaps + 1;
-        AddMessage($"📋 Rider {rider.TagID}: Currently has {rider.TotalLaps} laps, allowed to complete lap {rider.FinalAllowedLap}");
+        if (rider.TagID == leaderAtTimeExpiry)
+        {
+          // The leader who just finished is NOT allowed to complete another lap
+          rider.FinalAllowedLap = rider.TotalLaps;
+          AddMessage($"📋 Rider {rider.TagID}: Currently has {rider.TotalLaps} laps, RACE FINISHED - no more laps allowed");
+        }
+        else
+        {
+          // All other riders are allowed to complete exactly one more lap (their current lap)
+          rider.FinalAllowedLap = rider.TotalLaps + 1;
+          AddMessage($"📋 Rider {rider.TagID}: Currently has {rider.TotalLaps} laps, allowed to complete lap {rider.FinalAllowedLap}");
+        }
       }
     }
 
@@ -2516,6 +2524,59 @@ public partial class Form1 : Form
     {
       // Silently ignore logging errors to prevent infinite loops
       // and avoid disrupting the main application
+    }
+  }
+
+  /// <summary>
+  /// Calculates the extended duration for the chart to show rider predictions beyond the race end time
+  /// </summary>
+  private double CalculateExtendedChartDuration(double raceDurationMs)
+  {
+    // Extend the chart duration beyond race time to show predicted finishes
+    // Add approximately 25% more time or at least 5 minutes, whichever is greater
+    var extensionMs = Math.Max(raceDurationMs * 0.25, 5 * 60 * 1000); // 25% or 5 minutes minimum
+    return raceDurationMs + extensionMs;
+  }
+
+  /// <summary>
+  /// Calculates the maximum number of laps a rider should complete for race completion display
+  /// </summary>
+  private int CalculateMaxLapsForRaceCompletion(RiderInfo rider)
+  {
+    // If race has finished and this rider has a final allowed lap, use that
+    if (rider.FinalAllowedLap != int.MaxValue)
+    {
+      return rider.FinalAllowedLap;
+    }
+
+    // If race is still ongoing or no specific limit set, allow reasonable prediction
+    // Limit to current laps + a reasonable number of additional laps (e.g., 10)
+    return rider.TotalLaps + 10;
+  }
+
+  /// <summary>
+  /// Event handler for the Set Additional Laps button
+  /// </summary>
+  private void buttonSetAdditionalLaps_Click(object sender, EventArgs e)
+  {
+    additionalLapsAfterTimeExpiry = (int)numericUpDownAdditionalLaps.Value;
+    AddMessage($"⚙️ Additional laps after time expiry set to: {additionalLapsAfterTimeExpiry}");
+
+    // If race has already finished in time mode, update the target
+    if (raceTimeExpired && targetLapsToFinishRace > 0)
+    {
+      // Recalculate target laps based on new setting
+      var currentLeader = riders.Values
+        .OrderByDescending(r => r.TotalLaps)
+        .ThenBy(r => r.TotalTime)
+        .FirstOrDefault();
+
+      if (currentLeader != null && leaderLapsAtTimeExpiry > 0)
+      {
+        targetLapsToFinishRace = leaderLapsAtTimeExpiry + additionalLapsAfterTimeExpiry;
+        var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+        AddMessage($"🏁 Updated race finish target to {targetLapsToFinishRace} laps (base {leaderLapsAtTimeExpiry} + {additionalLapsAfterTimeExpiry} additional {lapsText})");
+      }
     }
   }
 }
