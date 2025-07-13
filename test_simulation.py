@@ -153,7 +153,7 @@ def main():
         time.sleep(2)
         
         # Simulate a race to test leader changes during additional laps
-        simulate_race(sock, num_riders=8, race_duration_minutes=5)
+        simulate_race(sock, num_riders=24, race_duration_minutes=12)
         
     except KeyboardInterrupt:
         print("\nTest interrupted by user")
