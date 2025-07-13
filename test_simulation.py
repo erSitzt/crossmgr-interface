@@ -43,80 +43,157 @@ def send_identification(sock):
     print(f"Received from server: {response.strip()}")
     print("Handshake complete!")
 
-def simulate_race(sock, num_riders=15, race_duration_minutes=5):
+def simulate_race(sock, num_riders=15, race_duration_minutes=8):
     """Simulate a race with multiple riders"""
     print(f"\nStarting race simulation with {num_riders} riders for {race_duration_minutes} minutes")
     
-    # Generate rider tags - mix of expected and unexpected tags for filter testing
+    # Generate rider tags - only use main riders, no extra tags for cleaner testing
     riders = []
     for i in range(1, num_riders + 1):
-        if i <= 3:
-            riders.append(f"RIDER{i:03d}")  # Expected tags that should pass filter
-        else:
-            riders.append(f"BIKE{i:03d}")   # Different prefix for filter testing
-    
-    # Add some random tags that should be filtered
-    riders.extend(["RFID12345", "TAG999", "UNKNOWN01"])
+        riders.append(f"RIDER{i:03d}")
     
     print(f"Test riders: {riders}")
-    print("Expected tags (RIDER*): RIDER001, RIDER002, RIDER003")
-    print("Other tags (should be filtered if prefix 'RIDER' is set): BIKE004, BIKE005, RFID12345, TAG999, UNKNOWN01")
     
-    # Set random base lap times between 30-40 seconds for each rider
-    rider_base_lap_times = {rider: random.uniform(30, 40) for rider in riders}
-    
-    # Make some riders get faster over time (simulate stronger finishers)
-    rider_improvement_rates = {}
+    # Set more realistic lap times with smaller differences to reduce excessive lapping
+    # For 8-minute race, aim for 35-40 second lap times so leaders get ~12-14 laps
+    rider_base_lap_times = {}
     for i, rider in enumerate(riders):
-        if i < 2:  # First 2 riders get stronger over time (potential overtakers)
-            rider_improvement_rates[rider] = random.uniform(-0.5, -0.2)  # Getting significantly faster
-        elif i < 4:  # Next 2 riders are steady strong performers
-            rider_improvement_rates[rider] = random.uniform(-0.2, 0.1)   # Slightly improving to steady
+        if i < 2:
+            # Top 2 riders - very fast (35-37 seconds) - these will lap others late in race
+            rider_base_lap_times[rider] = random.uniform(35, 37)
+        elif i < 5:
+            # Next 3 riders - competitive (37-39 seconds) - might lap slowest riders
+            rider_base_lap_times[rider] = random.uniform(37, 39)
+        elif i < 10:
+            # Middle pack (39-41 seconds) - safe from lapping
+            rider_base_lap_times[rider] = random.uniform(39, 41)
         else:
-            rider_improvement_rates[rider] = random.uniform(0.0, 0.3)    # Getting slower (fatigue)
+            # Back markers (41-43 seconds) - will get lapped in final quarter
+            rider_base_lap_times[rider] = random.uniform(41, 43)
+    
+    # Make riders have different performance patterns - smaller changes to avoid excessive lapping
+    rider_improvement_rates = {}
+    rider_consistency = {}  # How much variation each rider has per lap
+    
+    for i, rider in enumerate(riders):
+        if i == 0:  # First rider - consistent fast performer
+            rider_improvement_rates[rider] = random.uniform(-0.1, 0.1)   # Very steady
+            rider_consistency[rider] = random.uniform(1, 2)              # Very consistent
+        elif i == 1:  # Second rider - slightly improving over race
+            rider_improvement_rates[rider] = random.uniform(-0.2, 0.0)   # Getting slightly faster
+            rider_consistency[rider] = random.uniform(1, 2)              # Very consistent
+        elif i < 5:   # Next riders - small variations
+            rider_improvement_rates[rider] = random.uniform(-0.1, 0.2)   # Small changes
+            rider_consistency[rider] = random.uniform(1, 3)              # Good consistency
+        elif i < 10:  # Middle pack - moderate variation
+            rider_improvement_rates[rider] = random.uniform(-0.1, 0.3)   
+            rider_consistency[rider] = random.uniform(2, 4)              # Moderate consistency
+        else:         # Back markers - gradually slower (will get lapped late)
+            rider_improvement_rates[rider] = random.uniform(0.1, 0.3)    # Getting slower
+            rider_consistency[rider] = random.uniform(2, 5)              # Less consistent
     
     rider_last_crossing = {}
+    rider_lap_details = {}  # Track position history for each rider
     
     race_start = time.time()
     race_end = race_start + (race_duration_minutes * 60)
     
     lap_number = {rider: 0 for rider in riders}
     
-    print(f"\nRider base lap times:")
-    for rider in riders:
+    print(f"\nRider profiles (8-minute race, lapping expected in final 2 minutes):")
+    for i, rider in enumerate(riders):
         improvement = rider_improvement_rates.get(rider, 0)
-        improvement_str = "improving" if improvement < 0 else "tiring" if improvement > 0 else "steady"
-        print(f"  {rider}: {rider_base_lap_times[rider]:.1f}s base ({improvement_str})")
+        consistency = rider_consistency.get(rider, 3)
+        profile = ""
+        if i == 0:
+            profile = "race leader (consistent)"
+        elif i == 1:
+            profile = "strong contender"
+        elif i < 5:
+            profile = "front pack"
+        elif i < 10:
+            profile = "middle pack (safe)"
+        else:
+            profile = "back markers (risk lapping)"
+        
+        print(f"  {rider}: {rider_base_lap_times[rider]:.1f}s base, {profile}")
+    
+    print(f"\nExpected race dynamics:")
+    print(f"  - Leaders will complete ~13-14 laps in 8 minutes")
+    print(f"  - Back markers will complete ~11-12 laps")
+    print(f"  - Lapping should occur around minute 6-7 (75% race distance)")
+    print(f"  - Only top 2-3 riders should lap the slowest 3-5 riders")
     
     while time.time() < race_end:
         # Determine which rider should cross next
         current_time = time.time()
         
         for rider in riders:
-            # Calculate when this rider should cross next
+            # Calculate when this rider should cross next with more realistic variation
             base_lap_time = rider_base_lap_times[rider]
-            # Add variation of 1-5 seconds per lap
-            lap_time = base_lap_time + random.uniform(1, 5)
+            consistency_factor = rider_consistency.get(rider, 3)
+            
+            # Add variation based on rider's consistency (good riders are more consistent)
+            lap_time_variation = random.uniform(-consistency_factor, consistency_factor)
+            lap_time = base_lap_time + lap_time_variation
+            
+            # Ensure minimum lap time (no unrealistic fast laps)
+            lap_time = max(lap_time, base_lap_time * 0.8)
             
             if rider not in rider_last_crossing:
-                # First crossing for this rider
-                if current_time - race_start > random.uniform(0, 30):  # Staggered start
+                # First crossing for this rider - smaller staggered start to keep field together
+                skill_index = list(riders).index(rider)
+                start_delay = random.uniform(0, 5 + skill_index * 1)  # Smaller start delays
+                
+                if current_time - race_start > start_delay:
                     rider_last_crossing[rider] = current_time
                     lap_number[rider] += 1
+                    
+                    # Calculate position for this lap
+                    current_laps = [(r, lap_number.get(r, 0)) for r in riders]
+                    current_laps.sort(key=lambda x: x[1], reverse=True)
+                    position = next(i for i, (r, _) in enumerate(current_laps, 1) if r == rider)
+                    
+                    # Store lap details
+                    if rider not in rider_lap_details:
+                        rider_lap_details[rider] = []
+                    rider_lap_details[rider].append({
+                        'lap': lap_number[rider],
+                        'position': position,
+                        'race_time': current_time - race_start
+                    })
+                    
                     send_tag_read(sock, rider, lap_number[rider])
-                    print(f"  {rider} completed lap {lap_number[rider]}")
+                    print(f"  P{position} {rider} completed lap {lap_number[rider]} (race start)")
             else:
                 # Check if it's time for next lap
                 time_since_last = current_time - rider_last_crossing[rider]
                 if time_since_last >= lap_time:
                     rider_last_crossing[rider] = current_time
                     lap_number[rider] += 1
-                    send_tag_read(sock, rider, lap_number[rider])
-                    print(f"  {rider} completed lap {lap_number[rider]} (lap time: {time_since_last:.1f}s)")
                     
-                    # Slightly adjust base lap time for next lap (simulation of fatigue/improvement)
+                    # Calculate position for this lap
+                    current_laps = [(r, lap_number.get(r, 0)) for r in riders]
+                    current_laps.sort(key=lambda x: x[1], reverse=True)
+                    position = next(i for i, (r, _) in enumerate(current_laps, 1) if r == rider)
+                    
+                    # Store lap details
+                    if rider not in rider_lap_details:
+                        rider_lap_details[rider] = []
+                    rider_lap_details[rider].append({
+                        'lap': lap_number[rider],
+                        'position': position,
+                        'race_time': current_time - race_start,
+                        'lap_time': time_since_last
+                    })
+                    
+                    send_tag_read(sock, rider, lap_number[rider])
+                    
+                    print(f"  P{position} {rider} completed lap {lap_number[rider]} (lap time: {time_since_last:.1f}s)")
+                    
+                    # Smaller adjustment to base lap time (more realistic race progression)
                     improvement_rate = rider_improvement_rates.get(rider, 0)
-                    rider_base_lap_times[rider] += random.uniform(-1, 2) + improvement_rate
+                    rider_base_lap_times[rider] += random.uniform(-0.2, 0.3) + improvement_rate
         
         # Wait a bit before checking again
         time.sleep(1)
@@ -125,6 +202,19 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=5):
     print("Final lap counts:")
     for rider in riders:
         print(f"  {rider}: {lap_number[rider]} laps")
+    
+    print(f"\nDetailed lap history with positions:")
+    for rider in riders:
+        if rider in rider_lap_details:
+            print(f"\n{rider}:")
+            for lap_info in rider_lap_details[rider]:
+                lap_time_str = ""
+                if 'lap_time' in lap_info:
+                    lap_time_str = f" (lap time: {lap_info['lap_time']:.1f}s)"
+                race_time_str = f"{lap_info['race_time']:.1f}s"
+                print(f"  Lap {lap_info['lap']}: P{lap_info['position']} at {race_time_str}{lap_time_str}")
+        else:
+            print(f"\n{rider}: No laps completed")
 
 def send_tag_read(sock, tag_id, lap_count):
     """Send a DA tag read message"""
@@ -152,8 +242,8 @@ def main():
         # Wait a moment
         time.sleep(2)
         
-        # Simulate a race to test leader changes during additional laps
-        simulate_race(sock, num_riders=24, race_duration_minutes=12)
+        # Simulate a race to test realistic lapping in final quarter
+        simulate_race(sock, num_riders=15, race_duration_minutes=8)
         
     except KeyboardInterrupt:
         print("\nTest interrupted by user")
