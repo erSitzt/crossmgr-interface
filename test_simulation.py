@@ -95,6 +95,16 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
     rider_last_crossing = {}
     rider_lap_details = {}  # Track position history for each rider
     
+    # Select 1-2 riders to DNF at random points in the race
+    num_dnf_riders = random.randint(1, 2)
+    dnf_riders = random.sample(riders[5:], num_dnf_riders)  # Don't DNF the top 5 riders to keep race competitive
+    dnf_lap_numbers = {}
+    dnf_completed = set()
+    
+    for rider in dnf_riders:
+        # DNF between lap 3 and 8 (so they get some laps in but DNF before race end)
+        dnf_lap_numbers[rider] = random.randint(3, 8)
+    
     race_start = time.time()
     race_end = race_start + (race_duration_minutes * 60)
     
@@ -124,11 +134,20 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
     print(f"  - Lapping should occur around minute 6-7 (75% race distance)")
     print(f"  - Only top 2-3 riders should lap the slowest 3-5 riders")
     
+    print(f"\nDNF simulation:")
+    for rider in dnf_riders:
+        print(f"  - {rider} will DNF after completing lap {dnf_lap_numbers[rider]}")
+    print(f"  - {num_dnf_riders} rider(s) selected for DNF testing")
+    
     while time.time() < race_end:
         # Determine which rider should cross next
         current_time = time.time()
         
         for rider in riders:
+            # Skip riders who have already DNF'd
+            if rider in dnf_completed:
+                continue
+                
             # Calculate when this rider should cross next with more realistic variation
             base_lap_time = rider_base_lap_times[rider]
             consistency_factor = rider_consistency.get(rider, 3)
@@ -165,6 +184,11 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
                     
                     send_tag_read(sock, rider, lap_number[rider])
                     print(f"  P{position} {rider} completed lap {lap_number[rider]} (race start)")
+                    
+                    # Check if this rider should DNF after this lap
+                    if rider in dnf_riders and lap_number[rider] >= dnf_lap_numbers[rider]:
+                        dnf_completed.add(rider)
+                        print(f"  >>> {rider} DNF after lap {lap_number[rider]} <<<")
             else:
                 # Check if it's time for next lap
                 time_since_last = current_time - rider_last_crossing[rider]
@@ -191,6 +215,12 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
                     
                     print(f"  P{position} {rider} completed lap {lap_number[rider]} (lap time: {time_since_last:.1f}s)")
                     
+                    # Check if this rider should DNF after this lap
+                    if rider in dnf_riders and lap_number[rider] >= dnf_lap_numbers[rider]:
+                        dnf_completed.add(rider)
+                        print(f"  >>> {rider} DNF after lap {lap_number[rider]} <<<")
+                        continue  # Skip further processing for this rider
+                    
                     # Smaller adjustment to base lap time (more realistic race progression)
                     improvement_rate = rider_improvement_rates.get(rider, 0)
                     rider_base_lap_times[rider] += random.uniform(-0.2, 0.3) + improvement_rate
@@ -201,12 +231,19 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
     print(f"\nRace simulation completed!")
     print("Final lap counts:")
     for rider in riders:
-        print(f"  {rider}: {lap_number[rider]} laps")
+        dnf_status = " (DNF)" if rider in dnf_completed else ""
+        print(f"  {rider}: {lap_number[rider]} laps{dnf_status}")
+    
+    if dnf_completed:
+        print(f"\nDNF Summary:")
+        for rider in dnf_completed:
+            print(f"  - {rider} DNF after {lap_number[rider]} laps (planned DNF at lap {dnf_lap_numbers[rider]})")
     
     print(f"\nDetailed lap history with positions:")
     for rider in riders:
+        dnf_marker = " (DNF)" if rider in dnf_completed else ""
         if rider in rider_lap_details:
-            print(f"\n{rider}:")
+            print(f"\n{rider}{dnf_marker}:")
             for lap_info in rider_lap_details[rider]:
                 lap_time_str = ""
                 if 'lap_time' in lap_info:
@@ -214,7 +251,7 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
                 race_time_str = f"{lap_info['race_time']:.1f}s"
                 print(f"  Lap {lap_info['lap']}: P{lap_info['position']} at {race_time_str}{lap_time_str}")
         else:
-            print(f"\n{rider}: No laps completed")
+            print(f"\n{rider}{dnf_marker}: No laps completed")
 
 def send_tag_read(sock, tag_id, lap_count):
     """Send a DA tag read message"""
@@ -243,7 +280,7 @@ def main():
         time.sleep(2)
         
         # Simulate a race to test realistic lapping in final quarter
-        simulate_race(sock, num_riders=15, race_duration_minutes=8)
+        simulate_race(sock, num_riders=50, race_duration_minutes=8)
         
     except KeyboardInterrupt:
         print("\nTest interrupted by user")

@@ -23,6 +23,8 @@ public class RiderInfo
   public DateTime LastCrossing { get; set; }
   public DateTime? RaceStartTime { get; set; } // Store race start time for this rider
   public int FinalAllowedLap { get; set; } = int.MaxValue; // Maximum lap number allowed for this rider after race finish
+  public bool IsDNF { get; set; } = false; // Did Not Finish - marked when rider times out after race ends
+  public DateTime? DNFTime { get; set; } // When the rider was marked as DNF
   public int TotalLaps => Laps.Count;
   public TimeSpan? BestLapTime => Laps.Where(l => l.LapTime.HasValue).Min(l => l.LapTime);
   public TimeSpan? LastLapTime => Laps.LastOrDefault()?.LapTime;
@@ -79,6 +81,9 @@ public partial class Form1 : Form
   private readonly List<TcpClient> connectedClients = new();
   private readonly object clientsLock = new object();
 
+  // Database service
+  private readonly RaceDataService _raceDb;
+
   // Rider tracking
   private readonly Dictionary<string, RiderInfo> riders = new();
   private readonly object ridersLock = new object();
@@ -87,6 +92,7 @@ public partial class Form1 : Form
   private DateTime? raceStartTime = null;
   private string lastTagID = "None";
   private DateTime lastTagTime = DateTime.MinValue;
+  private int? currentRaceId = null;
   private bool ridersDisplayNeedsUpdate = false;
   private bool manualStartMode = false;
   private bool raceStarted = false;
@@ -105,6 +111,7 @@ public partial class Form1 : Form
   private bool fiveMinuteWarningShown = false;
   private bool oneMinuteWarningShown = false;
   private int additionalLapsAfterTimeExpiry = 1; // Configurable number of laps after time expires
+  private int dnfTimeoutMinutes = 2; // Configurable DNF timeout in minutes
 
   // Tag filtering
   private string tagFilterPrefix = "";
@@ -115,10 +122,9 @@ public partial class Form1 : Form
   private string logFilePath = "";
   private readonly object logLock = new object();
 
-  // Position tracking for race events
+  // Position tracking for race events (now backed by database)
   private Dictionary<string, int> lastKnownPositions = new();
   private Dictionary<string, int> lastKnownLapCounts = new();
-  private Dictionary<string, Dictionary<string, int>> lastLapDifferences = new(); // rider1 -> rider2 -> lap difference
   private DateTime lastPositionCheck = DateTime.MinValue;
 
   // Lap chart visualization
@@ -141,6 +147,10 @@ public partial class Form1 : Form
   public Form1()
   {
     InitializeComponent();
+
+    // Initialize database service
+    _raceDb = new RaceDataService("races.db");
+
     this.Load += Form1_Load;
     InitializeRidersDataGrid();
 
@@ -186,6 +196,7 @@ public partial class Form1 : Form
     checkBoxFilterEnabled.Checked = false;
     tagFilterEnabled = false;
     AddMessage("🔍 Tag filter: Disabled (all tags will be processed)");
+    AddMessage($"⚙️ DNF timeout: {dnfTimeoutMinutes} minutes after leader finishes");
 
     // Enable double buffering for the lap chart panel to reduce flickering
     typeof(Panel).InvokeMember("DoubleBuffered",
@@ -603,6 +614,15 @@ public partial class Form1 : Form
         return new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
 
+      // Check if this rider is already marked as DNF
+      if (riders.ContainsKey(tagID) && riders[tagID].IsDNF)
+      {
+        AddRaceEvent($"🚫 Tag read ignored: {tagID} is marked as DNF (Did Not Finish) - crossing at {crossingTime:HH:mm:ss.fff}");
+        AddTagEvent($"DNF rider crossing ignored: {tagID}");
+        // Create a dummy lap that won't be processed
+        return new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+      }
+
       // Check if we're in final laps phase and this rider has exceeded their allowed laps
       if (waitingForFinalLaps && riders.ContainsKey(tagID))
       {
@@ -639,8 +659,9 @@ public partial class Form1 : Form
       // Check if race time has expired and we need to wait for leader
       if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !raceTimeExpired && !waitingForLeaderFinish && !raceFinished && !waitingForFinalLaps)
       {
-        // Find current leader
+        // Find current leader (exclude DNF riders)
         var currentLeader = riders.Values
+          .Where(r => !r.IsDNF)
           .OrderByDescending(r => r.TotalLaps)
           .ThenBy(r => r.TotalTime)
           .FirstOrDefault();
@@ -707,59 +728,59 @@ public partial class Form1 : Form
         // Handle transition from time expired to additional laps phase
         if (raceTimeExpired && !waitingForLeaderFinish && !waitingForFinalLaps && !raceFinished)
         {
-          // Check if this crossing is from the leader at time expiry or any leader
+          // AMA Motocross regulations: Check if this rider is now the leader (could have changed during ongoing lap)
+          // Find current leader after this crossing (exclude DNF riders)
           var currentLeader = riders.Values
+            .Where(r => !r.IsDNF)
             .OrderByDescending(r => r.TotalLaps)
             .ThenBy(r => r.TotalTime)
             .FirstOrDefault();
 
-          if (currentLeader != null)
+          if (currentLeader != null && tagID == currentLeader.TagID)
           {
-            // Time has expired and we just got a lap completion - now set the final target
-            // The target is: current completed laps + additional laps
-            targetLapsToFinishRace = currentLeader.TotalLaps + additionalLapsAfterTimeExpiry;
+            // This rider is now the leader - they get the sign regardless of who was leading when time expired
+            // Calculate target: current leader's current lap (in progress when time expired) + additional laps
+            var leaderCurrentLapWhenTimeExpired = leaderLapsAtTimeExpiry + 1;
+            targetLapsToFinishRace = leaderCurrentLapWhenTimeExpired + additionalLapsAfterTimeExpiry;
             waitingForLeaderFinish = true;
             raceTimeExpired = false; // No longer in transition state
 
-            var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
-            AddMessage($"🏁 Ongoing lap completed! Race will finish when any rider reaches {targetLapsToFinishRace} laps ({currentLeader.TotalLaps} + {additionalLapsAfterTimeExpiry} additional {lapsText}).");
+            // Update the leader we're waiting for (in case leadership changed)
+            var originalLeader = leaderAtTimeExpiry;
+            leaderAtTimeExpiry = tagID;
 
-            // Update leader tracking to current state
-            leaderAtTimeExpiry = currentLeader.TagID;
-            leaderLapsAtTimeExpiry = currentLeader.TotalLaps - additionalLapsAfterTimeExpiry; // Base laps before additional phase
+            var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+            if (tagID == originalLeader)
+            {
+              AddMessage($"🏁 LEADER {tagID} crossed after time expiry! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when leader completes {targetLapsToFinishRace} total laps.");
+            }
+            else
+            {
+              AddMessage($"🏁 NEW LEADER {tagID} crossed after time expiry (was {originalLeader})! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when new leader completes {targetLapsToFinishRace} total laps.");
+            }
+          }
+          else
+          {
+            // This rider is not the current leader - wait for the leader to cross
+            var currentLeaderTag = currentLeader?.TagID ?? "Unknown";
+            AddMessage($"⏰ {tagID} crossed after time expiry, but waiting for current LEADER {currentLeaderTag} to cross and receive additional laps sign...");
           }
         }
 
         // Check if race should finish during additional laps phase
         if (waitingForLeaderFinish)
         {
-          // Find current leader after this lap
-          var currentLeader = riders.Values
-            .OrderByDescending(r => r.TotalLaps)
-            .ThenBy(r => r.TotalTime)
-            .FirstOrDefault();
-
-          if (currentLeader != null)
+          // AMA Motocross regulations: Race finishes when the LEADER completes the required total laps
+          if (tagID == leaderAtTimeExpiry && rider.TotalLaps >= targetLapsToFinishRace)
           {
-            // Check if leadership has changed
-            if (currentLeader.TagID != leaderAtTimeExpiry)
-            {
-              AddMessage($"🔄 LEADER CHANGE! New leader: {currentLeader.TagID} (was {leaderAtTimeExpiry})");
-
-              // Update leader tracking but keep the same target lap count
-              var previousLeader = leaderAtTimeExpiry;
-              leaderAtTimeExpiry = currentLeader.TagID;
-              // Note: We do NOT reset leaderLapsAtTimeExpiry or targetLapsToFinishRace
-              // The race still finishes when any rider reaches the original target
-
-              AddMessage($"🏁 Race will finish when any rider (currently leader: {leaderAtTimeExpiry}) reaches {targetLapsToFinishRace} laps.");
-            }
-
-            // Check if current leader (or any rider) has completed the required total laps
-            if (currentLeader.TagID == tagID && rider.TotalLaps >= targetLapsToFinishRace)
-            {
-              FinishRace();
-            }
+            // The leader has completed their additional laps - race is finished
+            // Now transition to final laps mode where all other riders complete their current lap
+            FinishRace();
+          }
+          else if (rider.TotalLaps >= targetLapsToFinishRace)
+          {
+            // Some other rider reached the target, but we're waiting for the leader specifically
+            AddMessage($"🏁 {tagID} completed {targetLapsToFinishRace} laps, but race will finish when LEADER {leaderAtTimeExpiry} reaches this target.");
           }
         }
 
@@ -809,7 +830,8 @@ public partial class Form1 : Form
       AddMessage("📊 === RIDERS SUMMARY ===");
 
       var sortedRiders = riders.Values
-        .OrderByDescending(r => r.TotalLaps)
+        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
+        .ThenByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .ToList();
 
@@ -828,7 +850,8 @@ public partial class Form1 : Form
           avgLapStr = TimeSpan.FromMilliseconds(avgLapTime).ToString(@"mm\:ss\.fff");
         }
 
-        AddMessage($"📊 #{position}: Tag {rider.TagID} | {rider.TotalLaps} laps | Best: {bestLap} | Avg: {avgLapStr} | Total: {totalTime}");
+        var statusStr = rider.IsDNF ? " (DNF)" : "";
+        AddMessage($"📊 #{position}: Tag {rider.TagID} | {rider.TotalLaps} laps | Best: {bestLap} | Avg: {avgLapStr} | Total: {totalTime}{statusStr}");
         position++;
       }
 
@@ -856,12 +879,18 @@ public partial class Form1 : Form
       lastTagTime = DateTime.MinValue;
       ridersDisplayNeedsUpdate = true;
       lapChartNeedsUpdate = true;
+      currentRaceId = null;
 
       // Reset position tracking
       lastKnownPositions.Clear();
       lastKnownLapCounts.Clear();
-      lastLapDifferences.Clear();
       lastPositionCheck = DateTime.MinValue;
+
+      // Clear race data from database if we have a current race
+      if (_raceDb.CurrentRaceId > 0)
+      {
+        _raceDb.ClearCurrentRaceData();
+      }
 
       // Reset warning flags
       fiveMinuteWarningShown = false;
@@ -874,6 +903,7 @@ public partial class Form1 : Form
       filteredTagCount = 0;
 
       AddMessage("🗑️ All rider data cleared. Race reset.");
+      AddMessage($"⚙️ DNF timeout set to {dnfTimeoutMinutes} minutes after leader finishes.");
     }
   }
 
@@ -1042,6 +1072,12 @@ public partial class Form1 : Form
     // Write to log file
     WriteToLogFile("RACE", message);
 
+    // Store in database
+    if (currentRaceId != null)
+    {
+      _raceDb.AddRaceEvent("SYSTEM", "", message);
+    }
+
     // Auto-scroll to bottom
     listBoxMessages.TopIndex = listBoxMessages.Items.Count - 1;
 
@@ -1177,9 +1213,10 @@ public partial class Form1 : Form
         if (riders.Count == 0)
           return;
 
-        // Sort riders by laps (descending) then by total time (ascending)
+        // Sort riders: Finishing riders first (by laps desc, then time asc), then DNF riders (by laps desc, then time asc)
         var sortedRiders = riders.Values
-          .OrderByDescending(r => r.TotalLaps)
+          .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
+          .ThenByDescending(r => r.TotalLaps)
           .ThenBy(r => r.TotalTime)
           .ToList();
 
@@ -1225,7 +1262,12 @@ public partial class Form1 : Form
           var nextCrossingStr = "N/A";
           var timeToNextStr = "N/A";
 
-          if (raceFinished)
+          if (rider.IsDNF)
+          {
+            nextCrossingStr = "DNF";
+            timeToNextStr = "DNF";
+          }
+          else if (raceFinished)
           {
             nextCrossingStr = "Race Finished";
             timeToNextStr = "Race Finished";
@@ -1253,9 +1295,10 @@ public partial class Form1 : Form
           }
 
           // Add row to grid
+          var displayTagID = rider.IsDNF ? $"{rider.TagID} (DNF)" : rider.TagID;
           dataGridViewRiders.Rows.Add(
             (i + 1).ToString(),  // Position
-            rider.TagID,
+            displayTagID,
             rider.TotalLaps.ToString(),
             rider.LastLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
             rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
@@ -1267,17 +1310,26 @@ public partial class Form1 : Form
             gap
           );
 
-          // Color coding for positions
+          // Color coding for positions and status
           var row = dataGridViewRiders.Rows[dataGridViewRiders.Rows.Count - 1];
-          if (i == 0)
+
+          if (rider.IsDNF)
+          {
+            // DNF riders get a gray background
+            row.DefaultCellStyle.BackColor = Color.LightGray;
+            row.DefaultCellStyle.ForeColor = Color.DarkRed;
+            row.Cells["NextCrossing"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+            row.Cells["TimeToNext"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+          }
+          else if (i == 0)
             row.DefaultCellStyle.BackColor = Color.Gold;  // 1st place
           else if (i == 1)
             row.DefaultCellStyle.BackColor = Color.Silver;  // 2nd place
           else if (i == 2)
             row.DefaultCellStyle.BackColor = Color.FromArgb(205, 127, 50);  // 3rd place (bronze)
 
-          // Highlight overdue riders
-          if (timeToNextStr == "Overdue")
+          // Highlight overdue riders (but not if they're already DNF)
+          if (timeToNextStr == "Overdue" && !rider.IsDNF)
           {
             row.Cells["TimeToNext"].Style.ForeColor = Color.Red;
             row.Cells["TimeToNext"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
@@ -1319,7 +1371,15 @@ public partial class Form1 : Form
       }
 
       // Update rider count
-      labelTotalRiders.Text = $"Total Riders: {riders.Count}";
+      var dnfCount = riders.Values.Count(r => r.IsDNF);
+      if (dnfCount > 0)
+      {
+        labelTotalRiders.Text = $"Total Riders: {riders.Count} ({dnfCount} DNF)";
+      }
+      else
+      {
+        labelTotalRiders.Text = $"Total Riders: {riders.Count}";
+      }
 
       // Update total laps
       var totalLaps = riders.Values.Sum(r => r.TotalLaps);
@@ -1437,8 +1497,9 @@ public partial class Form1 : Form
     if (!raceStartTime.HasValue || !raceEndTime.HasValue)
       return 0;
 
-    // Find the current leader
+    // Find the current leader (exclude DNF riders)
     var leader = riders.Values
+      .Where(r => !r.IsDNF)
       .OrderByDescending(r => r.TotalLaps)
       .ThenBy(r => r.TotalTime)
       .FirstOrDefault();
@@ -1500,10 +1561,6 @@ public partial class Form1 : Form
 
   private void timerUpdate_Tick(object? sender, EventArgs e)
   {
-    // Don't update anything if race is completely finished
-    if (raceFinished)
-      return;
-
     UpdateStatisticsDisplay();
 
     // Update riders display if needed - always update immediately to avoid empty table
@@ -1514,11 +1571,14 @@ public partial class Form1 : Form
     }
     else if (tabControl.SelectedIndex == 2) // If on Riders tab, update predictions
     {
-      // Update only the time-sensitive columns to keep predictions current
-      UpdateRiderPredictions();
+      // Update only the time-sensitive columns to keep predictions current (but not if race is finished)
+      if (!raceFinished)
+      {
+        UpdateRiderPredictions();
+      }
     }
 
-    // Update lap chart if needed (but not more than once per second to avoid freezing)
+    // Update lap chart if needed or every 5 seconds to keep progress line current
     if (lapChartNeedsUpdate)
     {
       lapChartNeedsUpdate = false;
@@ -1528,14 +1588,20 @@ public partial class Form1 : Form
         lastProgressLineUpdate = DateTime.Now;
       }
     }
-    else if (tabControl.SelectedIndex == 4) // If on Lap Chart tab, update progress line every 5 seconds
+    else if (tabControl.SelectedIndex == 4) // If on Lap Chart tab, refresh every 5 seconds
     {
       var timeSinceLastUpdate = DateTime.Now - lastProgressLineUpdate;
       if (timeSinceLastUpdate.TotalSeconds >= 5)
       {
-        panelLapChart.Invalidate();
+        panelLapChart.Invalidate(); // Refresh to update progress line position
         lastProgressLineUpdate = DateTime.Now;
       }
+    }
+
+    // Check for DNF timeouts if we're in final laps phase
+    if (waitingForFinalLaps)
+    {
+      CheckIfAllFinalLapsCompleted();
     }
   }
 
@@ -1560,7 +1626,8 @@ public partial class Form1 : Form
       try
       {
         var sortedRiders = riders.Values
-          .OrderByDescending(r => r.TotalLaps)
+          .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
+          .ThenByDescending(r => r.TotalLaps)
           .ThenBy(r => r.TotalTime)
           .ToList();
 
@@ -1572,7 +1639,18 @@ public partial class Form1 : Form
           // Update next crossing prediction
           var nextCrossingStr = "N/A";
           var timeToNextStr = "N/A";
-          if (rider.EstimatedNextCrossing.HasValue)
+
+          if (rider.IsDNF)
+          {
+            nextCrossingStr = "DNF";
+            timeToNextStr = "DNF";
+          }
+          else if (raceFinished)
+          {
+            nextCrossingStr = "Race Finished";
+            timeToNextStr = "Race Finished";
+          }
+          else if (rider.EstimatedNextCrossing.HasValue)
           {
             var nextTime = rider.EstimatedNextCrossing.Value;
             nextCrossingStr = nextTime.ToString("HH:mm:ss");
@@ -1595,8 +1673,8 @@ public partial class Form1 : Form
           row.Cells["NextCrossing"].Value = nextCrossingStr;
           row.Cells["TimeToNext"].Value = timeToNextStr;
 
-          // Update styling for overdue riders
-          if (timeToNextStr == "Overdue")
+          // Update styling for overdue riders (but not DNF or finished race)
+          if (timeToNextStr == "Overdue" && !rider.IsDNF && !raceFinished)
           {
             row.Cells["TimeToNext"].Style.ForeColor = Color.Red;
             row.Cells["TimeToNext"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
@@ -1621,8 +1699,9 @@ public partial class Form1 : Form
     if (!raceStartTime.HasValue || !raceEndTime.HasValue)
       return "";
 
-    // Find the current leader
+    // Find the current leader (exclude DNF riders)
     var leader = riders.Values
+      .Where(r => !r.IsDNF)
       .OrderByDescending(r => r.TotalLaps)
       .ThenBy(r => r.TotalTime)
       .FirstOrDefault();
@@ -1734,6 +1813,10 @@ public partial class Form1 : Form
     g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighSpeed;
 
+    // Account for scroll position
+    var scrollOffset = panelLapChart.AutoScrollPosition;
+    g.TranslateTransform(scrollOffset.X, scrollOffset.Y);
+
     // Clear previous clickable elements
     lapChartElements.Clear();
 
@@ -1761,9 +1844,10 @@ public partial class Form1 : Form
       var raceElapsedMs = (DateTime.Now - raceStartTime.Value).TotalMilliseconds;
       var raceProgressPercent = Math.Min(raceElapsedMs / extendedDurationMs, 1.0);
 
-      // Sort riders by position (same as leaderboard)
+      // Sort riders by position (same as leaderboard): finishing riders first, then DNF riders
       var sortedRiders = riders.Values
-        .OrderByDescending(r => r.TotalLaps)
+        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
+        .ThenByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .ToList();
 
@@ -1775,12 +1859,10 @@ public partial class Form1 : Form
       var chartWidth = bounds.Width - margin * 2 - labelWidth;
       var chartHeight = sortedRiders.Count * (riderBarHeight + riderSpacing);
 
-      // Ensure panel is tall enough (add extra space for current time indicator)
-      var minPanelHeight = chartHeight + margin * 2 + 50; // Extra 50px for current time indicator
-      if (panelLapChart.Height < minPanelHeight)
-      {
-        panelLapChart.Height = minPanelHeight;
-      }
+      // Set auto-scroll minimum size to enable scrolling when content is larger than panel
+      var minContentHeight = chartHeight + margin * 2 + 50; // Extra 50px for current time indicator
+      var minContentWidth = margin * 2 + labelWidth + chartWidth;
+      panelLapChart.AutoScrollMinSize = new Size(minContentWidth, minContentHeight);
 
       // Draw title
       var titleFont = new Font("Arial", 14, FontStyle.Bold);
@@ -1793,7 +1875,51 @@ public partial class Form1 : Form
       var barFont = new Font("Arial", 10);
 
       // Draw time scale at top
-      DrawTimeScale(g, new Rectangle(margin + labelWidth, chartTop - 25, chartWidth, 20), extendedDurationMs);
+      DrawTimeScale(g, new Rectangle(margin + labelWidth, chartTop - 25, chartWidth, 20), extendedDurationMs, raceDurationMs);
+
+      // Draw each rider's bar
+      for (int i = 0; i < sortedRiders.Count; i++)
+      {
+        var rider = sortedRiders[i];
+        var y = chartTop + i * (riderBarHeight + riderSpacing);
+        var barRect = new Rectangle(margin + labelWidth, y, chartWidth, riderBarHeight);
+
+        DrawRiderLapBar(g, rider, barRect, extendedDurationMs, raceDurationMs, i + 1, lapChartElements);
+
+        // Draw rider label
+        var labelRect = new Rectangle(margin, y, labelWidth - 10, riderBarHeight);
+        var labelText = $"#{i + 1}: {rider.TagID}";
+        var labelBrush = GetPositionBrush(i);
+
+        // Highlight if this rider is selected
+        if (selectedRiderId == rider.TagID)
+        {
+          var highlightRect = new Rectangle(labelRect.X - 3, labelRect.Y - 3,
+            labelRect.Width + 6, labelRect.Height + 6);
+          g.FillRectangle(Brushes.Yellow, highlightRect);
+          g.DrawRectangle(new Pen(Color.Orange, 3), highlightRect);
+        }
+
+        g.FillRectangle(labelBrush, labelRect);
+        g.DrawRectangle(Pens.Black, labelRect);
+
+        // Add rider label as clickable element
+        lapChartElements.Add(new LapChartElement
+        {
+          Bounds = labelRect,
+          RiderId = rider.TagID,
+          IsRider = true
+        });
+
+        var textBrush = i < 3 ? Brushes.Black : Brushes.White;
+        var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+        g.DrawString(labelText, barFont, textBrush, labelRect, sf);
+        sf.Dispose();
+      }
+
+      barFont.Dispose();
+
+      // ===== DRAW LINES ON TOP OF EVERYTHING ELSE =====
 
       // Draw race progress line - thick and prominent
       var progressX = margin + labelWidth + (int)(chartWidth * raceProgressPercent);
@@ -1829,7 +1955,7 @@ public partial class Form1 : Form
       }
 
       // Draw race end time line (when original race duration expires)
-      var raceEndX = margin + labelWidth + (int)(chartWidth * (raceDuration.TotalMilliseconds / extendedDurationMs));
+      var raceEndX = margin + labelWidth + (int)(chartWidth * (raceDurationMs / extendedDurationMs));
       if (raceEndX != progressX) // Only draw if different from current progress
       {
         var raceEndPen = new Pen(Color.Orange, 3) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
@@ -1859,47 +1985,7 @@ public partial class Form1 : Form
         raceEndTimeFont.Dispose();
       }
 
-      // Draw each rider's bar
-      for (int i = 0; i < sortedRiders.Count; i++)
-      {
-        var rider = sortedRiders[i];
-        var y = chartTop + i * (riderBarHeight + riderSpacing);
-        var barRect = new Rectangle(margin + labelWidth, y, chartWidth, riderBarHeight);
-
-        DrawRiderLapBar(g, rider, barRect, extendedDurationMs, i + 1, lapChartElements);
-
-        // Draw rider label
-        var labelRect = new Rectangle(margin, y, labelWidth - 10, riderBarHeight);
-        var labelText = $"#{i + 1}: {rider.TagID}";
-        var labelBrush = GetPositionBrush(i);
-
-        // Highlight if this rider is selected
-        if (selectedRiderId == rider.TagID)
-        {
-          var highlightRect = new Rectangle(labelRect.X - 3, labelRect.Y - 3,
-            labelRect.Width + 6, labelRect.Height + 6);
-          g.FillRectangle(Brushes.Yellow, highlightRect);
-          g.DrawRectangle(new Pen(Color.Orange, 3), highlightRect);
-        }
-
-        g.FillRectangle(labelBrush, labelRect);
-        g.DrawRectangle(Pens.Black, labelRect);
-
-        // Add rider label as clickable element
-        lapChartElements.Add(new LapChartElement
-        {
-          Bounds = labelRect,
-          RiderId = rider.TagID,
-          IsRider = true
-        });
-
-        var textBrush = i < 3 ? Brushes.Black : Brushes.White;
-        var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-        g.DrawString(labelText, barFont, textBrush, labelRect, sf);
-        sf.Dispose();
-      }
-
-      barFont.Dispose();
+      progressPen.Dispose();
 
       // Draw hover tooltip if there's hovered lap info
       if (!string.IsNullOrEmpty(hoveredLapInfo))
@@ -1910,18 +1996,19 @@ public partial class Form1 : Form
     }
   }
 
-  private void DrawTimeScale(Graphics g, Rectangle bounds, double raceDurationMs)
+  private void DrawTimeScale(Graphics g, Rectangle bounds, double extendedDurationMs, double raceDurationMs)
   {
     var font = new Font("Arial", 10, FontStyle.Bold);
     var pen = new Pen(Color.Black, 2);
     var lightPen = new Pen(Color.LightGray, 1);
+    var extendedPen = new Pen(Color.Gray, 1) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
 
     // Draw background for better contrast
     g.FillRectangle(Brushes.White, bounds);
     g.DrawRectangle(Pens.Black, bounds);
 
-    // Choose appropriate interval based on total duration
-    var totalMinutes = raceDurationMs / 60000.0;
+    // Choose appropriate interval based on extended duration
+    var totalMinutes = extendedDurationMs / 60000.0;
     double majorIntervalMs;
     double minorIntervalMs;
 
@@ -1942,17 +2029,22 @@ public partial class Form1 : Form
     }
 
     // Draw major tick marks
-    var majorIntervals = (int)(raceDurationMs / majorIntervalMs) + 1;
+    var majorIntervals = (int)(extendedDurationMs / majorIntervalMs) + 1;
     for (int i = 0; i <= majorIntervals; i++)
     {
       var timeMs = (double)(i * majorIntervalMs);
-      if (timeMs > raceDurationMs) timeMs = raceDurationMs;
+      if (timeMs > extendedDurationMs) timeMs = extendedDurationMs;
 
-      var x = bounds.X + (int)(bounds.Width * (timeMs / raceDurationMs));
+      var x = bounds.X + (int)(bounds.Width * (timeMs / extendedDurationMs));
       var minutes = timeMs / 60000;
 
+      // Use different styling for time marks beyond race duration
+      var isWithinRaceTime = timeMs <= raceDurationMs;
+      var tickPen = isWithinRaceTime ? pen : extendedPen;
+      var textBrush = isWithinRaceTime ? Brushes.Black : Brushes.Gray;
+
       // Draw major tick marks
-      g.DrawLine(pen, x, bounds.Y, x, bounds.Y + bounds.Height);
+      g.DrawLine(tickPen, x, bounds.Y, x, bounds.Y + bounds.Height);
 
       // Draw time labels with better visibility
       var timeText = minutes < 10 ? $"{minutes:F1}m" : $"{minutes:F0}m";
@@ -1961,30 +2053,35 @@ public partial class Form1 : Form
       var textY = bounds.Y + 2;
 
       // Draw white background for text
-      g.FillRectangle(Brushes.White, textX - 2, textY, textSize.Width + 4, textSize.Height);
-      g.DrawString(timeText, font, Brushes.Black, textX, textY);
+      var bgBrush = isWithinRaceTime ? Brushes.White : Brushes.LightGray;
+      g.FillRectangle(bgBrush, textX - 2, textY, textSize.Width + 4, textSize.Height);
+      g.DrawString(timeText, font, textBrush, textX, textY);
     }
 
     // Draw minor tick marks
-    var minorIntervals = (int)(raceDurationMs / minorIntervalMs) + 1;
+    var minorIntervals = (int)(extendedDurationMs / minorIntervalMs) + 1;
     for (int i = 0; i <= minorIntervals; i++)
     {
       var timeMs = (double)(i * minorIntervalMs);
-      if (timeMs > raceDurationMs) timeMs = raceDurationMs;
+      if (timeMs > extendedDurationMs) timeMs = extendedDurationMs;
 
       // Skip if this is a major tick mark
       if (timeMs % majorIntervalMs == 0) continue;
 
-      var x = bounds.X + (int)(bounds.Width * (timeMs / raceDurationMs));
-      g.DrawLine(lightPen, x, bounds.Y + bounds.Height - 5, x, bounds.Y + bounds.Height);
+      var x = bounds.X + (int)(bounds.Width * (timeMs / extendedDurationMs));
+      var isWithinRaceTime = timeMs <= raceDurationMs;
+      var tickPen = isWithinRaceTime ? lightPen : extendedPen;
+
+      g.DrawLine(tickPen, x, bounds.Y + bounds.Height - 5, x, bounds.Y + bounds.Height);
     }
 
     font.Dispose();
     pen.Dispose();
     lightPen.Dispose();
+    extendedPen.Dispose();
   }
 
-  private void DrawRiderLapBar(Graphics g, RiderInfo rider, Rectangle bounds, double raceDurationMs, int position, List<LapChartElement> elements)
+  private void DrawRiderLapBar(Graphics g, RiderInfo rider, Rectangle bounds, double extendedDurationMs, double raceDurationMs, int position, List<LapChartElement> elements)
   {
     // Background
     g.FillRectangle(Brushes.LightGray, bounds);
@@ -2027,24 +2124,14 @@ public partial class Form1 : Form
       if (!lapDuration.HasValue || lapDuration.Value.TotalMilliseconds <= 0)
         continue;
 
-      // Calculate position in race timeline
+      // Calculate position in race timeline using extended duration
       var lapStartMs = (lapStartTime - raceStartTime!.Value).TotalMilliseconds;
       var lapDurationMs = lapDuration.Value.TotalMilliseconds;
       var lapEndMs = lapStartMs + lapDurationMs;
 
-      // Skip if lap is completely outside race duration
-      if (lapStartMs >= raceDurationMs)
-        break;
-
-      // Clamp to race duration
-      var clampedEndMs = Math.Min(lapEndMs, raceDurationMs);
-      var clampedDurationMs = clampedEndMs - lapStartMs;
-
-      if (clampedDurationMs <= 0)
-        continue;
-
-      var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / raceDurationMs));
-      var lapWidth = (int)(bounds.Width * (clampedDurationMs / raceDurationMs));
+      // Don't clamp to race duration - let laps extend into the extended time area
+      var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / extendedDurationMs));
+      var lapWidth = (int)(bounds.Width * (lapDurationMs / extendedDurationMs));
 
       var lapRect = new Rectangle(
         lapStartX,
@@ -2090,24 +2177,17 @@ public partial class Form1 : Form
       var predictedLapMs = rider.PredictedLapTime.Value.TotalMilliseconds;
       var lapNumber = rider.TotalLaps + 1;
       var currentPredictedTime = lastLapEndTime;
-      var originalRaceDurationMs = raceDuration.TotalMilliseconds;
 
       // Calculate maximum laps to display based on race completion rules
       int maxLapsToShow = CalculateMaxLapsForRaceCompletion(rider);
 
-      while (currentPredictedTime < raceStartTime!.Value.AddMilliseconds(raceDurationMs) && lapNumber <= maxLapsToShow)
+      while (currentPredictedTime < raceStartTime!.Value.AddMilliseconds(extendedDurationMs) && lapNumber <= maxLapsToShow)
       {
         var lapStartMs = (currentPredictedTime - raceStartTime.Value).TotalMilliseconds;
         var lapEndMs = lapStartMs + predictedLapMs;
 
-        // Don't clamp to race duration anymore - let it extend to the full chart duration
-        if (lapEndMs > raceDurationMs)
-        {
-          // This lap extends beyond the original race duration
-        }
-
-        var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / raceDurationMs));
-        var lapWidth = (int)(bounds.Width * (predictedLapMs / raceDurationMs));
+        var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / extendedDurationMs));
+        var lapWidth = (int)(bounds.Width * (predictedLapMs / extendedDurationMs));
 
         var lapRect = new Rectangle(
           lapStartX,
@@ -2120,7 +2200,7 @@ public partial class Form1 : Form
         {
           // Use different styling for laps before and after original race time
           var baseColor = lapColors[(lapNumber - 1) % lapColors.Length];
-          var isAfterRaceTime = lapStartMs > originalRaceDurationMs;
+          var isAfterRaceTime = lapStartMs > raceDurationMs;
 
           Color lapColor;
           if (isAfterRaceTime)
@@ -2206,8 +2286,12 @@ public partial class Form1 : Form
   {
     if (e.Button != MouseButtons.Left) return;
 
+    // Adjust mouse position for scroll offset
+    var adjustedLocation = new Point(e.Location.X - panelLapChart.AutoScrollPosition.X,
+                                   e.Location.Y - panelLapChart.AutoScrollPosition.Y);
+
     // Find which element was clicked
-    var clickedElement = lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(e.Location));
+    var clickedElement = lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(adjustedLocation));
     if (clickedElement != null && clickedElement.IsRider)
     {
       selectedRiderId = clickedElement.RiderId;
@@ -2218,8 +2302,12 @@ public partial class Form1 : Form
 
   private void PanelLapChart_MouseMove(object? sender, MouseEventArgs e)
   {
+    // Adjust mouse position for scroll offset
+    var adjustedLocation = new Point(e.Location.X - panelLapChart.AutoScrollPosition.X,
+                                   e.Location.Y - panelLapChart.AutoScrollPosition.Y);
+
     // Find which element is being hovered
-    var hoveredElement = lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(e.Location));
+    var hoveredElement = lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(adjustedLocation));
 
     string? newHoverInfo = null;
     if (hoveredElement != null && !hoveredElement.IsRider && hoveredElement.LapTime.HasValue)
@@ -2407,21 +2495,17 @@ public partial class Form1 : Form
     }
     else if (waitingForLeaderFinish)
     {
-      // Calculate remaining laps for current leader
-      var currentLeader = riders.Values
-        .OrderByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
-        .FirstOrDefault();
-
-      if (currentLeader != null)
+      // AMA Motocross regulations: Show status for the leader who was leading when time expired
+      if (!string.IsNullOrEmpty(leaderAtTimeExpiry) && riders.ContainsKey(leaderAtTimeExpiry))
       {
-        var remainingLaps = targetLapsToFinishRace - currentLeader.TotalLaps;
+        var leaderRider = riders[leaderAtTimeExpiry];
+        var remainingLaps = targetLapsToFinishRace - leaderRider.TotalLaps;
         var lapsText = remainingLaps == 1 ? "lap" : "laps";
-        labelRaceStatus.Text = $"Race: Leader {currentLeader.TagID} - {remainingLaps} {lapsText} to go (target: {targetLapsToFinishRace})";
+        labelRaceStatus.Text = $"Race: LEADER {leaderAtTimeExpiry} - {remainingLaps} {lapsText} to go (target: {targetLapsToFinishRace})";
       }
       else
       {
-        labelRaceStatus.Text = $"Race: Waiting for Leader {leaderAtTimeExpiry}";
+        labelRaceStatus.Text = $"Race: Waiting for Leader {leaderAtTimeExpiry} to complete additional laps";
       }
       labelRaceStatus.ForeColor = Color.Purple;
     }
@@ -2449,6 +2533,9 @@ public partial class Form1 : Form
       raceStartTime = DateTime.Now;
       raceEndTime = raceStartTime.Value + raceDuration;
       raceStarted = true;
+
+      // Create new race in database
+      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration);
 
       // Update race start time for all existing riders
       lock (ridersLock)
@@ -2483,7 +2570,13 @@ public partial class Form1 : Form
     var actualRaceFinishTime = DateTime.Now;
     var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
 
-    AddMessage($"🏁 LEADER FINISHED! {leaderAtTimeExpiry} completed the final lap in {actualRaceDuration:mm\\:ss}.");
+    // Find the rider who just completed the target lap count
+    var finishingRider = riders.Values
+      .FirstOrDefault(r => r.TotalLaps >= targetLapsToFinishRace);
+
+    var finishingRiderTag = finishingRider?.TagID ?? "Unknown";
+
+    AddMessage($"🏁 RACE TARGET REACHED! {finishingRiderTag} completed {targetLapsToFinishRace} laps in {actualRaceDuration:mm\\:ss}.");
     AddMessage($"🏁 All other riders must complete only their current lap, then no more laps will be counted.");
 
     // Store the current lap numbers for all riders at race finish
@@ -2491,11 +2584,11 @@ public partial class Form1 : Form
     {
       foreach (var rider in riders.Values)
       {
-        if (rider.TagID == leaderAtTimeExpiry)
+        if (rider.TotalLaps >= targetLapsToFinishRace)
         {
-          // The leader who just finished is NOT allowed to complete another lap
+          // Riders who reached the target are NOT allowed to complete another lap
           rider.FinalAllowedLap = rider.TotalLaps;
-          AddMessage($"📋 Rider {rider.TagID}: Currently has {rider.TotalLaps} laps, RACE FINISHED - no more laps allowed");
+          AddMessage($"📋 Rider {rider.TagID}: Reached target with {rider.TotalLaps} laps, RACE FINISHED - no more laps allowed");
         }
         else
         {
@@ -2518,10 +2611,13 @@ public partial class Form1 : Form
   {
     // Check if all riders have either completed their final allowed lap or have timed out
     bool allRidersFinished = true;
-    var timeoutMinutes = 5; // Give riders 5 minutes to complete their final lap after leader finishes
 
     foreach (var rider in riders.Values)
     {
+      // Skip riders already marked as DNF
+      if (rider.IsDNF)
+        continue;
+
       // If rider hasn't reached their final allowed lap yet
       if (rider.TotalLaps < rider.FinalAllowedLap)
       {
@@ -2530,15 +2626,22 @@ public partial class Form1 : Form
           DateTime.Now - finalLapsStartTime.Value : TimeSpan.Zero;
 
         // If less than timeout period since leader finished, rider might still finish their lap
-        if (timeSinceLeaderFinished.TotalMinutes < timeoutMinutes)
+        if (timeSinceLeaderFinished.TotalMinutes < dnfTimeoutMinutes)
         {
           allRidersFinished = false;
-          break;
+          // Don't break - continue checking other riders for DNF timeout
         }
         else
         {
-          // Rider has timed out - they won't complete their final lap
-          AddMessage($"⏰ Rider {rider.TagID} timed out ({timeSinceLeaderFinished.TotalMinutes:F1} min since leader finished) - final lap not completed");
+          // Rider has timed out - mark as DNF
+          rider.IsDNF = true;
+          rider.DNFTime = DateTime.Now;
+          AddMessage($"🚫 Rider {rider.TagID} marked as DNF (Did Not Finish) - {timeSinceLeaderFinished.TotalMinutes:F1} min since leader finished, failed to complete final lap");
+          AddRaceEvent($"DNF: {rider.TagID} - Timeout after {timeSinceLeaderFinished.TotalMinutes:F1} minutes");
+
+          // Update displays to show DNF status
+          ridersDisplayNeedsUpdate = true;
+          lapChartNeedsUpdate = true;
         }
       }
     }
@@ -2558,8 +2661,30 @@ public partial class Form1 : Form
     var actualRaceFinishTime = DateTime.Now;
     var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
 
-    AddMessage($"🏁 RACE COMPLETELY FINISHED! All riders have completed their final laps.");
+    // Count DNF riders
+    var dnfRiders = riders.Values.Where(r => r.IsDNF).ToList();
+    var finishedRiders = riders.Values.Where(r => !r.IsDNF).Count();
+
+    AddMessage($"🏁 RACE COMPLETELY FINISHED! All riders have completed their final laps or timed out.");
     AddMessage($"🏁 Final race duration: {actualRaceDuration:mm\\:ss}");
+
+    if (dnfRiders.Any())
+    {
+      AddMessage($"🚫 DNF Summary: {dnfRiders.Count} rider(s) marked as Did Not Finish:");
+      foreach (var dnfRider in dnfRiders)
+      {
+        var raceLeaderFinishTime = dnfRider.DNFTime?.AddMinutes(-dnfTimeoutMinutes) ?? DateTime.Now;
+        var timeAtDNF = dnfRider.DNFTime.HasValue ?
+          (dnfRider.DNFTime.Value - raceLeaderFinishTime).TotalMinutes : 0;
+        AddMessage($"   • {dnfRider.TagID}: {dnfRider.TotalLaps} laps completed, DNF after {timeAtDNF:F1} min timeout");
+      }
+      AddMessage($"✅ {finishedRiders} rider(s) completed the race successfully.");
+    }
+    else
+    {
+      AddMessage($"✅ All {finishedRiders} riders completed the race successfully - no DNF!");
+    }
+
     AddMessage($"🏁 Race results are now final. Additional tag reads will be ignored.");
 
     // Update race status
@@ -2655,18 +2780,20 @@ public partial class Form1 : Form
 
     // If race has already finished in time mode, update the target
     if (raceTimeExpired && targetLapsToFinishRace > 0)
-    {
-      // Recalculate target laps based on new setting
+    {        // Recalculate target laps based on new setting (exclude DNF riders from leader calculation)
       var currentLeader = riders.Values
+        .Where(r => !r.IsDNF)
         .OrderByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .FirstOrDefault();
 
       if (currentLeader != null && leaderLapsAtTimeExpiry > 0)
       {
-        targetLapsToFinishRace = leaderLapsAtTimeExpiry + additionalLapsAfterTimeExpiry;
+        // Calculate target: leader's current lap (in progress when time expired) + additional laps
+        var leaderCurrentLapWhenTimeExpired = leaderLapsAtTimeExpiry + 1;
+        targetLapsToFinishRace = leaderCurrentLapWhenTimeExpired + additionalLapsAfterTimeExpiry;
         var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
-        AddMessage($"🏁 Updated race finish target to {targetLapsToFinishRace} laps (base {leaderLapsAtTimeExpiry} + {additionalLapsAfterTimeExpiry} additional {lapsText})");
+        AddMessage($"🏁 Updated race finish target to {targetLapsToFinishRace} laps (leader was on lap {leaderCurrentLapWhenTimeExpired} when time expired + {additionalLapsAfterTimeExpiry} additional {lapsText})");
       }
     }
   }
@@ -2680,9 +2807,10 @@ public partial class Form1 : Form
     if (!raceStarted || raceFinished)
       return;
 
-    // Get current standings sorted by position
+    // Get current standings sorted by position (DNF riders last)
     var currentStandings = riders.Values
-      .OrderByDescending(r => r.TotalLaps)
+      .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
+      .ThenByDescending(r => r.TotalLaps)
       .ThenBy(r => r.TotalTime)
       .ToList();
 
@@ -2805,12 +2933,7 @@ public partial class Form1 : Form
   /// </summary>
   private int GetPreviousLapDifference(string riderA, string riderB, int defaultValue)
   {
-    if (lastLapDifferences.ContainsKey(riderA) &&
-        lastLapDifferences[riderA].ContainsKey(riderB))
-    {
-      return lastLapDifferences[riderA][riderB];
-    }
-    return defaultValue; // Default to current value if no history
+    return _raceDb.GetPreviousLapDifference(riderA, riderB, defaultValue);
   }
 
   /// <summary>
@@ -2818,11 +2941,7 @@ public partial class Form1 : Form
   /// </summary>
   private void StoreLapDifference(string riderA, string riderB, int lapDifference)
   {
-    if (!lastLapDifferences.ContainsKey(riderA))
-    {
-      lastLapDifferences[riderA] = new Dictionary<string, int>();
-    }
-    lastLapDifferences[riderA][riderB] = lapDifference;
+    _raceDb.StoreLapDifference(riderA, riderB, lapDifference);
   }
 
   /// <summary>
