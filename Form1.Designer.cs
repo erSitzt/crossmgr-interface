@@ -75,610 +75,629 @@ partial class Form1
 
   private void InitializeComponent()
   {
-    this.components = new System.ComponentModel.Container();
-    this.labelStatus = new System.Windows.Forms.Label();
-    this.buttonStart = new System.Windows.Forms.Button();
-    this.buttonStop = new System.Windows.Forms.Button();
-    this.textBoxPort = new System.Windows.Forms.TextBox();
-    this.labelPort = new System.Windows.Forms.Label();
-    this.buttonClear = new System.Windows.Forms.Button();
-    this.labelConnections = new System.Windows.Forms.Label();
-    this.buttonShowSummary = new System.Windows.Forms.Button();
-    this.buttonClearRiders = new System.Windows.Forms.Button();
-    this.labelRaceDuration = new System.Windows.Forms.Label();
-    this.numericUpDownRaceDuration = new System.Windows.Forms.NumericUpDown();
-    this.buttonSetDuration = new System.Windows.Forms.Button();
-    this.tabControl = new System.Windows.Forms.TabControl();
-    this.tabPageLive = new System.Windows.Forms.TabPage();
-    this.listBoxMessages = new System.Windows.Forms.ListBox();
-    this.tabPageTagEvents = new System.Windows.Forms.TabPage();
-    this.listBoxTagEvents = new System.Windows.Forms.ListBox();
-    this.tabPageRiders = new System.Windows.Forms.TabPage();
-    this.dataGridViewRiders = new System.Windows.Forms.DataGridView();
-    this.tabPageStats = new System.Windows.Forms.TabPage();
-    this.labelLastTag = new System.Windows.Forms.Label();
-    this.labelTotalLaps = new System.Windows.Forms.Label();
-    this.labelTotalRiders = new System.Windows.Forms.Label();
-    this.labelRaceTime = new System.Windows.Forms.Label();
-    this.labelNextCrossing = new System.Windows.Forms.Label();
-    this.labelRaceEndTime = new System.Windows.Forms.Label();
-    this.labelTimeRemaining = new System.Windows.Forms.Label();
-    this.labelPredictedLaps = new System.Windows.Forms.Label();
-    this.timerUpdate = new System.Windows.Forms.Timer(this.components);
-    this.labelTagFilter = new System.Windows.Forms.Label();
-    this.textBoxTagFilter = new System.Windows.Forms.TextBox();
-    this.buttonSetFilter = new System.Windows.Forms.Button();
-    this.checkBoxFilterEnabled = new System.Windows.Forms.CheckBox();
-    this.tabPageLapChart = new System.Windows.Forms.TabPage();
-    this.panelLapChart = new System.Windows.Forms.Panel();
-    this.tabPageRaceSettings = new System.Windows.Forms.TabPage();
-    this.groupBoxRaceStart = new System.Windows.Forms.GroupBox();
-    this.radioButtonStartOnFirstTag = new System.Windows.Forms.RadioButton();
-    this.radioButtonStartManual = new System.Windows.Forms.RadioButton();
-    this.buttonStartRace = new System.Windows.Forms.Button();
-    this.labelRaceStatus = new System.Windows.Forms.Label();
-    this.labelFilterEnabled = new System.Windows.Forms.Label();
-    this.labelAdditionalLaps = new System.Windows.Forms.Label();
-    this.numericUpDownAdditionalLaps = new System.Windows.Forms.NumericUpDown();
-    this.buttonSetAdditionalLaps = new System.Windows.Forms.Button();
-    this.tabControl.SuspendLayout();
-    this.tabPageLive.SuspendLayout();
-    this.tabPageTagEvents.SuspendLayout();
-    this.tabPageRiders.SuspendLayout();
-    ((System.ComponentModel.ISupportInitialize)(this.dataGridViewRiders)).BeginInit();
-    this.tabPageStats.SuspendLayout();
-    ((System.ComponentModel.ISupportInitialize)(this.numericUpDownRaceDuration)).BeginInit();
-    ((System.ComponentModel.ISupportInitialize)(this.numericUpDownAdditionalLaps)).BeginInit();
-    this.tabPageLapChart.SuspendLayout();
-    this.tabPageRaceSettings.SuspendLayout();
-    this.groupBoxRaceStart.SuspendLayout();
-    this.SuspendLayout();
-    // 
-    // tabControl
-    // 
-    this.tabControl.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
-    | System.Windows.Forms.AnchorStyles.Left)
-    | System.Windows.Forms.AnchorStyles.Right)));
-    this.tabControl.Controls.Add(this.tabPageLive);
-    this.tabControl.Controls.Add(this.tabPageTagEvents);
-    this.tabControl.Controls.Add(this.tabPageRiders);
-    this.tabControl.Controls.Add(this.tabPageStats);
-    this.tabControl.Controls.Add(this.tabPageLapChart);
-    this.tabControl.Controls.Add(this.tabPageRaceSettings);
-    this.tabControl.Location = new System.Drawing.Point(12, 50);
-    this.tabControl.Name = "tabControl";
-    this.tabControl.SelectedIndex = 0;
-    this.tabControl.Size = new System.Drawing.Size(1160, 550);
-    this.tabControl.TabIndex = 10;
-    // 
-    // tabPageLive
-    // 
-    this.tabPageLive.Controls.Add(this.listBoxMessages);
-    this.tabPageLive.Location = new System.Drawing.Point(4, 24);
-    this.tabPageLive.Name = "tabPageLive";
-    this.tabPageLive.Padding = new System.Windows.Forms.Padding(3);
-    this.tabPageLive.Size = new System.Drawing.Size(1152, 492);
-    this.tabPageLive.TabIndex = 0;
-    this.tabPageLive.Text = "Race Events";
-    this.tabPageLive.UseVisualStyleBackColor = true;
-    // 
-    // listBoxMessages
-    // 
-    this.listBoxMessages.Dock = System.Windows.Forms.DockStyle.Fill;
-    this.listBoxMessages.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-    this.listBoxMessages.HorizontalScrollbar = true;
-    this.listBoxMessages.ItemHeight = 14;
-    this.listBoxMessages.Location = new System.Drawing.Point(3, 3);
-    this.listBoxMessages.Name = "listBoxMessages";
-    this.listBoxMessages.Size = new System.Drawing.Size(1146, 486);
-    this.listBoxMessages.TabIndex = 0;
-    // 
-    // tabPageTagEvents
-    // 
-    this.tabPageTagEvents.Controls.Add(this.listBoxTagEvents);
-    this.tabPageTagEvents.Location = new System.Drawing.Point(4, 24);
-    this.tabPageTagEvents.Name = "tabPageTagEvents";
-    this.tabPageTagEvents.Padding = new System.Windows.Forms.Padding(3);
-    this.tabPageTagEvents.Size = new System.Drawing.Size(1152, 492);
-    this.tabPageTagEvents.TabIndex = 1;
-    this.tabPageTagEvents.Text = "Tag Events";
-    this.tabPageTagEvents.UseVisualStyleBackColor = true;
-    // 
-    // listBoxTagEvents
-    // 
-    this.listBoxTagEvents.Dock = System.Windows.Forms.DockStyle.Fill;
-    this.listBoxTagEvents.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-    this.listBoxTagEvents.HorizontalScrollbar = true;
-    this.listBoxTagEvents.ItemHeight = 14;
-    this.listBoxTagEvents.Location = new System.Drawing.Point(3, 3);
-    this.listBoxTagEvents.Name = "listBoxTagEvents";
-    this.listBoxTagEvents.Size = new System.Drawing.Size(1146, 486);
-    this.listBoxTagEvents.TabIndex = 0;
-    // 
-    // tabPageRiders
-    // 
-    this.tabPageRiders.Controls.Add(this.dataGridViewRiders);
-    this.tabPageRiders.Location = new System.Drawing.Point(4, 24);
-    this.tabPageRiders.Name = "tabPageRiders";
-    this.tabPageRiders.Padding = new System.Windows.Forms.Padding(3);
-    this.tabPageRiders.Size = new System.Drawing.Size(1152, 492);
-    this.tabPageRiders.TabIndex = 2;
-    this.tabPageRiders.Text = "Riders";
-    this.tabPageRiders.UseVisualStyleBackColor = true;
-    // 
-    // dataGridViewRiders
-    // 
-    this.dataGridViewRiders.AllowUserToAddRows = false;
-    this.dataGridViewRiders.AllowUserToDeleteRows = false;
-    this.dataGridViewRiders.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-    this.dataGridViewRiders.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-    this.dataGridViewRiders.Dock = System.Windows.Forms.DockStyle.Fill;
-    this.dataGridViewRiders.Location = new System.Drawing.Point(3, 3);
-    this.dataGridViewRiders.Name = "dataGridViewRiders";
-    this.dataGridViewRiders.ReadOnly = true;
-    this.dataGridViewRiders.RowHeadersVisible = false;
-    this.dataGridViewRiders.RowTemplate.Height = 25;
-    this.dataGridViewRiders.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-    this.dataGridViewRiders.Size = new System.Drawing.Size(1146, 486);
-    this.dataGridViewRiders.TabIndex = 0;
-    // 
-    // tabPageStats
-    // 
-    this.tabPageStats.Controls.Add(this.labelPredictedLaps);
-    this.tabPageStats.Controls.Add(this.labelTimeRemaining);
-    this.tabPageStats.Controls.Add(this.labelRaceEndTime);
-    this.tabPageStats.Controls.Add(this.labelNextCrossing);
-    this.tabPageStats.Controls.Add(this.labelLastTag);
-    this.tabPageStats.Controls.Add(this.labelTotalLaps);
-    this.tabPageStats.Controls.Add(this.labelTotalRiders);
-    this.tabPageStats.Controls.Add(this.labelRaceTime);
-    this.tabPageStats.Location = new System.Drawing.Point(4, 24);
-    this.tabPageStats.Name = "tabPageStats";
-    this.tabPageStats.Size = new System.Drawing.Size(1152, 492);
-    this.tabPageStats.TabIndex = 3;
-    this.tabPageStats.Text = "Race Statistics";
-    this.tabPageStats.UseVisualStyleBackColor = true;
-    // 
-    // tabPageLapChart
-    // 
-    this.tabPageLapChart.Controls.Add(this.panelLapChart);
-    this.tabPageLapChart.Location = new System.Drawing.Point(4, 24);
-    this.tabPageLapChart.Name = "tabPageLapChart";
-    this.tabPageLapChart.Padding = new System.Windows.Forms.Padding(3);
-    this.tabPageLapChart.Size = new System.Drawing.Size(1152, 492);
-    this.tabPageLapChart.TabIndex = 4;
-    this.tabPageLapChart.Text = "Lap Chart";
-    this.tabPageLapChart.UseVisualStyleBackColor = true;
-    // 
-    // panelLapChart
-    // 
-    this.panelLapChart.AutoScroll = true;
-    this.panelLapChart.BackColor = System.Drawing.Color.White;
-    this.panelLapChart.Dock = System.Windows.Forms.DockStyle.Fill;
-    this.panelLapChart.Location = new System.Drawing.Point(3, 3);
-    this.panelLapChart.Name = "panelLapChart";
-    this.panelLapChart.Size = new System.Drawing.Size(1146, 486);
-    this.panelLapChart.TabIndex = 0;
-    this.panelLapChart.Paint += new System.Windows.Forms.PaintEventHandler(this.panelLapChart_Paint);
-    // 
-    // tabPageRaceSettings
-    // 
-    this.tabPageRaceSettings.Controls.Add(this.labelAdditionalLaps);
-    this.tabPageRaceSettings.Controls.Add(this.numericUpDownAdditionalLaps);
-    this.tabPageRaceSettings.Controls.Add(this.buttonSetAdditionalLaps);
-    this.tabPageRaceSettings.Controls.Add(this.groupBoxRaceStart);
-    this.tabPageRaceSettings.Controls.Add(this.labelTagFilter);
-    this.tabPageRaceSettings.Controls.Add(this.textBoxTagFilter);
-    this.tabPageRaceSettings.Controls.Add(this.buttonSetFilter);
-    this.tabPageRaceSettings.Controls.Add(this.checkBoxFilterEnabled);
-    this.tabPageRaceSettings.Controls.Add(this.labelFilterEnabled);
-    this.tabPageRaceSettings.Controls.Add(this.labelRaceDuration);
-    this.tabPageRaceSettings.Controls.Add(this.numericUpDownRaceDuration);
-    this.tabPageRaceSettings.Controls.Add(this.buttonSetDuration);
-    this.tabPageRaceSettings.Location = new System.Drawing.Point(4, 24);
-    this.tabPageRaceSettings.Name = "tabPageRaceSettings";
-    this.tabPageRaceSettings.Padding = new System.Windows.Forms.Padding(3);
-    this.tabPageRaceSettings.Size = new System.Drawing.Size(1152, 522);
-    this.tabPageRaceSettings.TabIndex = 5;
-    this.tabPageRaceSettings.Text = "Race Settings";
-    this.tabPageRaceSettings.UseVisualStyleBackColor = true;
+    components = new System.ComponentModel.Container();
+    labelStatus = new Label();
+    buttonStart = new Button();
+    buttonStop = new Button();
+    textBoxPort = new TextBox();
+    labelPort = new Label();
+    buttonClear = new Button();
+    labelConnections = new Label();
+    buttonShowSummary = new Button();
+    buttonClearRiders = new Button();
+    labelRaceDuration = new Label();
+    numericUpDownRaceDuration = new NumericUpDown();
+    buttonSetDuration = new Button();
+    tabControl = new TabControl();
+    tabPageLive = new TabPage();
+    listBoxMessages = new ListBox();
+    tabPageTagEvents = new TabPage();
+    listBoxTagEvents = new ListBox();
+    tabPageRiders = new TabPage();
+    dataGridViewRiders = new DataGridView();
+    tabPageStats = new TabPage();
+    labelPredictedLaps = new Label();
+    labelTimeRemaining = new Label();
+    labelRaceEndTime = new Label();
+    labelNextCrossing = new Label();
+    labelLastTag = new Label();
+    labelTotalLaps = new Label();
+    labelTotalRiders = new Label();
+    labelRaceTime = new Label();
+    tabPageLapChart = new TabPage();
+    panelLapChart = new Panel();
+    tabPageRaceSettings = new TabPage();
+    labelAdditionalLaps = new Label();
+    numericUpDownAdditionalLaps = new NumericUpDown();
+    buttonSetAdditionalLaps = new Button();
+    groupBoxRaceStart = new GroupBox();
+    radioButtonStartOnFirstTag = new RadioButton();
+    radioButtonStartManual = new RadioButton();
+    buttonStartRace = new Button();
+    labelRaceStatus = new Label();
+    labelTagFilter = new Label();
+    textBoxTagFilter = new TextBox();
+    buttonSetFilter = new Button();
+    checkBoxFilterEnabled = new CheckBox();
+    labelFilterEnabled = new Label();
+    timerUpdate = new System.Windows.Forms.Timer(components);
+    ((System.ComponentModel.ISupportInitialize)numericUpDownRaceDuration).BeginInit();
+    tabControl.SuspendLayout();
+    tabPageLive.SuspendLayout();
+    tabPageTagEvents.SuspendLayout();
+    tabPageRiders.SuspendLayout();
+    ((System.ComponentModel.ISupportInitialize)dataGridViewRiders).BeginInit();
+    tabPageStats.SuspendLayout();
+    tabPageLapChart.SuspendLayout();
+    tabPageRaceSettings.SuspendLayout();
+    ((System.ComponentModel.ISupportInitialize)numericUpDownAdditionalLaps).BeginInit();
+    groupBoxRaceStart.SuspendLayout();
+    SuspendLayout();
     // 
     // labelStatus
     // 
-    this.labelStatus.AutoSize = true;
-    this.labelStatus.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-    this.labelStatus.ForeColor = System.Drawing.Color.Red;
-    this.labelStatus.Location = new System.Drawing.Point(12, 55);
-    this.labelStatus.Name = "labelStatus";
-    this.labelStatus.Size = new System.Drawing.Size(55, 15);
-    this.labelStatus.TabIndex = 1;
-    this.labelStatus.Text = "Stopped";
+    labelStatus.AutoSize = true;
+    labelStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
+    labelStatus.ForeColor = Color.Red;
+    labelStatus.Location = new Point(17, 92);
+    labelStatus.Margin = new Padding(4, 0, 4, 0);
+    labelStatus.Name = "labelStatus";
+    labelStatus.Size = new Size(84, 22);
+    labelStatus.TabIndex = 1;
+    labelStatus.Text = "Stopped";
     // 
     // buttonStart
     // 
-    this.buttonStart.Location = new System.Drawing.Point(140, 12);
-    this.buttonStart.Name = "buttonStart";
-    this.buttonStart.Size = new System.Drawing.Size(75, 23);
-    this.buttonStart.TabIndex = 2;
-    this.buttonStart.Text = "Start";
-    this.buttonStart.UseVisualStyleBackColor = true;
-    this.buttonStart.Click += new System.EventHandler(this.buttonStart_Click);
+    buttonStart.Location = new Point(200, 20);
+    buttonStart.Margin = new Padding(4, 5, 4, 5);
+    buttonStart.Name = "buttonStart";
+    buttonStart.Size = new Size(107, 38);
+    buttonStart.TabIndex = 2;
+    buttonStart.Text = "Start";
+    buttonStart.UseVisualStyleBackColor = true;
+    buttonStart.Click += buttonStart_Click;
     // 
     // buttonStop
     // 
-    this.buttonStop.Enabled = false;
-    this.buttonStop.Location = new System.Drawing.Point(221, 12);
-    this.buttonStop.Name = "buttonStop";
-    this.buttonStop.Size = new System.Drawing.Size(75, 23);
-    this.buttonStop.TabIndex = 3;
-    this.buttonStop.Text = "Stop";
-    this.buttonStop.UseVisualStyleBackColor = true;
-    this.buttonStop.Click += new System.EventHandler(this.buttonStop_Click);
+    buttonStop.Enabled = false;
+    buttonStop.Location = new Point(316, 20);
+    buttonStop.Margin = new Padding(4, 5, 4, 5);
+    buttonStop.Name = "buttonStop";
+    buttonStop.Size = new Size(107, 38);
+    buttonStop.TabIndex = 3;
+    buttonStop.Text = "Stop";
+    buttonStop.UseVisualStyleBackColor = true;
+    buttonStop.Click += buttonStop_Click;
     // 
     // textBoxPort
     // 
-    this.textBoxPort.Location = new System.Drawing.Point(47, 12);
-    this.textBoxPort.Name = "textBoxPort";
-    this.textBoxPort.Size = new System.Drawing.Size(87, 23);
-    this.textBoxPort.TabIndex = 4;
-    this.textBoxPort.Text = "53135";
+    textBoxPort.Location = new Point(69, 25);
+    textBoxPort.Margin = new Padding(4, 5, 4, 5);
+    textBoxPort.Name = "textBoxPort";
+    textBoxPort.Size = new Size(123, 31);
+    textBoxPort.TabIndex = 4;
+    textBoxPort.Text = "53135";
     // 
     // labelPort
     // 
-    this.labelPort.AutoSize = true;
-    this.labelPort.Location = new System.Drawing.Point(12, 15);
-    this.labelPort.Name = "labelPort";
-    this.labelPort.Size = new System.Drawing.Size(29, 15);
-    this.labelPort.TabIndex = 5;
-    this.labelPort.Text = "Port:";
+    labelPort.AutoSize = true;
+    labelPort.Location = new Point(17, 28);
+    labelPort.Margin = new Padding(4, 0, 4, 0);
+    labelPort.Name = "labelPort";
+    labelPort.Size = new Size(48, 25);
+    labelPort.TabIndex = 5;
+    labelPort.Text = "Port:";
     // 
     // buttonClear
     // 
-    this.buttonClear.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-    this.buttonClear.Location = new System.Drawing.Point(1097, 12);
-    this.buttonClear.Name = "buttonClear";
-    this.buttonClear.Size = new System.Drawing.Size(75, 23);
-    this.buttonClear.TabIndex = 6;
-    this.buttonClear.Text = "Clear";
-    this.buttonClear.UseVisualStyleBackColor = true;
-    this.buttonClear.Click += new System.EventHandler(this.buttonClear_Click);
+    buttonClear.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+    buttonClear.Location = new Point(1567, 20);
+    buttonClear.Margin = new Padding(4, 5, 4, 5);
+    buttonClear.Name = "buttonClear";
+    buttonClear.Size = new Size(107, 38);
+    buttonClear.TabIndex = 6;
+    buttonClear.Text = "Clear";
+    buttonClear.UseVisualStyleBackColor = true;
+    buttonClear.Click += buttonClear_Click;
     // 
     // labelConnections
     // 
-    this.labelConnections.AutoSize = true;
-    this.labelConnections.Location = new System.Drawing.Point(302, 15);
-    this.labelConnections.Name = "labelConnections";
-    this.labelConnections.Size = new System.Drawing.Size(79, 15);
-    this.labelConnections.TabIndex = 7;
-    this.labelConnections.Text = "Connections: 0";
+    labelConnections.AutoSize = true;
+    labelConnections.Location = new Point(431, 27);
+    labelConnections.Margin = new Padding(4, 0, 4, 0);
+    labelConnections.Name = "labelConnections";
+    labelConnections.Size = new Size(129, 25);
+    labelConnections.TabIndex = 7;
+    labelConnections.Text = "Connections: 0";
     // 
     // buttonShowSummary
     // 
-    this.buttonShowSummary.Location = new System.Drawing.Point(400, 12);
-    this.buttonShowSummary.Name = "buttonShowSummary";
-    this.buttonShowSummary.Size = new System.Drawing.Size(100, 23);
-    this.buttonShowSummary.TabIndex = 8;
-    this.buttonShowSummary.Text = "Show Summary";
-    this.buttonShowSummary.UseVisualStyleBackColor = true;
-    this.buttonShowSummary.Click += new System.EventHandler(this.buttonShowSummary_Click);
+    buttonShowSummary.Location = new Point(571, 20);
+    buttonShowSummary.Margin = new Padding(4, 5, 4, 5);
+    buttonShowSummary.Name = "buttonShowSummary";
+    buttonShowSummary.Size = new Size(143, 38);
+    buttonShowSummary.TabIndex = 8;
+    buttonShowSummary.Text = "Show Summary";
+    buttonShowSummary.UseVisualStyleBackColor = true;
+    buttonShowSummary.Click += buttonShowSummary_Click;
     // 
     // buttonClearRiders
     // 
-    this.buttonClearRiders.Location = new System.Drawing.Point(510, 12);
-    this.buttonClearRiders.Name = "buttonClearRiders";
-    this.buttonClearRiders.Size = new System.Drawing.Size(90, 23);
-    this.buttonClearRiders.TabIndex = 9;
-    this.buttonClearRiders.Text = "Clear Riders";
-    this.buttonClearRiders.UseVisualStyleBackColor = true;
-    this.buttonClearRiders.Click += new System.EventHandler(this.buttonClearRiders_Click);
+    buttonClearRiders.Location = new Point(729, 20);
+    buttonClearRiders.Margin = new Padding(4, 5, 4, 5);
+    buttonClearRiders.Name = "buttonClearRiders";
+    buttonClearRiders.Size = new Size(129, 38);
+    buttonClearRiders.TabIndex = 9;
+    buttonClearRiders.Text = "Clear Riders";
+    buttonClearRiders.UseVisualStyleBackColor = true;
+    buttonClearRiders.Click += buttonClearRiders_Click;
     // 
     // labelRaceDuration
     // 
-    this.labelRaceDuration.AutoSize = true;
-    this.labelRaceDuration.Location = new System.Drawing.Point(20, 20);
-    this.labelRaceDuration.Name = "labelRaceDuration";
-    this.labelRaceDuration.Size = new System.Drawing.Size(105, 15);
-    this.labelRaceDuration.TabIndex = 10;
-    this.labelRaceDuration.Text = "Race Duration (min):";
+    labelRaceDuration.AutoSize = true;
+    labelRaceDuration.Location = new Point(29, 33);
+    labelRaceDuration.Margin = new Padding(4, 0, 4, 0);
+    labelRaceDuration.Name = "labelRaceDuration";
+    labelRaceDuration.Size = new Size(172, 25);
+    labelRaceDuration.TabIndex = 10;
+    labelRaceDuration.Text = "Race Duration (min):";
     // 
     // numericUpDownRaceDuration
     // 
-    this.numericUpDownRaceDuration.Location = new System.Drawing.Point(130, 17);
-    this.numericUpDownRaceDuration.Maximum = new decimal(new int[] {
-    180,
-    0,
-    0,
-    0});
-    this.numericUpDownRaceDuration.Minimum = new decimal(new int[] {
-    1,
-    0,
-    0,
-    0});
-    this.numericUpDownRaceDuration.Name = "numericUpDownRaceDuration";
-    this.numericUpDownRaceDuration.Size = new System.Drawing.Size(60, 23);
-    this.numericUpDownRaceDuration.TabIndex = 11;
-    this.numericUpDownRaceDuration.Value = new decimal(new int[] {
-    20,
-    0,
-    0,
-    0});
+    numericUpDownRaceDuration.Location = new Point(295, 31);
+    numericUpDownRaceDuration.Margin = new Padding(4, 5, 4, 5);
+    numericUpDownRaceDuration.Maximum = new decimal(new int[] { 180, 0, 0, 0 });
+    numericUpDownRaceDuration.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+    numericUpDownRaceDuration.Name = "numericUpDownRaceDuration";
+    numericUpDownRaceDuration.Size = new Size(171, 31);
+    numericUpDownRaceDuration.TabIndex = 11;
+    numericUpDownRaceDuration.Value = new decimal(new int[] { 20, 0, 0, 0 });
     // 
     // buttonSetDuration
     // 
-    this.buttonSetDuration.Location = new System.Drawing.Point(196, 17);
-    this.buttonSetDuration.Name = "buttonSetDuration";
-    this.buttonSetDuration.Size = new System.Drawing.Size(75, 23);
-    this.buttonSetDuration.TabIndex = 12;
-    this.buttonSetDuration.Text = "Set";
-    this.buttonSetDuration.UseVisualStyleBackColor = true;
-    this.buttonSetDuration.Click += new System.EventHandler(this.buttonSetDuration_Click);
+    buttonSetDuration.Location = new Point(474, 26);
+    buttonSetDuration.Margin = new Padding(4, 5, 4, 5);
+    buttonSetDuration.Name = "buttonSetDuration";
+    buttonSetDuration.Size = new Size(107, 38);
+    buttonSetDuration.TabIndex = 12;
+    buttonSetDuration.Text = "Set";
+    buttonSetDuration.UseVisualStyleBackColor = true;
+    buttonSetDuration.Click += buttonSetDuration_Click;
     // 
-    // labelRaceTime
+    // tabControl
     // 
-    this.labelRaceTime.AutoSize = true;
-    this.labelRaceTime.Font = new System.Drawing.Font("Microsoft Sans Serif", 14.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-    this.labelRaceTime.Location = new System.Drawing.Point(30, 30);
-    this.labelRaceTime.Name = "labelRaceTime";
-    this.labelRaceTime.Size = new System.Drawing.Size(165, 24);
-    this.labelRaceTime.TabIndex = 0;
-    this.labelRaceTime.Text = "Race Time: 00:00";
+    tabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+    tabControl.Controls.Add(tabPageLive);
+    tabControl.Controls.Add(tabPageTagEvents);
+    tabControl.Controls.Add(tabPageRiders);
+    tabControl.Controls.Add(tabPageStats);
+    tabControl.Controls.Add(tabPageLapChart);
+    tabControl.Controls.Add(tabPageRaceSettings);
+    tabControl.Location = new Point(17, 83);
+    tabControl.Margin = new Padding(4, 5, 4, 5);
+    tabControl.Name = "tabControl";
+    tabControl.SelectedIndex = 0;
+    tabControl.Size = new Size(1657, 917);
+    tabControl.TabIndex = 10;
     // 
-    // labelTotalRiders
+    // tabPageLive
     // 
-    this.labelTotalRiders.AutoSize = true;
-    this.labelTotalRiders.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-    this.labelTotalRiders.Location = new System.Drawing.Point(30, 80);
-    this.labelTotalRiders.Name = "labelTotalRiders";
-    this.labelTotalRiders.Size = new System.Drawing.Size(103, 20);
-    this.labelTotalRiders.TabIndex = 1;
-    this.labelTotalRiders.Text = "Total Riders: 0";
+    tabPageLive.Controls.Add(listBoxMessages);
+    tabPageLive.Location = new Point(4, 34);
+    tabPageLive.Margin = new Padding(4, 5, 4, 5);
+    tabPageLive.Name = "tabPageLive";
+    tabPageLive.Padding = new Padding(4, 5, 4, 5);
+    tabPageLive.Size = new Size(1649, 879);
+    tabPageLive.TabIndex = 0;
+    tabPageLive.Text = "Race Events";
+    tabPageLive.UseVisualStyleBackColor = true;
     // 
-    // labelTotalLaps
+    // listBoxMessages
     // 
-    this.labelTotalLaps.AutoSize = true;
-    this.labelTotalLaps.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-    this.labelTotalLaps.Location = new System.Drawing.Point(30, 110);
-    this.labelTotalLaps.Name = "labelTotalLaps";
-    this.labelTotalLaps.Size = new System.Drawing.Size(91, 20);
-    this.labelTotalLaps.TabIndex = 2;
-    this.labelTotalLaps.Text = "Total Laps: 0";
+    listBoxMessages.Dock = DockStyle.Fill;
+    listBoxMessages.Font = new Font("Consolas", 9F);
+    listBoxMessages.HorizontalScrollbar = true;
+    listBoxMessages.Location = new Point(4, 5);
+    listBoxMessages.Margin = new Padding(4, 5, 4, 5);
+    listBoxMessages.Name = "listBoxMessages";
+    listBoxMessages.Size = new Size(1641, 869);
+    listBoxMessages.TabIndex = 0;
     // 
-    // labelLastTag
+    // tabPageTagEvents
     // 
-    this.labelLastTag.AutoSize = true;
-    this.labelLastTag.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-    this.labelLastTag.Location = new System.Drawing.Point(30, 140);
-    this.labelLastTag.Name = "labelLastTag";
-    this.labelLastTag.Size = new System.Drawing.Size(119, 20);
-    this.labelLastTag.TabIndex = 3;
-    this.labelLastTag.Text = "Last Tag: None";
+    tabPageTagEvents.Controls.Add(listBoxTagEvents);
+    tabPageTagEvents.Location = new Point(4, 34);
+    tabPageTagEvents.Margin = new Padding(4, 5, 4, 5);
+    tabPageTagEvents.Name = "tabPageTagEvents";
+    tabPageTagEvents.Padding = new Padding(4, 5, 4, 5);
+    tabPageTagEvents.Size = new Size(1649, 879);
+    tabPageTagEvents.TabIndex = 1;
+    tabPageTagEvents.Text = "Tag Events";
+    tabPageTagEvents.UseVisualStyleBackColor = true;
     // 
-    // labelNextCrossing
+    // listBoxTagEvents
     // 
-    this.labelNextCrossing.AutoSize = true;
-    this.labelNextCrossing.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-    this.labelNextCrossing.Location = new System.Drawing.Point(30, 170);
-    this.labelNextCrossing.Name = "labelNextCrossing";
-    this.labelNextCrossing.Size = new System.Drawing.Size(180, 20);
-    this.labelNextCrossing.TabIndex = 4;
-    this.labelNextCrossing.Text = "Next Expected: Calculating...";
+    listBoxTagEvents.Dock = DockStyle.Fill;
+    listBoxTagEvents.Font = new Font("Consolas", 9F);
+    listBoxTagEvents.HorizontalScrollbar = true;
+    listBoxTagEvents.Location = new Point(4, 5);
+    listBoxTagEvents.Margin = new Padding(4, 5, 4, 5);
+    listBoxTagEvents.Name = "listBoxTagEvents";
+    listBoxTagEvents.Size = new Size(1641, 869);
+    listBoxTagEvents.TabIndex = 0;
     // 
-    // labelRaceEndTime
+    // tabPageRiders
     // 
-    this.labelRaceEndTime.AutoSize = true;
-    this.labelRaceEndTime.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-    this.labelRaceEndTime.Location = new System.Drawing.Point(30, 200);
-    this.labelRaceEndTime.Name = "labelRaceEndTime";
-    this.labelRaceEndTime.Size = new System.Drawing.Size(140, 20);
-    this.labelRaceEndTime.TabIndex = 5;
-    this.labelRaceEndTime.Text = "Race End: Not Set";
+    tabPageRiders.Controls.Add(dataGridViewRiders);
+    tabPageRiders.Location = new Point(4, 34);
+    tabPageRiders.Margin = new Padding(4, 5, 4, 5);
+    tabPageRiders.Name = "tabPageRiders";
+    tabPageRiders.Padding = new Padding(4, 5, 4, 5);
+    tabPageRiders.Size = new Size(1649, 879);
+    tabPageRiders.TabIndex = 2;
+    tabPageRiders.Text = "Riders";
+    tabPageRiders.UseVisualStyleBackColor = true;
     // 
-    // labelTimeRemaining
+    // dataGridViewRiders
     // 
-    this.labelTimeRemaining.AutoSize = true;
-    this.labelTimeRemaining.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-    this.labelTimeRemaining.ForeColor = System.Drawing.Color.DarkRed;
-    this.labelTimeRemaining.Location = new System.Drawing.Point(30, 230);
-    this.labelTimeRemaining.Name = "labelTimeRemaining";
-    this.labelTimeRemaining.Size = new System.Drawing.Size(167, 20);
-    this.labelTimeRemaining.TabIndex = 6;
-    this.labelTimeRemaining.Text = "Time Remaining: N/A";
+    dataGridViewRiders.AllowUserToAddRows = false;
+    dataGridViewRiders.AllowUserToDeleteRows = false;
+    dataGridViewRiders.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+    dataGridViewRiders.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+    dataGridViewRiders.Dock = DockStyle.Fill;
+    dataGridViewRiders.Location = new Point(4, 5);
+    dataGridViewRiders.Margin = new Padding(4, 5, 4, 5);
+    dataGridViewRiders.Name = "dataGridViewRiders";
+    dataGridViewRiders.ReadOnly = true;
+    dataGridViewRiders.RowHeadersVisible = false;
+    dataGridViewRiders.RowHeadersWidth = 62;
+    dataGridViewRiders.RowTemplate.Height = 25;
+    dataGridViewRiders.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+    dataGridViewRiders.Size = new Size(1641, 869);
+    dataGridViewRiders.TabIndex = 0;
+    // 
+    // tabPageStats
+    // 
+    tabPageStats.Controls.Add(labelPredictedLaps);
+    tabPageStats.Controls.Add(labelTimeRemaining);
+    tabPageStats.Controls.Add(labelRaceEndTime);
+    tabPageStats.Controls.Add(labelNextCrossing);
+    tabPageStats.Controls.Add(labelLastTag);
+    tabPageStats.Controls.Add(labelTotalLaps);
+    tabPageStats.Controls.Add(labelTotalRiders);
+    tabPageStats.Controls.Add(labelRaceTime);
+    tabPageStats.Location = new Point(4, 34);
+    tabPageStats.Margin = new Padding(4, 5, 4, 5);
+    tabPageStats.Name = "tabPageStats";
+    tabPageStats.Size = new Size(1649, 879);
+    tabPageStats.TabIndex = 3;
+    tabPageStats.Text = "Race Statistics";
+    tabPageStats.UseVisualStyleBackColor = true;
     // 
     // labelPredictedLaps
     // 
-    this.labelPredictedLaps.AutoSize = true;
-    this.labelPredictedLaps.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-    this.labelPredictedLaps.Location = new System.Drawing.Point(30, 260);
-    this.labelPredictedLaps.Name = "labelPredictedLaps";
-    this.labelPredictedLaps.Size = new System.Drawing.Size(200, 20);
-    this.labelPredictedLaps.TabIndex = 7;
-    this.labelPredictedLaps.Text = "Predicted Laps (Leader): N/A";
+    labelPredictedLaps.AutoSize = true;
+    labelPredictedLaps.Font = new Font("Microsoft Sans Serif", 12F);
+    labelPredictedLaps.Location = new Point(43, 433);
+    labelPredictedLaps.Margin = new Padding(4, 0, 4, 0);
+    labelPredictedLaps.Name = "labelPredictedLaps";
+    labelPredictedLaps.Size = new Size(325, 29);
+    labelPredictedLaps.TabIndex = 7;
+    labelPredictedLaps.Text = "Predicted Laps (Leader): N/A";
     // 
-    // timerUpdate
+    // labelTimeRemaining
     // 
-    this.timerUpdate.Enabled = true;
-    this.timerUpdate.Interval = 1000;
-    this.timerUpdate.Tick += new System.EventHandler(this.timerUpdate_Tick);
+    labelTimeRemaining.AutoSize = true;
+    labelTimeRemaining.Font = new Font("Microsoft Sans Serif", 12F, FontStyle.Bold);
+    labelTimeRemaining.ForeColor = Color.DarkRed;
+    labelTimeRemaining.Location = new Point(43, 383);
+    labelTimeRemaining.Margin = new Padding(4, 0, 4, 0);
+    labelTimeRemaining.Name = "labelTimeRemaining";
+    labelTimeRemaining.Size = new Size(262, 29);
+    labelTimeRemaining.TabIndex = 6;
+    labelTimeRemaining.Text = "Time Remaining: N/A";
     // 
-    // labelTagFilter
+    // labelRaceEndTime
     // 
-    this.labelTagFilter.AutoSize = true;
-    this.labelTagFilter.Location = new System.Drawing.Point(20, 60);
-    this.labelTagFilter.Name = "labelTagFilter";
-    this.labelTagFilter.Size = new System.Drawing.Size(64, 15);
-    this.labelTagFilter.TabIndex = 13;
-    this.labelTagFilter.Text = "Tag Filter:";
+    labelRaceEndTime.AutoSize = true;
+    labelRaceEndTime.Font = new Font("Microsoft Sans Serif", 12F);
+    labelRaceEndTime.Location = new Point(43, 333);
+    labelRaceEndTime.Margin = new Padding(4, 0, 4, 0);
+    labelRaceEndTime.Name = "labelRaceEndTime";
+    labelRaceEndTime.Size = new Size(210, 29);
+    labelRaceEndTime.TabIndex = 5;
+    labelRaceEndTime.Text = "Race End: Not Set";
     // 
-    // textBoxTagFilter
+    // labelNextCrossing
     // 
-    this.textBoxTagFilter.Location = new System.Drawing.Point(90, 57);
-    this.textBoxTagFilter.Name = "textBoxTagFilter";
-    this.textBoxTagFilter.Size = new System.Drawing.Size(100, 23);
-    this.textBoxTagFilter.TabIndex = 14;
+    labelNextCrossing.AutoSize = true;
+    labelNextCrossing.Font = new Font("Microsoft Sans Serif", 12F);
+    labelNextCrossing.Location = new Point(43, 283);
+    labelNextCrossing.Margin = new Padding(4, 0, 4, 0);
+    labelNextCrossing.Name = "labelNextCrossing";
+    labelNextCrossing.Size = new Size(318, 29);
+    labelNextCrossing.TabIndex = 4;
+    labelNextCrossing.Text = "Next Expected: Calculating...";
     // 
-    // buttonSetFilter
+    // labelLastTag
     // 
-    this.buttonSetFilter.Location = new System.Drawing.Point(196, 57);
-    this.buttonSetFilter.Name = "buttonSetFilter";
-    this.buttonSetFilter.Size = new System.Drawing.Size(75, 23);
-    this.buttonSetFilter.TabIndex = 15;
-    this.buttonSetFilter.Text = "Set Filter";
-    this.buttonSetFilter.UseVisualStyleBackColor = true;
-    this.buttonSetFilter.Click += new System.EventHandler(this.buttonSetFilter_Click);
+    labelLastTag.AutoSize = true;
+    labelLastTag.Font = new Font("Microsoft Sans Serif", 12F);
+    labelLastTag.Location = new Point(43, 233);
+    labelLastTag.Margin = new Padding(4, 0, 4, 0);
+    labelLastTag.Name = "labelLastTag";
+    labelLastTag.Size = new Size(177, 29);
+    labelLastTag.TabIndex = 3;
+    labelLastTag.Text = "Last Tag: None";
     // 
-    // checkBoxFilterEnabled
+    // labelTotalLaps
     // 
-    this.checkBoxFilterEnabled.AutoSize = true;
-    this.checkBoxFilterEnabled.Location = new System.Drawing.Point(277, 61);
-    this.checkBoxFilterEnabled.Name = "checkBoxFilterEnabled";
-    this.checkBoxFilterEnabled.Size = new System.Drawing.Size(15, 14);
-    this.checkBoxFilterEnabled.TabIndex = 16;
-    this.checkBoxFilterEnabled.UseVisualStyleBackColor = true;
-    this.checkBoxFilterEnabled.CheckedChanged += new System.EventHandler(this.checkBoxFilterEnabled_CheckedChanged);
+    labelTotalLaps.AutoSize = true;
+    labelTotalLaps.Font = new Font("Microsoft Sans Serif", 12F);
+    labelTotalLaps.Location = new Point(43, 183);
+    labelTotalLaps.Margin = new Padding(4, 0, 4, 0);
+    labelTotalLaps.Name = "labelTotalLaps";
+    labelTotalLaps.Size = new Size(151, 29);
+    labelTotalLaps.TabIndex = 2;
+    labelTotalLaps.Text = "Total Laps: 0";
     // 
-    // groupBoxRaceStart
+    // labelTotalRiders
     // 
-    this.groupBoxRaceStart.Controls.Add(this.radioButtonStartOnFirstTag);
-    this.groupBoxRaceStart.Controls.Add(this.radioButtonStartManual);
-    this.groupBoxRaceStart.Controls.Add(this.buttonStartRace);
-    this.groupBoxRaceStart.Controls.Add(this.labelRaceStatus);
-    this.groupBoxRaceStart.Location = new System.Drawing.Point(20, 100);
-    this.groupBoxRaceStart.Name = "groupBoxRaceStart";
-    this.groupBoxRaceStart.Size = new System.Drawing.Size(280, 100);
-    this.groupBoxRaceStart.TabIndex = 17;
-    this.groupBoxRaceStart.TabStop = false;
-    this.groupBoxRaceStart.Text = "Race Start Mode";
+    labelTotalRiders.AutoSize = true;
+    labelTotalRiders.Font = new Font("Microsoft Sans Serif", 12F);
+    labelTotalRiders.Location = new Point(43, 133);
+    labelTotalRiders.Margin = new Padding(4, 0, 4, 0);
+    labelTotalRiders.Name = "labelTotalRiders";
+    labelTotalRiders.Size = new Size(170, 29);
+    labelTotalRiders.TabIndex = 1;
+    labelTotalRiders.Text = "Total Riders: 0";
     // 
-    // radioButtonStartOnFirstTag
+    // labelRaceTime
     // 
-    this.radioButtonStartOnFirstTag.AutoSize = true;
-    this.radioButtonStartOnFirstTag.Checked = true;
-    this.radioButtonStartOnFirstTag.Location = new System.Drawing.Point(10, 22);
-    this.radioButtonStartOnFirstTag.Name = "radioButtonStartOnFirstTag";
-    this.radioButtonStartOnFirstTag.Size = new System.Drawing.Size(130, 19);
-    this.radioButtonStartOnFirstTag.TabIndex = 0;
-    this.radioButtonStartOnFirstTag.TabStop = true;
-    this.radioButtonStartOnFirstTag.Text = "Start on first tag read";
-    this.radioButtonStartOnFirstTag.UseVisualStyleBackColor = true;
+    labelRaceTime.AutoSize = true;
+    labelRaceTime.Font = new Font("Microsoft Sans Serif", 14.25F, FontStyle.Bold);
+    labelRaceTime.Location = new Point(43, 50);
+    labelRaceTime.Margin = new Padding(4, 0, 4, 0);
+    labelRaceTime.Name = "labelRaceTime";
+    labelRaceTime.Size = new Size(261, 33);
+    labelRaceTime.TabIndex = 0;
+    labelRaceTime.Text = "Race Time: 00:00";
     // 
-    // radioButtonStartManual
+    // tabPageLapChart
     // 
-    this.radioButtonStartManual.AutoSize = true;
-    this.radioButtonStartManual.Location = new System.Drawing.Point(10, 47);
-    this.radioButtonStartManual.Name = "radioButtonStartManual";
-    this.radioButtonStartManual.Size = new System.Drawing.Size(93, 19);
-    this.radioButtonStartManual.TabIndex = 1;
-    this.radioButtonStartManual.Text = "Manual start";
-    this.radioButtonStartManual.UseVisualStyleBackColor = true;
+    tabPageLapChart.Controls.Add(panelLapChart);
+    tabPageLapChart.Location = new Point(4, 34);
+    tabPageLapChart.Margin = new Padding(4, 5, 4, 5);
+    tabPageLapChart.Name = "tabPageLapChart";
+    tabPageLapChart.Padding = new Padding(4, 5, 4, 5);
+    tabPageLapChart.Size = new Size(1649, 879);
+    tabPageLapChart.TabIndex = 4;
+    tabPageLapChart.Text = "Lap Chart";
+    tabPageLapChart.UseVisualStyleBackColor = true;
     // 
-    // buttonStartRace
+    // panelLapChart
     // 
-    this.buttonStartRace.Enabled = false;
-    this.buttonStartRace.Location = new System.Drawing.Point(150, 45);
-    this.buttonStartRace.Name = "buttonStartRace";
-    this.buttonStartRace.Size = new System.Drawing.Size(75, 23);
-    this.buttonStartRace.TabIndex = 2;
-    this.buttonStartRace.Text = "Start Race";
-    this.buttonStartRace.UseVisualStyleBackColor = true;
-    this.buttonStartRace.Click += new System.EventHandler(this.buttonStartRace_Click);
+    panelLapChart.AutoScroll = true;
+    panelLapChart.BackColor = Color.White;
+    panelLapChart.Dock = DockStyle.Fill;
+    panelLapChart.Location = new Point(4, 5);
+    panelLapChart.Margin = new Padding(4, 5, 4, 5);
+    panelLapChart.Name = "panelLapChart";
+    panelLapChart.Size = new Size(1641, 869);
+    panelLapChart.TabIndex = 0;
+    panelLapChart.Paint += panelLapChart_Paint;
     // 
-    // labelRaceStatus
+    // tabPageRaceSettings
     // 
-    this.labelRaceStatus.AutoSize = true;
-    this.labelRaceStatus.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-    this.labelRaceStatus.ForeColor = System.Drawing.Color.DarkRed;
-    this.labelRaceStatus.Location = new System.Drawing.Point(10, 75);
-    this.labelRaceStatus.Name = "labelRaceStatus";
-    this.labelRaceStatus.Size = new System.Drawing.Size(88, 15);
-    this.labelRaceStatus.TabIndex = 3;
-    this.labelRaceStatus.Text = "Race: Not Started";
-    // 
-    // labelFilterEnabled
-    // 
-    this.labelFilterEnabled.AutoSize = true;
-    this.labelFilterEnabled.Location = new System.Drawing.Point(298, 61);
-    this.labelFilterEnabled.Name = "labelFilterEnabled";
-    this.labelFilterEnabled.Size = new System.Drawing.Size(51, 15);
-    this.labelFilterEnabled.TabIndex = 18;
-    this.labelFilterEnabled.Text = "Enabled";
+    tabPageRaceSettings.Controls.Add(labelAdditionalLaps);
+    tabPageRaceSettings.Controls.Add(numericUpDownAdditionalLaps);
+    tabPageRaceSettings.Controls.Add(buttonSetAdditionalLaps);
+    tabPageRaceSettings.Controls.Add(groupBoxRaceStart);
+    tabPageRaceSettings.Controls.Add(labelTagFilter);
+    tabPageRaceSettings.Controls.Add(textBoxTagFilter);
+    tabPageRaceSettings.Controls.Add(buttonSetFilter);
+    tabPageRaceSettings.Controls.Add(checkBoxFilterEnabled);
+    tabPageRaceSettings.Controls.Add(labelFilterEnabled);
+    tabPageRaceSettings.Controls.Add(labelRaceDuration);
+    tabPageRaceSettings.Controls.Add(numericUpDownRaceDuration);
+    tabPageRaceSettings.Controls.Add(buttonSetDuration);
+    tabPageRaceSettings.Location = new Point(4, 34);
+    tabPageRaceSettings.Margin = new Padding(4, 5, 4, 5);
+    tabPageRaceSettings.Name = "tabPageRaceSettings";
+    tabPageRaceSettings.Padding = new Padding(4, 5, 4, 5);
+    tabPageRaceSettings.Size = new Size(1649, 879);
+    tabPageRaceSettings.TabIndex = 5;
+    tabPageRaceSettings.Text = "Race Settings";
+    tabPageRaceSettings.UseVisualStyleBackColor = true;
     // 
     // labelAdditionalLaps
     // 
-    this.labelAdditionalLaps.AutoSize = true;
-    this.labelAdditionalLaps.Location = new System.Drawing.Point(20, 50);
-    this.labelAdditionalLaps.Name = "labelAdditionalLaps";
-    this.labelAdditionalLaps.Size = new System.Drawing.Size(149, 15);
-    this.labelAdditionalLaps.TabIndex = 13;
-    this.labelAdditionalLaps.Text = "Additional Laps After Time:";
+    labelAdditionalLaps.AutoSize = true;
+    labelAdditionalLaps.Location = new Point(29, 74);
+    labelAdditionalLaps.Margin = new Padding(4, 0, 4, 0);
+    labelAdditionalLaps.Name = "labelAdditionalLaps";
+    labelAdditionalLaps.Size = new Size(226, 25);
+    labelAdditionalLaps.TabIndex = 13;
+    labelAdditionalLaps.Text = "Additional Laps After Time:";
     // 
     // numericUpDownAdditionalLaps
     // 
-    this.numericUpDownAdditionalLaps.Location = new System.Drawing.Point(175, 48);
-    this.numericUpDownAdditionalLaps.Maximum = new decimal(new int[] {
-    10,
-    0,
-    0,
-    0});
-    this.numericUpDownAdditionalLaps.Minimum = new decimal(new int[] {
-    1,
-    0,
-    0,
-    0});
-    this.numericUpDownAdditionalLaps.Name = "numericUpDownAdditionalLaps";
-    this.numericUpDownAdditionalLaps.Size = new System.Drawing.Size(120, 23);
-    this.numericUpDownAdditionalLaps.TabIndex = 14;
-    this.numericUpDownAdditionalLaps.Value = new decimal(new int[] {
-    1,
-    0,
-    0,
-    0});
+    numericUpDownAdditionalLaps.Location = new Point(295, 72);
+    numericUpDownAdditionalLaps.Margin = new Padding(4, 5, 4, 5);
+    numericUpDownAdditionalLaps.Maximum = new decimal(new int[] { 10, 0, 0, 0 });
+    numericUpDownAdditionalLaps.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+    numericUpDownAdditionalLaps.Name = "numericUpDownAdditionalLaps";
+    numericUpDownAdditionalLaps.Size = new Size(171, 31);
+    numericUpDownAdditionalLaps.TabIndex = 14;
+    numericUpDownAdditionalLaps.Value = new decimal(new int[] { 1, 0, 0, 0 });
     // 
     // buttonSetAdditionalLaps
     // 
-    this.buttonSetAdditionalLaps.Location = new System.Drawing.Point(301, 48);
-    this.buttonSetAdditionalLaps.Name = "buttonSetAdditionalLaps";
-    this.buttonSetAdditionalLaps.Size = new System.Drawing.Size(75, 23);
-    this.buttonSetAdditionalLaps.TabIndex = 15;
-    this.buttonSetAdditionalLaps.Text = "Set";
-    this.buttonSetAdditionalLaps.UseVisualStyleBackColor = true;
-    this.buttonSetAdditionalLaps.Click += new System.EventHandler(this.buttonSetAdditionalLaps_Click);
+    buttonSetAdditionalLaps.Location = new Point(474, 67);
+    buttonSetAdditionalLaps.Margin = new Padding(4, 5, 4, 5);
+    buttonSetAdditionalLaps.Name = "buttonSetAdditionalLaps";
+    buttonSetAdditionalLaps.Size = new Size(107, 38);
+    buttonSetAdditionalLaps.TabIndex = 15;
+    buttonSetAdditionalLaps.Text = "Set";
+    buttonSetAdditionalLaps.UseVisualStyleBackColor = true;
+    buttonSetAdditionalLaps.Click += buttonSetAdditionalLaps_Click;
+    // 
+    // groupBoxRaceStart
+    // 
+    groupBoxRaceStart.Controls.Add(radioButtonStartOnFirstTag);
+    groupBoxRaceStart.Controls.Add(radioButtonStartManual);
+    groupBoxRaceStart.Controls.Add(buttonStartRace);
+    groupBoxRaceStart.Controls.Add(labelRaceStatus);
+    groupBoxRaceStart.Location = new Point(29, 167);
+    groupBoxRaceStart.Margin = new Padding(4, 5, 4, 5);
+    groupBoxRaceStart.Name = "groupBoxRaceStart";
+    groupBoxRaceStart.Padding = new Padding(4, 5, 4, 5);
+    groupBoxRaceStart.Size = new Size(400, 167);
+    groupBoxRaceStart.TabIndex = 17;
+    groupBoxRaceStart.TabStop = false;
+    groupBoxRaceStart.Text = "Race Start Mode";
+    // 
+    // radioButtonStartOnFirstTag
+    // 
+    radioButtonStartOnFirstTag.AutoSize = true;
+    radioButtonStartOnFirstTag.Checked = true;
+    radioButtonStartOnFirstTag.Location = new Point(14, 37);
+    radioButtonStartOnFirstTag.Margin = new Padding(4, 5, 4, 5);
+    radioButtonStartOnFirstTag.Name = "radioButtonStartOnFirstTag";
+    radioButtonStartOnFirstTag.Size = new Size(205, 29);
+    radioButtonStartOnFirstTag.TabIndex = 0;
+    radioButtonStartOnFirstTag.TabStop = true;
+    radioButtonStartOnFirstTag.Text = "Start on first tag read";
+    radioButtonStartOnFirstTag.UseVisualStyleBackColor = true;
+    // 
+    // radioButtonStartManual
+    // 
+    radioButtonStartManual.AutoSize = true;
+    radioButtonStartManual.Location = new Point(14, 78);
+    radioButtonStartManual.Margin = new Padding(4, 5, 4, 5);
+    radioButtonStartManual.Name = "radioButtonStartManual";
+    radioButtonStartManual.Size = new Size(135, 29);
+    radioButtonStartManual.TabIndex = 1;
+    radioButtonStartManual.Text = "Manual start";
+    radioButtonStartManual.UseVisualStyleBackColor = true;
+    // 
+    // buttonStartRace
+    // 
+    buttonStartRace.Enabled = false;
+    buttonStartRace.Location = new Point(214, 75);
+    buttonStartRace.Margin = new Padding(4, 5, 4, 5);
+    buttonStartRace.Name = "buttonStartRace";
+    buttonStartRace.Size = new Size(107, 38);
+    buttonStartRace.TabIndex = 2;
+    buttonStartRace.Text = "Start Race";
+    buttonStartRace.UseVisualStyleBackColor = true;
+    buttonStartRace.Click += buttonStartRace_Click;
+    // 
+    // labelRaceStatus
+    // 
+    labelRaceStatus.AutoSize = true;
+    labelRaceStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
+    labelRaceStatus.ForeColor = Color.DarkRed;
+    labelRaceStatus.Location = new Point(14, 125);
+    labelRaceStatus.Margin = new Padding(4, 0, 4, 0);
+    labelRaceStatus.Name = "labelRaceStatus";
+    labelRaceStatus.Size = new Size(170, 22);
+    labelRaceStatus.TabIndex = 3;
+    labelRaceStatus.Text = "Race: Not Started";
+    // 
+    // labelTagFilter
+    // 
+    labelTagFilter.AutoSize = true;
+    labelTagFilter.Location = new Point(29, 117);
+    labelTagFilter.Margin = new Padding(4, 0, 4, 0);
+    labelTagFilter.Name = "labelTagFilter";
+    labelTagFilter.Size = new Size(86, 25);
+    labelTagFilter.TabIndex = 13;
+    labelTagFilter.Text = "Tag Filter:";
+    // 
+    // textBoxTagFilter
+    // 
+    textBoxTagFilter.Location = new Point(295, 115);
+    textBoxTagFilter.Margin = new Padding(4, 5, 4, 5);
+    textBoxTagFilter.Name = "textBoxTagFilter";
+    textBoxTagFilter.Size = new Size(171, 31);
+    textBoxTagFilter.TabIndex = 14;
+    // 
+    // buttonSetFilter
+    // 
+    buttonSetFilter.Location = new Point(474, 111);
+    buttonSetFilter.Margin = new Padding(4, 5, 4, 5);
+    buttonSetFilter.Name = "buttonSetFilter";
+    buttonSetFilter.Size = new Size(107, 38);
+    buttonSetFilter.TabIndex = 15;
+    buttonSetFilter.Text = "Set Filter";
+    buttonSetFilter.UseVisualStyleBackColor = true;
+    buttonSetFilter.Click += buttonSetFilter_Click;
+    // 
+    // checkBoxFilterEnabled
+    // 
+    checkBoxFilterEnabled.AutoSize = true;
+    checkBoxFilterEnabled.Location = new Point(589, 121);
+    checkBoxFilterEnabled.Margin = new Padding(4, 5, 4, 5);
+    checkBoxFilterEnabled.Name = "checkBoxFilterEnabled";
+    checkBoxFilterEnabled.Size = new Size(22, 21);
+    checkBoxFilterEnabled.TabIndex = 16;
+    checkBoxFilterEnabled.UseVisualStyleBackColor = true;
+    checkBoxFilterEnabled.CheckedChanged += checkBoxFilterEnabled_CheckedChanged;
+    // 
+    // labelFilterEnabled
+    // 
+    labelFilterEnabled.AutoSize = true;
+    labelFilterEnabled.Location = new Point(618, 118);
+    labelFilterEnabled.Margin = new Padding(4, 0, 4, 0);
+    labelFilterEnabled.Name = "labelFilterEnabled";
+    labelFilterEnabled.Size = new Size(75, 25);
+    labelFilterEnabled.TabIndex = 18;
+    labelFilterEnabled.Text = "Enabled";
+    // 
+    // timerUpdate
+    // 
+    timerUpdate.Enabled = true;
+    timerUpdate.Interval = 1000;
+    timerUpdate.Tick += timerUpdate_Tick;
     // 
     // Form1
     // 
-    this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
-    this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-    this.ClientSize = new System.Drawing.Size(1184, 612);
-    this.Controls.Add(this.tabControl);
-    this.Controls.Add(this.buttonClearRiders);
-    this.Controls.Add(this.buttonShowSummary);
-    this.Controls.Add(this.labelConnections);
-    this.Controls.Add(this.buttonClear);
-    this.Controls.Add(this.labelPort);
-    this.Controls.Add(this.textBoxPort);
-    this.Controls.Add(this.buttonStop);
-    this.Controls.Add(this.buttonStart);
-    this.Controls.Add(this.labelStatus);
-    this.MinimumSize = new System.Drawing.Size(800, 500);
-    this.Name = "Form1";
-    this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-    this.Text = "CrossMgr RFID Interface";
-    this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Form1_FormClosing);
-    this.tabControl.ResumeLayout(false);
-    this.tabPageLive.ResumeLayout(false);
-    this.tabPageTagEvents.ResumeLayout(false);
-    this.tabPageRiders.ResumeLayout(false);
-    ((System.ComponentModel.ISupportInitialize)(this.dataGridViewRiders)).EndInit();
-    this.tabPageStats.ResumeLayout(false);
-    this.tabPageStats.PerformLayout();
-    ((System.ComponentModel.ISupportInitialize)(this.numericUpDownRaceDuration)).EndInit();
-    ((System.ComponentModel.ISupportInitialize)(this.numericUpDownAdditionalLaps)).EndInit();
-    this.tabPageLapChart.ResumeLayout(false);
-    this.tabPageRaceSettings.ResumeLayout(false);
-    this.tabPageRaceSettings.PerformLayout();
-    this.groupBoxRaceStart.ResumeLayout(false);
-    this.groupBoxRaceStart.PerformLayout();
-    this.ResumeLayout(false);
-    this.PerformLayout();
+    AutoScaleDimensions = new SizeF(10F, 25F);
+    AutoScaleMode = AutoScaleMode.Font;
+    ClientSize = new Size(1691, 1020);
+    Controls.Add(tabControl);
+    Controls.Add(buttonClearRiders);
+    Controls.Add(buttonShowSummary);
+    Controls.Add(labelConnections);
+    Controls.Add(buttonClear);
+    Controls.Add(labelPort);
+    Controls.Add(textBoxPort);
+    Controls.Add(buttonStop);
+    Controls.Add(buttonStart);
+    Controls.Add(labelStatus);
+    Margin = new Padding(4, 5, 4, 5);
+    MinimumSize = new Size(1133, 796);
+    Name = "Form1";
+    StartPosition = FormStartPosition.CenterScreen;
+    Text = "CrossMgr RFID Interface";
+    FormClosing += Form1_FormClosing;
+    ((System.ComponentModel.ISupportInitialize)numericUpDownRaceDuration).EndInit();
+    tabControl.ResumeLayout(false);
+    tabPageLive.ResumeLayout(false);
+    tabPageTagEvents.ResumeLayout(false);
+    tabPageRiders.ResumeLayout(false);
+    ((System.ComponentModel.ISupportInitialize)dataGridViewRiders).EndInit();
+    tabPageStats.ResumeLayout(false);
+    tabPageStats.PerformLayout();
+    tabPageLapChart.ResumeLayout(false);
+    tabPageRaceSettings.ResumeLayout(false);
+    tabPageRaceSettings.PerformLayout();
+    ((System.ComponentModel.ISupportInitialize)numericUpDownAdditionalLaps).EndInit();
+    groupBoxRaceStart.ResumeLayout(false);
+    groupBoxRaceStart.PerformLayout();
+    ResumeLayout(false);
+    PerformLayout();
   }
 
   #endregion

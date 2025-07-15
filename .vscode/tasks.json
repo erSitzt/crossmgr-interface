@@ -6,7 +6,8 @@
       "type": "shell",
       "command": "dotnet",
       "args": [
-        "build"
+        "build",
+        "crossmgr-interface.sln"
       ],
       "group": "build",
       "problemMatcher": [
@@ -19,7 +20,9 @@
       "type": "shell",
       "command": "dotnet",
       "args": [
-        "run"
+        "run",
+        "--project",
+        "CrossMgrInterface.csproj"
       ],
       "group": "test",
       "problemMatcher": [],
