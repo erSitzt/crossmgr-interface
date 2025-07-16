@@ -21,6 +21,7 @@ public partial class Form1 : Form
   private readonly LapChartRenderer _lapChartRenderer;
   private readonly LapProgressionManager _lapProgressionManager;
   private readonly RaceStateManager _raceStateManager;
+  private readonly RaceReportGenerator _raceReportGenerator;
 
   // Rider tracking
   private readonly Dictionary<string, RiderInfo> riders = new();
@@ -85,6 +86,7 @@ public partial class Form1 : Form
     _raceEventManager = new RaceEventManager(_raceDb, AddRaceEvent);
     _lapChartRenderer = new LapChartRenderer();
     _lapProgressionManager = new LapProgressionManager();
+    _raceReportGenerator = new RaceReportGenerator();
 
     this.Load += Form1_Load;
     InitializeRidersDataGrid();
@@ -116,6 +118,21 @@ public partial class Form1 : Form
     {
       lapChartNeedsUpdate = false;
       panelLapChart.Invalidate(); // Trigger repaint
+    }
+    // If switching to Lap Progression tab, always update if we have data or if update is needed
+    else if (tabControl.SelectedIndex == 5)
+    {
+      bool shouldUpdate = false;
+      lock (ridersLock)
+      {
+        shouldUpdate = riders.Count > 0; // Always update when switching to lap progression tab
+        lapProgressionNeedsUpdate = false; // Clear the flag since we're updating now
+      }
+
+      if (shouldUpdate)
+      {
+        _lapProgressionManager.UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, this);
+      }
     }
   }
 
@@ -316,7 +333,7 @@ public partial class Form1 : Form
           {
             for (int i = 0; i < lines.Length - 1; i++)
             {
-              ProcessMessage(lines[i], stream, clientEndpoint);
+              await ProcessMessage(lines[i], stream, clientEndpoint);
             }
             stringBuilder.Append(lines[lines.Length - 1]);
           }
@@ -329,7 +346,7 @@ public partial class Form1 : Form
           if (!string.IsNullOrWhiteSpace(line))
           {
             // Reduced verbosity - don't log processing details for every line
-            ProcessMessage(line, stream, clientEndpoint);
+            await ProcessMessage(line, stream, clientEndpoint);
           }
         }
       }
@@ -351,7 +368,7 @@ public partial class Form1 : Form
     }
   }
 
-  private async void ProcessMessage(string message, NetworkStream stream, string clientEndpoint)
+  private async Task ProcessMessage(string message, NetworkStream stream, string clientEndpoint)
   {
     try
     {
@@ -672,6 +689,12 @@ public partial class Form1 : Form
 
       ridersDisplayNeedsUpdate = true;
       lapChartNeedsUpdate = true;
+
+      // If user is currently on riders tab, update immediately
+      if (tabControl.SelectedIndex == 2)
+      {
+        BeginInvoke(new Action(UpdateRidersDisplay));
+      }
       return firstLap;
     }
     else
@@ -756,6 +779,13 @@ public partial class Form1 : Form
 
       ridersDisplayNeedsUpdate = true;
       lapChartNeedsUpdate = true;
+
+      // If user is currently on riders tab, update immediately
+      if (tabControl.SelectedIndex == 2)
+      {
+        BeginInvoke(new Action(UpdateRidersDisplay));
+      }
+
       return newLap;
     }
   }
@@ -1009,7 +1039,7 @@ public partial class Form1 : Form
   {
     if (InvokeRequired)
     {
-      Invoke(new Action<string>(AddTagEvent), message);
+      BeginInvoke(new Action<string>(AddTagEvent), message);
       return;
     }
 
@@ -1036,7 +1066,7 @@ public partial class Form1 : Form
   {
     if (InvokeRequired)
     {
-      Invoke(new Action<string>(AddRaceEvent), message);
+      BeginInvoke(new Action<string>(AddRaceEvent), message);
       return;
     }
 
@@ -1069,7 +1099,7 @@ public partial class Form1 : Form
   {
     if (InvokeRequired)
     {
-      Invoke(new Action(UpdateConnectionCount));
+      BeginInvoke(new Action(UpdateConnectionCount));
       return;
     }
 
@@ -1103,6 +1133,65 @@ public partial class Form1 : Form
   private void buttonClearRiders_Click(object? sender, EventArgs e)
   {
     ClearRiderData();
+  }
+
+  private void buttonGenerateReport_Click(object? sender, EventArgs e)
+  {
+    try
+    {
+      // Create a snapshot of rider data to avoid locking issues
+      Dictionary<string, RiderInfo> riderSnapshot;
+      DateTime? raceStartSnapshot;
+      DateTime? raceEndSnapshot;
+      TimeSpan raceDurationSnapshot;
+      bool raceFinishedSnapshot;
+
+      lock (ridersLock)
+      {
+        riderSnapshot = riders.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        raceStartSnapshot = raceStartTime;
+        raceEndSnapshot = raceEndTime;
+        raceDurationSnapshot = raceDuration;
+        raceFinishedSnapshot = raceFinished;
+      }
+
+      if (riderSnapshot.Count == 0)
+      {
+        MessageBox.Show("No race data available to generate a report.", "No Data",
+          MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      // Show report options dialog
+      using var reportDialog = new ReportOptionsDialog();
+      if (reportDialog.ShowDialog() == DialogResult.OK)
+      {
+        var raceTitle = reportDialog.RaceTitle;
+
+        switch (reportDialog.SelectedAction)
+        {
+          case ReportAction.Preview:
+            _raceReportGenerator.ShowPrintPreview(riderSnapshot, raceStartSnapshot,
+              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle);
+            break;
+
+          case ReportAction.Print:
+            _raceReportGenerator.PrintReport(riderSnapshot, raceStartSnapshot,
+              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle);
+            break;
+
+          case ReportAction.Export:
+            _raceReportGenerator.ExportToFile(riderSnapshot, raceStartSnapshot,
+              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle);
+            break;
+        }
+      }
+    }
+    catch (Exception ex)
+    {
+      MessageBox.Show($"Error generating race report: {ex.Message}", "Error",
+        MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
   }
 
   private void buttonSetDuration_Click(object? sender, EventArgs e)
@@ -1593,7 +1682,7 @@ public partial class Form1 : Form
       ridersDisplayNeedsUpdate = false;
       UpdateRidersDisplay();
     }
-    else if (tabControl.SelectedIndex == 2) // If on Riders tab, update predictions
+    else if (tabControl.SelectedIndex == 2) // If on Riders tab, update predictions periodically
     {
       // Update only the time-sensitive columns to keep predictions current (but not if race is finished)
       if (!raceFinished)
@@ -1622,14 +1711,12 @@ public partial class Form1 : Form
       }
     }
 
-    // Update lap progression display if needed
+    // Update lap progression display if needed - be more aggressive about updates
     if (lapProgressionNeedsUpdate)
     {
       lapProgressionNeedsUpdate = false;
-      if (tabControl.SelectedIndex == 5) // Only update if on Lap Progression tab
-      {
-        _lapProgressionManager.UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, this);
-      }
+      // Update regardless of which tab is active - the manager will handle efficiency
+      _lapProgressionManager.UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, this);
     }
 
     // Check for DNF timeouts if we're in final laps phase
@@ -2072,7 +2159,7 @@ public partial class Form1 : Form
   {
     if (InvokeRequired)
     {
-      Invoke(new Action(UpdateRaceStartControls));
+      BeginInvoke(new Action(UpdateRaceStartControls));
       return;
     }
 
@@ -2787,7 +2874,16 @@ public partial class Form1 : Form
   {
     // Delegate to the lap progression manager
     _lapProgressionManager.RecordLapProgression(riderId, lapNumber, position, raceTime, riders);
-    lapProgressionNeedsUpdate = true;
+
+    // Set update flag in a thread-safe way using BeginInvoke to avoid deadlocks
+    if (InvokeRequired)
+    {
+      BeginInvoke(new Action(() => lapProgressionNeedsUpdate = true));
+    }
+    else
+    {
+      lapProgressionNeedsUpdate = true;
+    }
   }
 
   private void RecordLapProgressionAfterLapCompletion(string riderId, int lapNumber)

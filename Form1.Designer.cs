@@ -17,6 +17,10 @@ partial class Form1
     {
       components.Dispose();
     }
+    if (disposing)
+    {
+      _raceReportGenerator?.Dispose();
+    }
     base.Dispose(disposing);
   }
 
@@ -38,6 +42,7 @@ partial class Form1
   private System.Windows.Forms.Label labelConnections;
   private System.Windows.Forms.Button buttonShowSummary;
   private System.Windows.Forms.Button buttonClearRiders;
+  private System.Windows.Forms.Button buttonGenerateReport;
   private System.Windows.Forms.Label labelRaceDuration;
   private System.Windows.Forms.NumericUpDown numericUpDownRaceDuration;
   private System.Windows.Forms.Button buttonSetDuration;
@@ -91,6 +96,7 @@ partial class Form1
     labelConnections = new Label();
     buttonShowSummary = new Button();
     buttonClearRiders = new Button();
+    buttonGenerateReport = new Button();
     labelRaceDuration = new Label();
     numericUpDownRaceDuration = new NumericUpDown();
     buttonSetDuration = new Button();
@@ -242,6 +248,17 @@ partial class Form1
     buttonClearRiders.Text = "Clear Riders";
     buttonClearRiders.UseVisualStyleBackColor = true;
     buttonClearRiders.Click += buttonClearRiders_Click;
+    // 
+    // buttonGenerateReport
+    // 
+    buttonGenerateReport.Location = new Point(871, 20);
+    buttonGenerateReport.Margin = new Padding(4, 5, 4, 5);
+    buttonGenerateReport.Name = "buttonGenerateReport";
+    buttonGenerateReport.Size = new Size(150, 38);
+    buttonGenerateReport.TabIndex = 10;
+    buttonGenerateReport.Text = "Generate Report";
+    buttonGenerateReport.UseVisualStyleBackColor = true;
+    buttonGenerateReport.Click += buttonGenerateReport_Click;
     // 
     // labelRaceDuration
     // 
@@ -727,6 +744,7 @@ partial class Form1
     AutoScaleMode = AutoScaleMode.Font;
     ClientSize = new Size(1691, 1020);
     Controls.Add(tabControl);
+    Controls.Add(buttonGenerateReport);
     Controls.Add(buttonClearRiders);
     Controls.Add(buttonShowSummary);
     Controls.Add(labelConnections);
