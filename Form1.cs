@@ -1145,14 +1145,31 @@ public partial class Form1 : Form
       DateTime? raceEndSnapshot;
       TimeSpan raceDurationSnapshot;
       bool raceFinishedSnapshot;
+      DateTime? additionalLapsSignShown;
+      DateTime? raceActuallyEnded;
+      int additionalLapsCount;
 
       lock (ridersLock)
       {
         riderSnapshot = riders.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         raceStartSnapshot = raceStartTime;
-        raceEndSnapshot = raceEndTime;
         raceDurationSnapshot = raceDuration;
         raceFinishedSnapshot = raceFinished;
+
+        // Get additional timing information from race state manager
+        additionalLapsSignShown = _raceStateManager.FinalLapsStartTime;
+        raceActuallyEnded = _raceStateManager.RaceEndTime;
+        additionalLapsCount = _raceStateManager.AdditionalLapsAfterTimeExpiry;
+
+        // Use actual race end time if available, otherwise use calculated end time
+        if (raceActuallyEnded.HasValue)
+        {
+          raceEndSnapshot = raceActuallyEnded.Value;
+        }
+        else
+        {
+          raceEndSnapshot = raceEndTime; // Fallback to calculated end time
+        }
       }
 
       if (riderSnapshot.Count == 0)
@@ -1172,17 +1189,20 @@ public partial class Form1 : Form
         {
           case ReportAction.Preview:
             _raceReportGenerator.ShowPrintPreview(riderSnapshot, raceStartSnapshot,
-              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle);
+              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle,
+              additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
             break;
 
           case ReportAction.Print:
             _raceReportGenerator.PrintReport(riderSnapshot, raceStartSnapshot,
-              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle);
+              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle,
+              additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
             break;
 
           case ReportAction.Export:
             _raceReportGenerator.ExportToFile(riderSnapshot, raceStartSnapshot,
-              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle);
+              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle,
+              additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
             break;
         }
       }
@@ -1453,6 +1473,9 @@ public partial class Form1 : Form
     string lastTagSnapshot;
     DateTime lastTagTimeSnapshot;
     bool raceFinishedSnapshot;
+    DateTime? additionalLapsSignShown;
+    DateTime? raceActuallyEnded;
+    int additionalLapsCount;
 
     lock (ridersLock)
     {
@@ -1464,21 +1487,36 @@ public partial class Form1 : Form
       lastTagSnapshot = lastTagID;
       lastTagTimeSnapshot = lastTagTime;
       raceFinishedSnapshot = raceFinished;
+
+      // Get additional timing information from race state manager
+      additionalLapsSignShown = _raceStateManager.FinalLapsStartTime;
+      raceActuallyEnded = _raceStateManager.RaceEndTime;
+      additionalLapsCount = _raceStateManager.AdditionalLapsAfterTimeExpiry;
     }
 
-    // Update race time
+    // Update race time - stop updating when race is finished
     if (raceStartSnapshot.HasValue)
     {
-      var elapsed = DateTime.Now - raceStartSnapshot.Value;
-      labelRaceTime.Text = $"Race Time: {elapsed:hh\\:mm\\:ss}";
+      if (raceFinishedSnapshot && raceActuallyEnded.HasValue)
+      {
+        // Race is finished - show final race time based on when it actually ended
+        var finalElapsed = raceActuallyEnded.Value - raceStartSnapshot.Value;
+        labelRaceTime.Text = $"Race Time: {finalElapsed:hh\\:mm\\:ss} (Final)";
+      }
+      else
+      {
+        // Race is ongoing - show current elapsed time
+        var elapsed = DateTime.Now - raceStartSnapshot.Value;
+        labelRaceTime.Text = $"Race Time: {elapsed:hh\\:mm\\:ss}";
+      }
     }
     else
     {
       labelRaceTime.Text = "Race Time: Not Started";
     }
 
-    // Update rider count
-    if (dnfCount > 0)
+    // Update rider count - only show DNF count after race is completely finished
+    if (raceFinishedSnapshot && dnfCount > 0)
     {
       labelTotalRiders.Text = $"Total Riders: {riderCount} ({dnfCount} DNF)";
     }
@@ -1503,61 +1541,99 @@ public partial class Form1 : Form
 
     // Show next expected crossing (only if on Race Statistics tab)
     if (tabControl.SelectedIndex == 3) // Race Statistics tab
-    {
-      ShowNextExpectedCrossing();
-
-      // Update race end time
-      if (raceEndSnapshot.HasValue)
+    {      // Show additional timing information for race progression or next expected crossing
+      if (additionalLapsSignShown.HasValue && raceStartSnapshot.HasValue)
       {
-        labelRaceEndTime.Text = $"Race End: {raceEndSnapshot:HH:mm:ss}";
+        var raceTimeWhenSignShown = additionalLapsSignShown.Value - raceStartSnapshot.Value;
+        var timingText = $"🏁 Additional Laps Board: {raceTimeWhenSignShown:mm\\:ss}";
 
-        // Update time remaining
-        var timeRemaining = GetTimeRemaining();
-        if (timeRemaining > TimeSpan.Zero)
+        if (raceActuallyEnded.HasValue)
         {
-          labelTimeRemaining.Text = $"Time Remaining: {timeRemaining:mm\\:ss}";
-          labelTimeRemaining.ForeColor = timeRemaining.TotalMinutes <= 5 ? Color.Red : Color.DarkRed;
-
-          // Show warnings as race nears end
-          if (timeRemaining.TotalMinutes <= 5 && timeRemaining.TotalMinutes > 1 && !fiveMinuteWarningShown)
-          {
-            AddMessage("⚠️ 5 MINUTES REMAINING!");
-            fiveMinuteWarningShown = true;
-          }
-          else if (timeRemaining.TotalMinutes <= 1 && !oneMinuteWarningShown)
-          {
-            AddMessage("⚠️ 1 MINUTE REMAINING!");
-            oneMinuteWarningShown = true;
-          }
+          var actualRaceTime = raceActuallyEnded.Value - raceStartSnapshot.Value;
+          timingText += $" | Final: {actualRaceTime:mm\\:ss} (+{additionalLapsCount} laps)";
         }
-        else if (!raceFinishedSnapshot) // Only show this message if race isn't already finished
+
+        // Show additional timing info when race is in final/finished stages
+        labelNextCrossing.Text = timingText;
+      }
+      else
+      {
+        // Show normal next crossing info when no additional timing to display
+        ShowNextExpectedCrossing();
+      }
+
+      // Update race end time - only update if race isn't actually finished
+      if (!raceFinishedSnapshot)
+      {
+        if (raceEndSnapshot.HasValue)
         {
-          labelTimeRemaining.Text = "Time Remaining: Race Finished";
-          labelTimeRemaining.ForeColor = Color.Red;
-          AddMessage("🏁 RACE FINISHED!");
+          labelRaceEndTime.Text = $"Race End: {raceEndSnapshot:HH:mm:ss}";
+
+          // Update time remaining
+          var timeRemaining = GetTimeRemaining();
+          if (timeRemaining > TimeSpan.Zero)
+          {
+            labelTimeRemaining.Text = $"Time Remaining: {timeRemaining:mm\\:ss}";
+            labelTimeRemaining.ForeColor = timeRemaining.TotalMinutes <= 5 ? Color.Red : Color.DarkRed;
+
+            // Show warnings as race nears end
+            if (timeRemaining.TotalMinutes <= 5 && timeRemaining.TotalMinutes > 1 && !fiveMinuteWarningShown)
+            {
+              AddMessage("⚠️ 5 MINUTES REMAINING!");
+              fiveMinuteWarningShown = true;
+            }
+            else if (timeRemaining.TotalMinutes <= 1 && !oneMinuteWarningShown)
+            {
+              AddMessage("⚠️ 1 MINUTE REMAINING!");
+              oneMinuteWarningShown = true;
+            }
+          }
+          else
+          {
+            labelTimeRemaining.Text = "Time Remaining: Race Finished";
+            labelTimeRemaining.ForeColor = Color.Red;
+          }
         }
         else
         {
-          labelTimeRemaining.Text = "Time Remaining: Race Finished";
-          labelTimeRemaining.ForeColor = Color.Red;
+          labelRaceEndTime.Text = "Race End: Not Set";
+          labelTimeRemaining.Text = "Time Remaining: N/A";
+        }
+
+        // Update predicted laps - only update if race isn't finished
+        var predictedLaps = CalculatePredictedLaps();
+        var leaderInfo = GetLeaderPredictionInfo();
+        if (predictedLaps > 0)
+        {
+          labelPredictedLaps.Text = $"Predicted Laps (Leader): {predictedLaps}{leaderInfo}";
+        }
+        else
+        {
+          labelPredictedLaps.Text = "Predicted Laps (Leader): Calculating...";
         }
       }
       else
       {
-        labelRaceEndTime.Text = "Race End: Not Set";
-        labelTimeRemaining.Text = "Time Remaining: N/A";
-      }
+        // Race is finished - show final state with actual race end time
+        labelTimeRemaining.Text = "Time Remaining: Race Finished";
+        labelTimeRemaining.ForeColor = Color.Red;
 
-      // Update predicted laps
-      var predictedLaps = CalculatePredictedLaps();
-      var leaderInfo = GetLeaderPredictionInfo();
-      if (predictedLaps > 0)
-      {
-        labelPredictedLaps.Text = $"Predicted Laps (Leader): {predictedLaps}{leaderInfo}";
-      }
-      else
-      {
-        labelPredictedLaps.Text = "Predicted Laps (Leader): Calculating...";
+        if (raceActuallyEnded.HasValue)
+        {
+          // Show actual race end time when leader finished
+          labelRaceEndTime.Text = $"Race End: {raceActuallyEnded.Value:HH:mm:ss}";
+        }
+        else if (raceEndSnapshot.HasValue)
+        {
+          labelRaceEndTime.Text = $"Race End: {raceEndSnapshot:HH:mm:ss}";
+        }
+
+        // Show final race time if available
+        if (raceActuallyEnded.HasValue && raceStartSnapshot.HasValue)
+        {
+          var finalRaceTime = raceActuallyEnded.Value - raceStartSnapshot.Value;
+          labelPredictedLaps.Text = $"Final Race Time: {finalRaceTime:mm\\:ss}";
+        }
       }
     }
   }
@@ -2260,6 +2336,10 @@ public partial class Form1 : Form
 
     // Calculate actual race finish time
     var actualRaceFinishTime = DateTime.Now;
+
+    // Set the actual race end time to when the leader finished
+    raceEndTime = actualRaceFinishTime;
+
     var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
 
     // Find the rider who just completed the target lap count
@@ -2351,6 +2431,13 @@ public partial class Form1 : Form
     finalLapsStartTime = null; // Reset final laps tracking
 
     var actualRaceFinishTime = DateTime.Now;
+
+    // Set the actual race end time (only if not already set from leader finish)
+    if (raceEndTime == null || raceEndTime < actualRaceFinishTime)
+    {
+      raceEndTime = actualRaceFinishTime;
+    }
+
     var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
 
     // Count DNF riders

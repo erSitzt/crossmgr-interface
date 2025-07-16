@@ -340,6 +340,10 @@ public class RaceStateManager
     _finalLapsStartTime = null; // Reset final laps tracking
 
     var actualRaceFinishTime = DateTime.Now;
+
+    // Set the actual race end time
+    _raceEndTime = actualRaceFinishTime;
+
     var actualRaceDuration = actualRaceFinishTime - _raceStartTime!.Value;
 
     // Count DNF riders
@@ -426,6 +430,9 @@ public class RaceStateManager
     _raceFinished = true;
     _waitingForFinalLaps = false;
     _finalLapsStartTime = null; // Reset final laps tracking
+
+    // Set the actual race end time to when the race actually finished
+    _raceEndTime = actualRaceFinishTime;
 
     // Calculate actual race finish time and duration
     var actualRaceDuration = actualRaceFinishTime - _raceStartTime!.Value;
