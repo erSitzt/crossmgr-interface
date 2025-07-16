@@ -208,7 +208,7 @@ public class LapProgressionManager
               }
             }
 
-            string cellValue = $"P{position}{positionChangeArrow}{lapTimeChangeArrow}";
+            string cellValue = $"P{position} {positionChangeArrow}{lapTimeChangeArrow}";
             if (lapTime.HasValue)
             {
               cellValue += $"\n{lapTime.Value:mm\\:ss\\.fff}";

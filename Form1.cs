@@ -679,7 +679,7 @@ public partial class Form1 : Form
         TagID = tagID,
         CrossingTime = crossingTime,
         LapNumber = 1,
-        LapTime = null
+        LapTime = raceStartTime.HasValue ? crossingTime - raceStartTime.Value : (TimeSpan?)null
       };
 
       riders[tagID].Laps.Add(firstLap);
