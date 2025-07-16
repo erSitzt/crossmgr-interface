@@ -16,6 +16,12 @@ public partial class Form1 : Form
   // Database service
   private readonly RaceDataService _raceDb;
 
+  // Extracted manager classes
+  private readonly RaceEventManager _raceEventManager;
+  private readonly LapChartRenderer _lapChartRenderer;
+  private readonly LapProgressionManager _lapProgressionManager;
+  private readonly RaceStateManager _raceStateManager;
+
   // Rider tracking
   private readonly Dictionary<string, RiderInfo> riders = new();
   private readonly object ridersLock = new object();
@@ -59,12 +65,9 @@ public partial class Form1 : Form
   private Dictionary<string, int> lastKnownLapCounts = new();
   private DateTime lastPositionCheck = DateTime.MinValue;
 
-  // Lap chart visualization
+  // Lap chart visualization fields removed - now handled by LapChartRenderer
   private bool lapChartNeedsUpdate = false;
   private DateTime lastProgressLineUpdate = DateTime.MinValue;
-  private string? selectedRiderId = null;
-  private string? hoveredLapInfo = null;
-  private readonly List<LapChartElement> lapChartElements = new();
 
   // Lap progression tracking
   private readonly List<LapProgressionEntry> lapProgressionHistory = new();
@@ -76,6 +79,12 @@ public partial class Form1 : Form
 
     // Initialize database service
     _raceDb = new RaceDataService("races.db");
+
+    // Initialize extracted manager classes
+    _raceStateManager = new RaceStateManager();
+    _raceEventManager = new RaceEventManager(_raceDb, AddRaceEvent);
+    _lapChartRenderer = new LapChartRenderer();
+    _lapProgressionManager = new LapProgressionManager();
 
     this.Load += Form1_Load;
     InitializeRidersDataGrid();
@@ -128,8 +137,9 @@ public partial class Form1 : Form
     AddMessage("🔍 Tag filter: Disabled (all tags will be processed)");
     AddMessage($"⚙️ DNF timeout: {dnfTimeoutMinutes} minutes after leader finishes");
 
-    // Add Lap Progression tab programmatically
-    CreateLapProgressionTab();
+    // Add Lap Progression tab programmatically using LapProgressionManager
+    var lapProgressionTab = _lapProgressionManager.CreateLapProgressionTab();
+    tabControl.TabPages.Insert(5, lapProgressionTab);
 
     // Enable double buffering for the lap chart panel to reduce flickering
     typeof(Panel).InvokeMember("DoubleBuffered",
@@ -1141,7 +1151,7 @@ public partial class Form1 : Form
       switch (column.Name)
       {
         case "Position": column.Width = 40; break;
-        case "TagID": column.Width = 100; break;
+        case "TagID": column.Width = 160; break; // Increased to accommodate up to 24-character tag IDs
         case "Laps": column.Width = 50; break;
         case "LastLap": column.Width = 85; break;
         case "BestLap": column.Width = 85; break;
@@ -1618,7 +1628,7 @@ public partial class Form1 : Form
       lapProgressionNeedsUpdate = false;
       if (tabControl.SelectedIndex == 5) // Only update if on Lap Progression tab
       {
-        UpdateLapProgressionDisplay();
+        _lapProgressionManager.UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, this);
       }
     }
 
@@ -1832,7 +1842,9 @@ public partial class Form1 : Form
   {
     try
     {
-      DrawLapChart(e.Graphics, panelLapChart.ClientRectangle);
+      // Delegate to the lap chart renderer using the actual race state from Form1
+      _lapChartRenderer.DrawLapChart(e.Graphics, panelLapChart.ClientRectangle, riders,
+        raceStartTime, raceEndTime, raceDuration, panelLapChart);
     }
     catch (Exception ex)
     {
@@ -1841,483 +1853,9 @@ public partial class Form1 : Form
     }
   }
 
-  private void DrawLapChart(Graphics g, Rectangle bounds)
-  {
-    if (bounds.Width <= 0 || bounds.Height <= 0)
-      return;
+  // DrawLapChart method removed - functionality moved to LapChartRenderer
 
-    // Set graphics quality settings for better performance
-    g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighSpeed;
 
-    // Account for scroll position
-    var scrollOffset = panelLapChart.AutoScrollPosition;
-    g.TranslateTransform(scrollOffset.X, scrollOffset.Y);
-
-    // Clear previous clickable elements
-    lapChartElements.Clear();
-
-    lock (ridersLock)
-    {
-      if (riders.Count == 0 || !raceStartTime.HasValue || !raceEndTime.HasValue)
-      {
-        // Draw "No race data" message
-        var font = new Font("Arial", 16, FontStyle.Bold);
-        var text = "No race data available";
-        var textSize = g.MeasureString(text, font);
-        var x = (bounds.Width - textSize.Width) / 2;
-        var y = (bounds.Height - textSize.Height) / 2;
-        g.DrawString(text, font, Brushes.Gray, x, y);
-        font.Dispose();
-        return;
-      }
-
-      // Calculate race duration and timing
-      var raceDurationMs = raceDuration.TotalMilliseconds;
-
-      // Calculate extended duration to show estimated finish times for all riders
-      var extendedDurationMs = CalculateExtendedChartDuration(raceDurationMs);
-
-      var raceElapsedMs = (DateTime.Now - raceStartTime.Value).TotalMilliseconds;
-      var raceProgressPercent = Math.Min(raceElapsedMs / extendedDurationMs, 1.0);
-
-      // Sort riders by position (same as leaderboard): finishing riders first, then DNF riders
-      var sortedRiders = riders.Values
-        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
-        .ThenByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
-        .ToList();
-
-      // Chart layout parameters
-      const int margin = 20;
-      const int riderBarHeight = 40;
-      const int riderSpacing = 5;
-      const int labelWidth = 120;
-      var chartWidth = bounds.Width - margin * 2 - labelWidth;
-      var chartHeight = sortedRiders.Count * (riderBarHeight + riderSpacing);
-
-      // Set auto-scroll minimum size to enable scrolling when content is larger than panel
-      var minContentHeight = chartHeight + margin * 2 + 50; // Extra 50px for current time indicator
-      var minContentWidth = margin * 2 + labelWidth + chartWidth;
-      panelLapChart.AutoScrollMinSize = new Size(minContentWidth, minContentHeight);
-
-      // Draw title
-      var titleFont = new Font("Arial", 14, FontStyle.Bold);
-      var raceTimeElapsed = TimeSpan.FromMilliseconds(raceElapsedMs);
-      var title = $"Lap Visualization - Race: {raceTimeElapsed:mm\\:ss} / {raceDuration:mm\\:ss}";
-      g.DrawString(title, titleFont, Brushes.Black, margin, margin);
-      titleFont.Dispose();
-
-      var chartTop = margin + 60; // Increased space for current time indicator
-      var barFont = new Font("Arial", 10);
-
-      // Draw time scale at top
-      DrawTimeScale(g, new Rectangle(margin + labelWidth, chartTop - 25, chartWidth, 20), extendedDurationMs, raceDurationMs);
-
-      // Draw each rider's bar
-      for (int i = 0; i < sortedRiders.Count; i++)
-      {
-        var rider = sortedRiders[i];
-        var y = chartTop + i * (riderBarHeight + riderSpacing);
-        var barRect = new Rectangle(margin + labelWidth, y, chartWidth, riderBarHeight);
-
-        DrawRiderLapBar(g, rider, barRect, extendedDurationMs, raceDurationMs, i + 1, lapChartElements);
-
-        // Draw rider label
-        var labelRect = new Rectangle(margin, y, labelWidth - 10, riderBarHeight);
-        var labelText = $"#{i + 1}: {rider.TagID}";
-        var labelBrush = GetPositionBrush(i);
-
-        // Highlight if this rider is selected
-        if (selectedRiderId == rider.TagID)
-        {
-          var highlightRect = new Rectangle(labelRect.X - 3, labelRect.Y - 3,
-            labelRect.Width + 6, labelRect.Height + 6);
-          g.FillRectangle(Brushes.Yellow, highlightRect);
-          g.DrawRectangle(new Pen(Color.Orange, 3), highlightRect);
-        }
-
-        g.FillRectangle(labelBrush, labelRect);
-        g.DrawRectangle(Pens.Black, labelRect);
-
-        // Add rider label as clickable element
-        lapChartElements.Add(new LapChartElement
-        {
-          Bounds = labelRect,
-          RiderId = rider.TagID,
-          IsRider = true
-        });
-
-        var textBrush = i < 3 ? Brushes.Black : Brushes.White;
-        var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-        g.DrawString(labelText, barFont, textBrush, labelRect, sf);
-        sf.Dispose();
-      }
-
-      barFont.Dispose();
-
-      // ===== DRAW LINES ON TOP OF EVERYTHING ELSE =====
-
-      // Draw race progress line - thick and prominent
-      var progressX = margin + labelWidth + (int)(chartWidth * raceProgressPercent);
-      var progressPen = new Pen(Color.Red, 4) { DashStyle = System.Drawing.Drawing2D.DashStyle.Solid };
-
-      // Draw progress line from top of time scale to bottom of chart
-      g.DrawLine(progressPen, progressX, chartTop - 25, progressX, chartTop + chartHeight);
-
-      // Add current time indicator at the top
-      var currentTimeFont = new Font("Arial", 10, FontStyle.Bold);
-      var elapsedTime = TimeSpan.FromMilliseconds(raceElapsedMs);
-      var currentTimeText = $"NOW: {elapsedTime:mm\\:ss}";
-      var timeTextSize = g.MeasureString(currentTimeText, currentTimeFont);
-      var timeTextX = progressX - timeTextSize.Width / 2;
-      var timeTextY = chartTop - 45;
-
-      // Draw background for current time text
-      var timeTextRect = new Rectangle((int)timeTextX - 3, (int)timeTextY - 2,
-        (int)timeTextSize.Width + 6, (int)timeTextSize.Height + 4);
-      g.FillRectangle(Brushes.Red, timeTextRect);
-      g.DrawRectangle(Pens.Black, timeTextRect);
-      g.DrawString(currentTimeText, currentTimeFont, Brushes.White, timeTextX, timeTextY);
-      currentTimeFont.Dispose();
-
-      // Add a semi-transparent overlay to the right of the progress line to show "future time"
-      if (progressX < margin + labelWidth + chartWidth)
-      {
-        var futureRect = new Rectangle(progressX, chartTop,
-          margin + labelWidth + chartWidth - progressX, chartHeight);
-        var futureBrush = new SolidBrush(Color.FromArgb(30, 255, 0, 0));
-        g.FillRectangle(futureBrush, futureRect);
-        futureBrush.Dispose();
-      }
-
-      // Draw race end time line (when original race duration expires)
-      var raceEndX = margin + labelWidth + (int)(chartWidth * (raceDurationMs / extendedDurationMs));
-      if (raceEndX != progressX) // Only draw if different from current progress
-      {
-        var raceEndPen = new Pen(Color.Orange, 3) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
-        g.DrawLine(raceEndPen, raceEndX, chartTop - 25, raceEndX, chartTop + chartHeight);
-
-        // Add race end time indicator
-        var raceEndTimeFont = new Font("Arial", 9, FontStyle.Bold);
-        var raceEndTimeText = $"TIME: {raceDuration:mm\\:ss}";
-        var raceEndTextSize = g.MeasureString(raceEndTimeText, raceEndTimeFont);
-        var raceEndTextX = raceEndX - raceEndTextSize.Width / 2;
-        var raceEndTextY = chartTop - 45;
-
-        // Offset if too close to current time indicator
-        if (Math.Abs(raceEndTextX - timeTextX) < raceEndTextSize.Width)
-        {
-          raceEndTextY = chartTop - 25;
-        }
-
-        // Draw background for race end time text
-        var raceEndTextRect = new Rectangle((int)raceEndTextX - 3, (int)raceEndTextY - 2,
-          (int)raceEndTextSize.Width + 6, (int)raceEndTextSize.Height + 4);
-        g.FillRectangle(Brushes.Orange, raceEndTextRect);
-        g.DrawRectangle(Pens.Black, raceEndTextRect);
-        g.DrawString(raceEndTimeText, raceEndTimeFont, Brushes.Black, raceEndTextX, raceEndTextY);
-
-        raceEndPen.Dispose();
-        raceEndTimeFont.Dispose();
-      }
-
-      progressPen.Dispose();
-
-      // Draw hover tooltip if there's hovered lap info
-      if (!string.IsNullOrEmpty(hoveredLapInfo))
-      {
-        var mousePos = panelLapChart.PointToClient(Cursor.Position);
-        DrawTooltip(g, hoveredLapInfo, mousePos);
-      }
-    }
-  }
-
-  private void DrawTimeScale(Graphics g, Rectangle bounds, double extendedDurationMs, double raceDurationMs)
-  {
-    var font = new Font("Arial", 10, FontStyle.Bold);
-    var pen = new Pen(Color.Black, 2);
-    var lightPen = new Pen(Color.LightGray, 1);
-    var extendedPen = new Pen(Color.Gray, 1) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
-
-    // Draw background for better contrast
-    g.FillRectangle(Brushes.White, bounds);
-    g.DrawRectangle(Pens.Black, bounds);
-
-    // Choose appropriate interval based on extended duration
-    var totalMinutes = extendedDurationMs / 60000.0;
-    double majorIntervalMs;
-    double minorIntervalMs;
-
-    if (totalMinutes <= 5)
-    {
-      majorIntervalMs = 1 * 60 * 1000; // 1 minute major, 30 second minor
-      minorIntervalMs = 30 * 1000;
-    }
-    else if (totalMinutes <= 15)
-    {
-      majorIntervalMs = 2 * 60 * 1000; // 2 minute major, 1 minute minor
-      minorIntervalMs = 1 * 60 * 1000;
-    }
-    else
-    {
-      majorIntervalMs = 5 * 60 * 1000; // 5 minute major, 1 minute minor
-      minorIntervalMs = 1 * 60 * 1000;
-    }
-
-    // Draw major tick marks
-    var majorIntervals = (int)(extendedDurationMs / majorIntervalMs) + 1;
-    for (int i = 0; i <= majorIntervals; i++)
-    {
-      var timeMs = (double)(i * majorIntervalMs);
-      if (timeMs > extendedDurationMs) timeMs = extendedDurationMs;
-
-      var x = bounds.X + (int)(bounds.Width * (timeMs / extendedDurationMs));
-      var minutes = timeMs / 60000;
-
-      // Use different styling for time marks beyond race duration
-      var isWithinRaceTime = timeMs <= raceDurationMs;
-      var tickPen = isWithinRaceTime ? pen : extendedPen;
-      var textBrush = isWithinRaceTime ? Brushes.Black : Brushes.Gray;
-
-      // Draw major tick marks
-      g.DrawLine(tickPen, x, bounds.Y, x, bounds.Y + bounds.Height);
-
-      // Draw time labels with better visibility
-      var timeText = minutes < 10 ? $"{minutes:F1}m" : $"{minutes:F0}m";
-      var textSize = g.MeasureString(timeText, font);
-      var textX = x - textSize.Width / 2;
-      var textY = bounds.Y + 2;
-
-      // Draw white background for text
-      var bgBrush = isWithinRaceTime ? Brushes.White : Brushes.LightGray;
-      g.FillRectangle(bgBrush, textX - 2, textY, textSize.Width + 4, textSize.Height);
-      g.DrawString(timeText, font, textBrush, textX, textY);
-    }
-
-    // Draw minor tick marks
-    var minorIntervals = (int)(extendedDurationMs / minorIntervalMs) + 1;
-    for (int i = 0; i <= minorIntervals; i++)
-    {
-      var timeMs = (double)(i * minorIntervalMs);
-      if (timeMs > extendedDurationMs) timeMs = extendedDurationMs;
-
-      // Skip if this is a major tick mark
-      if (timeMs % majorIntervalMs == 0) continue;
-
-      var x = bounds.X + (int)(bounds.Width * (timeMs / extendedDurationMs));
-      var isWithinRaceTime = timeMs <= raceDurationMs;
-      var tickPen = isWithinRaceTime ? lightPen : extendedPen;
-
-      g.DrawLine(tickPen, x, bounds.Y + bounds.Height - 5, x, bounds.Y + bounds.Height);
-    }
-
-    font.Dispose();
-    pen.Dispose();
-    lightPen.Dispose();
-    extendedPen.Dispose();
-  }
-
-  private void DrawRiderLapBar(Graphics g, RiderInfo rider, Rectangle bounds, double extendedDurationMs, double raceDurationMs, int position, List<LapChartElement> elements)
-  {
-    // Background
-    g.FillRectangle(Brushes.LightGray, bounds);
-    g.DrawRectangle(Pens.Black, bounds);
-
-    if (rider.Laps.Count == 0) return;
-
-    var lapColors = GetLapColors();
-
-    // Draw completed laps based on actual race timeline
-    for (int i = 0; i < rider.Laps.Count; i++)
-    {
-      var lap = rider.Laps[i];
-
-      // Calculate when this lap started and ended in race time
-      DateTime lapStartTime;
-      TimeSpan? lapDuration;
-
-      if (i == 0)
-      {
-        // First lap starts at race start
-        lapStartTime = raceStartTime!.Value;
-        if (lap.LapTime == null)
-        {
-          // Calculate first lap time from race start to crossing
-          lapDuration = lap.CrossingTime - raceStartTime.Value;
-        }
-        else
-        {
-          lapDuration = lap.LapTime;
-        }
-      }
-      else
-      {
-        // Subsequent laps start when previous lap ended
-        lapStartTime = rider.Laps[i - 1].CrossingTime;
-        lapDuration = lap.LapTime;
-      }
-
-      if (!lapDuration.HasValue || lapDuration.Value.TotalMilliseconds <= 0)
-        continue;
-
-      // Calculate position in race timeline using extended duration
-      var lapStartMs = (lapStartTime - raceStartTime!.Value).TotalMilliseconds;
-      var lapDurationMs = lapDuration.Value.TotalMilliseconds;
-      var lapEndMs = lapStartMs + lapDurationMs;
-
-      // Don't clamp to race duration - let laps extend into the extended time area
-      var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / extendedDurationMs));
-      var lapWidth = (int)(bounds.Width * (lapDurationMs / extendedDurationMs));
-
-      var lapRect = new Rectangle(
-        lapStartX,
-        bounds.Y + 2,
-        lapWidth,
-        bounds.Height - 4
-      );
-
-      if (lapRect.Width > 0 && lapRect.X < bounds.Right && lapRect.Right > bounds.X)
-      {
-        var colorIndex = i % lapColors.Length;
-        g.FillRectangle(new SolidBrush(lapColors[colorIndex]), lapRect);
-        g.DrawRectangle(Pens.Black, lapRect);
-
-        // Add lap rectangle as hoverable element
-        elements.Add(new LapChartElement
-        {
-          Bounds = lapRect,
-          RiderId = rider.TagID,
-          LapNumber = i + 1,
-          LapTime = lapDuration,
-          IsRider = false
-        });
-
-        // Draw lap number if there's space
-        if (lapRect.Width > 20)
-        {
-          var lapText = (i + 1).ToString();
-          var font = new Font("Arial", 8, FontStyle.Bold);
-          var textSize = g.MeasureString(lapText, font);
-          var textX = lapRect.X + (lapRect.Width - textSize.Width) / 2;
-          var textY = lapRect.Y + (lapRect.Height - textSize.Height) / 2;
-          g.DrawString(lapText, font, Brushes.Black, textX, textY);
-          font.Dispose();
-        }
-      }
-    }
-
-    // Draw predicted future laps
-    if (rider.PredictedLapTime.HasValue && rider.Laps.Count > 0)
-    {
-      var lastLapEndTime = rider.Laps.Last().CrossingTime;
-      var predictedLapMs = rider.PredictedLapTime.Value.TotalMilliseconds;
-      var lapNumber = rider.TotalLaps + 1;
-      var currentPredictedTime = lastLapEndTime;
-
-      // Calculate maximum laps to display based on race completion rules
-      int maxLapsToShow = CalculateMaxLapsForRaceCompletion(rider);
-
-      while (currentPredictedTime < raceStartTime!.Value.AddMilliseconds(extendedDurationMs) && lapNumber <= maxLapsToShow)
-      {
-        var lapStartMs = (currentPredictedTime - raceStartTime.Value).TotalMilliseconds;
-        var lapEndMs = lapStartMs + predictedLapMs;
-
-        var lapStartX = bounds.X + (int)(bounds.Width * (lapStartMs / extendedDurationMs));
-        var lapWidth = (int)(bounds.Width * (predictedLapMs / extendedDurationMs));
-
-        var lapRect = new Rectangle(
-          lapStartX,
-          bounds.Y + 2,
-          lapWidth,
-          bounds.Height - 4
-        );
-
-        if (lapRect.Width > 0 && lapRect.X < bounds.Right && lapRect.Right > bounds.X)
-        {
-          // Use different styling for laps before and after original race time
-          var baseColor = lapColors[(lapNumber - 1) % lapColors.Length];
-          var isAfterRaceTime = lapStartMs > raceDurationMs;
-
-          Color lapColor;
-          if (isAfterRaceTime)
-          {
-            // Laps after race time - use more transparent color
-            lapColor = Color.FromArgb(80, baseColor.R, baseColor.G, baseColor.B);
-          }
-          else
-          {
-            // Laps during race time - normal transparency
-            lapColor = Color.FromArgb(128, baseColor.R, baseColor.G, baseColor.B);
-          }
-
-          var brush = new SolidBrush(lapColor);
-          g.FillRectangle(brush, lapRect);
-
-          // Dashed border for predicted laps
-          var pen = new Pen(baseColor, 1) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
-          g.DrawRectangle(pen, lapRect);
-
-          brush.Dispose();
-          pen.Dispose();
-
-          // Draw predicted lap number
-          if (lapRect.Width > 20)
-          {
-            var lapText = lapNumber.ToString();
-            var font = new Font("Arial", 8, FontStyle.Italic);
-            var textSize = g.MeasureString(lapText, font);
-            var textX = lapRect.X + (lapRect.Width - textSize.Width) / 2;
-            var textY = lapRect.Y + (lapRect.Height - textSize.Height) / 2;
-            g.DrawString(lapText, font, Brushes.Gray, textX, textY);
-            font.Dispose();
-          }
-        }
-
-        currentPredictedTime = currentPredictedTime.AddMilliseconds(predictedLapMs);
-        lapNumber++;
-      }
-    }
-
-    // Draw statistics text
-    var statsFont = new Font("Arial", 8);
-    var stats = $"Laps: {rider.TotalLaps}";
-    if (rider.BestLapTime.HasValue)
-      stats += $" | Best: {rider.BestLapTime.Value:mm\\:ss}";
-    if (rider.PredictedLapTime.HasValue)
-      stats += $" | Pred: {rider.PredictedLapTime.Value:mm\\:ss}";
-
-    g.DrawString(stats, statsFont, Brushes.Black, bounds.X + 5, bounds.Y + bounds.Height + 2);
-    statsFont.Dispose();
-  }
-
-  private Color[] GetLapColors()
-  {
-    return new Color[]
-    {
-      Color.FromArgb(70, 130, 180),   // Steel Blue
-      Color.FromArgb(255, 165, 0),    // Orange
-      Color.FromArgb(50, 205, 50),    // Lime Green
-      Color.FromArgb(255, 69, 0),     // Red Orange
-      Color.FromArgb(138, 43, 226),   // Blue Violet
-      Color.FromArgb(255, 215, 0),    // Gold
-      Color.FromArgb(220, 20, 60),    // Crimson
-      Color.FromArgb(0, 191, 255),    // Deep Sky Blue
-      Color.FromArgb(154, 205, 50),   // Yellow Green
-      Color.FromArgb(255, 20, 147)    // Deep Pink
-    };
-  }
-
-  private Brush GetPositionBrush(int position)
-  {
-    return position switch
-    {
-      0 => new SolidBrush(Color.Gold),
-      1 => new SolidBrush(Color.Silver),
-      2 => new SolidBrush(Color.FromArgb(205, 127, 50)), // Bronze
-      _ => new SolidBrush(Color.DarkGray)
-    };
-  }
 
   private void PanelLapChart_MouseClick(object? sender, MouseEventArgs e)
   {
@@ -2327,14 +1865,8 @@ public partial class Form1 : Form
     var adjustedLocation = new Point(e.Location.X - panelLapChart.AutoScrollPosition.X,
                                    e.Location.Y - panelLapChart.AutoScrollPosition.Y);
 
-    // Find which element was clicked
-    var clickedElement = lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(adjustedLocation));
-    if (clickedElement != null && clickedElement.IsRider)
-    {
-      selectedRiderId = clickedElement.RiderId;
-      ShowRiderDetails(clickedElement.RiderId);
-      panelLapChart.Invalidate(); // Redraw to show selection
-    }
+    // Delegate to the lap chart renderer
+    _lapChartRenderer.HandleMouseClick(adjustedLocation, ShowRiderDetails, () => panelLapChart.Invalidate());
   }
 
   private void PanelLapChart_MouseMove(object? sender, MouseEventArgs e)
@@ -2343,32 +1875,17 @@ public partial class Form1 : Form
     var adjustedLocation = new Point(e.Location.X - panelLapChart.AutoScrollPosition.X,
                                    e.Location.Y - panelLapChart.AutoScrollPosition.Y);
 
-    // Find which element is being hovered
-    var hoveredElement = lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(adjustedLocation));
-
-    string? newHoverInfo = null;
-    if (hoveredElement != null && !hoveredElement.IsRider && hoveredElement.LapTime.HasValue)
-    {
-      newHoverInfo = $"Lap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}";
-    }
-
-    if (newHoverInfo != hoveredLapInfo)
-    {
-      hoveredLapInfo = newHoverInfo;
-      panelLapChart.Invalidate(); // Redraw to show/hide tooltip
-    }
+    // Delegate to the lap chart renderer
+    bool hasHoveredElement = _lapChartRenderer.HandleMouseMove(adjustedLocation, () => panelLapChart.Invalidate());
 
     // Change cursor when hovering over clickable elements
-    panelLapChart.Cursor = hoveredElement != null ? Cursors.Hand : Cursors.Default;
+    panelLapChart.Cursor = hasHoveredElement ? Cursors.Hand : Cursors.Default;
   }
 
   private void PanelLapChart_MouseLeave(object? sender, EventArgs e)
   {
-    if (hoveredLapInfo != null)
-    {
-      hoveredLapInfo = null;
-      panelLapChart.Invalidate(); // Hide tooltip
-    }
+    // Delegate to the lap chart renderer
+    _lapChartRenderer.HandleMouseLeave(() => panelLapChart.Invalidate());
     panelLapChart.Cursor = Cursors.Default;
   }
 
@@ -3142,408 +2659,27 @@ public partial class Form1 : Form
     lastPositionCheck = DateTime.Now;
   }
 
-  #region Lap Progression Tab
+  #region Lap Progression Tab - Removed (handled by LapProgressionManager)
 
-  private DataGridView? dataGridViewLapProgression;
-  private Button? buttonRefreshProgression;
+  // These fields are now managed by LapProgressionManager:
+  // - DataGridView dataGridViewLapProgression
+  // - Button buttonRefreshProgression
 
-  private void CreateLapProgressionTab()
-  {
-    // Create the Lap Progression tab page
-    var tabPage = new TabPage("Lap Progression");
+  #endregion
 
-    // Create the DataGridView for showing lap progression
-    dataGridViewLapProgression = new DataGridView
-    {
-      Dock = DockStyle.Fill,
-      ReadOnly = true,
-      AllowUserToAddRows = false,
-      AllowUserToDeleteRows = false,
-      AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, // Changed to None for manual control
-      SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-      MultiSelect = false,
-      ScrollBars = ScrollBars.Both, // Ensure scrollbars are available
-      AllowUserToResizeColumns = true
-    };
 
-    // Create refresh button
-    buttonRefreshProgression = new Button
-    {
-      Text = "Refresh Progression",
-      Size = new Size(150, 30),
-      Location = new Point(10, 10)
-    };
-    buttonRefreshProgression.Click += ButtonRefreshProgression_Click;
 
-    // Create panel to hold the button
-    var topPanel = new Panel
-    {
-      Height = 50,
-      Dock = DockStyle.Top
-    };
-    topPanel.Controls.Add(buttonRefreshProgression);
 
-    // Add controls to tab page
-    tabPage.Controls.Add(dataGridViewLapProgression);
-    tabPage.Controls.Add(topPanel);
 
-    // Add tab to the tab control (insert after Lap Chart tab - index 4)
-    tabControl.TabPages.Insert(5, tabPage);
 
-    // Initialize the DataGridView columns
-    InitializeLapProgressionGrid();
-  }
-
-  private void InitializeLapProgressionGrid()
-  {
-    if (dataGridViewLapProgression == null) return;
-
-    dataGridViewLapProgression.Columns.Clear();
-    dataGridViewLapProgression.Columns.Add("RiderId", "Rider");
-    dataGridViewLapProgression.Columns.Add("Lap1", "Lap 1");
-    dataGridViewLapProgression.Columns.Add("Lap2", "Lap 2");
-    dataGridViewLapProgression.Columns.Add("Lap3", "Lap 3");
-    dataGridViewLapProgression.Columns.Add("Lap4", "Lap 4");
-    dataGridViewLapProgression.Columns.Add("Lap5", "Lap 5");
-    dataGridViewLapProgression.Columns.Add("Status", "Status");
-
-    // Set column properties
-    var riderIdColumn = dataGridViewLapProgression.Columns["RiderId"];
-    if (riderIdColumn != null)
-    {
-      riderIdColumn.Width = 120; // Increased width for better visibility
-      riderIdColumn.Frozen = true; // Keep TagID column always visible when scrolling
-      riderIdColumn.Resizable = DataGridViewTriState.False; // Prevent user from resizing
-      riderIdColumn.MinimumWidth = 120; // Ensure minimum width
-    }
-
-    var statusColumn = dataGridViewLapProgression.Columns["Status"];
-    if (statusColumn != null)
-    {
-      statusColumn.Width = 100;
-      statusColumn.Resizable = DataGridViewTriState.True;
-    }
-
-    // Set lap columns to have consistent width and allow scrolling
-    for (int i = 1; i <= 5; i++)
-    {
-      var lapColumn = dataGridViewLapProgression.Columns[$"Lap{i}"];
-      if (lapColumn != null)
-      {
-        lapColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-        lapColumn.Width = 150; // Fixed width for lap columns
-        lapColumn.Resizable = DataGridViewTriState.True;
-      }
-    }
-  }
-
-  private void ButtonRefreshProgression_Click(object? sender, EventArgs e)
-  {
-    UpdateLapProgressionDisplay();
-  }
 
   private void UpdateLapProgressionDisplay()
   {
-    if (dataGridViewLapProgression == null) return;
-
-    if (InvokeRequired)
-    {
-      Invoke(new Action(UpdateLapProgressionDisplay));
-      return;
-    }
-
-    // Create a snapshot of rider data outside of UI operations to avoid deadlocks
-    List<RiderInfo> riderSnapshot;
-    bool raceFinishedSnapshot;
-    bool waitingForFinalLapsSnapshot;
-
-    lock (ridersLock)
-    {
-      if (riders.Count == 0) return;
-
-      // Create a quick snapshot of the data we need
-      riderSnapshot = riders.Values.ToList();
-      raceFinishedSnapshot = raceFinished;
-      waitingForFinalLapsSnapshot = waitingForFinalLaps;
-    }
-
-    try
-    {
-      dataGridViewLapProgression.SuspendLayout();
-      dataGridViewLapProgression.Rows.Clear();
-
-      // Determine maximum laps to show
-      var maxLaps = riderSnapshot.Max(r => r.TotalLaps);
-      maxLaps = Math.Max(maxLaps, 5); // Show at least 5 laps
-
-      // Update columns if needed
-      EnsureLapProgressionColumns(maxLaps);
-
-      // Sort riders by their final position (finishing riders first, then DNF)
-      var sortedRiders = riderSnapshot
-        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF first
-        .ThenByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
-        .ToList();
-
-      foreach (var rider in sortedRiders)
-      {
-        var row = new List<object> { rider.TagID };
-
-        // Add position for each completed lap
-        for (int lap = 1; lap <= maxLaps; lap++)
-        {
-          if (lap <= rider.TotalLaps)
-          {
-            // Calculate what position this rider was in when they completed this lap
-            var position = CalculatePositionAtLapFromSnapshot(rider, lap, riderSnapshot);
-            var lapTime = GetLapTimeFromRider(rider, lap);
-
-            // Calculate position change from previous lap
-            string positionChangeArrow = "";
-            string lapTimeChangeArrow = "";
-            Color cellBackColor = Color.LightBlue; // Default neutral color for maintained position
-
-            if (lap > 1)
-            {
-              var previousPosition = CalculatePositionAtLapFromSnapshot(rider, lap - 1, riderSnapshot);
-              int positionChange = previousPosition - position; // Positive = improved (lower position number)
-
-              // Check lap time improvement
-              var previousLapTime = GetLapTimeFromRider(rider, lap - 1);
-              bool lapTimeImproved = false;
-              bool lapTimeWorsened = false;
-
-              if (lapTime.HasValue && previousLapTime.HasValue)
-              {
-                var timeDifference = lapTime.Value.TotalMilliseconds - previousLapTime.Value.TotalMilliseconds;
-                if (timeDifference < 0) // Any improvement, even 1ms faster
-                {
-                  lapTimeImproved = true;
-                  lapTimeChangeArrow = "⚡"; // Fast lap indicator
-                }
-                else if (timeDifference > 0) // Any degradation, even 1ms slower
-                {
-                  lapTimeWorsened = true;
-                  lapTimeChangeArrow = "🐌"; // Slow lap indicator
-                }
-              }
-
-              // Determine cell color based on position AND lap time changes
-              if (positionChange > 0)
-              {
-                // Moved up in positions
-                positionChangeArrow = " ↑"; // Improved position
-                cellBackColor = Color.LightGreen;
-              }
-              else if (positionChange < 0)
-              {
-                // Moved down in positions
-                positionChangeArrow = " ↓"; // Lost position
-                cellBackColor = Color.LightPink;
-              }
-              else // Position maintained
-              {
-                // Use lap time performance for color when position unchanged
-                if (lapTimeImproved)
-                {
-                  cellBackColor = Color.LightCyan; // Light cyan for faster lap time
-                }
-                else if (lapTimeWorsened)
-                {
-                  cellBackColor = Color.MistyRose; // Light pink for slower lap time
-                }
-                else
-                {
-                  cellBackColor = Color.LightBlue; // Neutral for similar lap time
-                }
-              }
-            }
-
-            string cellValue = $"P{position}{positionChangeArrow}{lapTimeChangeArrow}";
-            if (lapTime.HasValue)
-            {
-              cellValue += $"\n{lapTime.Value:mm\\:ss\\.fff}";
-            }
-
-            row.Add(new { Value = cellValue, BackColor = cellBackColor });
-          }
-          else
-          {
-            row.Add(new { Value = "", BackColor = Color.White }); // No lap completed
-          }
-        }
-
-        // Add status - determine if this specific rider has finished
-        string status;
-        if (rider.IsDNF)
-        {
-          status = "DNF";
-        }
-        else if (raceFinishedSnapshot)
-        {
-          status = "Finished";
-        }
-        else if (waitingForFinalLapsSnapshot)
-        {
-          // Check if this rider has completed their final allowed lap
-          if (rider.FinalAllowedLap > 0 && rider.TotalLaps >= rider.FinalAllowedLap)
-          {
-            status = "Finished";
-          }
-          else
-          {
-            status = "Final Lap";
-          }
-        }
-        else
-        {
-          status = "Racing";
-        }
-
-        row.Add(new { Value = status, BackColor = Color.White });
-
-        // Create the row with just the values
-        var rowValues = new object[row.Count];
-        for (int i = 0; i < row.Count; i++)
-        {
-          if (row[i] is string str)
-          {
-            rowValues[i] = str; // Rider ID
-          }
-          else if (row[i] != null && row[i].GetType().GetProperty("Value") != null)
-          {
-            rowValues[i] = row[i].GetType().GetProperty("Value")?.GetValue(row[i]) ?? "";
-          }
-          else
-          {
-            rowValues[i] = row[i] ?? "";
-          }
-        }
-
-        dataGridViewLapProgression.Rows.Add(rowValues);
-
-        // Apply cell formatting
-        var currentGridRow = dataGridViewLapProgression.Rows[dataGridViewLapProgression.Rows.Count - 1];
-
-        // Apply individual cell background colors for position changes
-        for (int i = 1; i < row.Count - 1; i++) // Skip rider ID (0) and status (last)
-        {
-          if (row[i] != null && row[i].GetType().GetProperty("BackColor") != null)
-          {
-            var backColor = (Color)(row[i].GetType().GetProperty("BackColor")?.GetValue(row[i]) ?? Color.White);
-            if (i < currentGridRow.Cells.Count)
-            {
-              currentGridRow.Cells[i].Style.BackColor = backColor;
-            }
-          }
-        }
-
-        // Make position text bold in each lap cell
-        for (int i = 1; i < currentGridRow.Cells.Count - 1; i++) // Skip rider ID and status
-        {
-          if (!string.IsNullOrEmpty(currentGridRow.Cells[i].Value?.ToString()))
-          {
-            currentGridRow.Cells[i].Style.Font = new Font(currentGridRow.DefaultCellStyle.Font ?? dataGridViewLapProgression.DefaultCellStyle.Font, FontStyle.Bold);
-          }
-        }
-
-        // Color code specific columns based on overall position (only rider ID and status columns)
-        if (rider.IsDNF)
-        {
-          // Apply DNF styling to rider ID and status columns only
-          currentGridRow.Cells[0].Style.BackColor = Color.LightGray; // Rider ID
-          currentGridRow.Cells[0].Style.ForeColor = Color.DarkRed;
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.BackColor = Color.LightGray; // Status
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.ForeColor = Color.DarkRed;
-        }
-        else if (sortedRiders.IndexOf(rider) == 0)
-        {
-          // Leader styling to rider ID and status columns only
-          currentGridRow.Cells[0].Style.BackColor = Color.Gold;
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.BackColor = Color.Gold;
-        }
-        else if (sortedRiders.IndexOf(rider) == 1)
-        {
-          // 2nd place styling to rider ID and status columns only
-          currentGridRow.Cells[0].Style.BackColor = Color.Silver;
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.BackColor = Color.Silver;
-        }
-        else if (sortedRiders.IndexOf(rider) == 2)
-        {
-          // 3rd place styling to rider ID and status columns only
-          currentGridRow.Cells[0].Style.BackColor = Color.FromArgb(205, 127, 50);
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.BackColor = Color.FromArgb(205, 127, 50);
-        }
-      }
-    }
-    catch (Exception ex)
-    {
-      AddMessage($"Error updating lap progression display: {ex.Message}");
-    }
-    finally
-    {
-      dataGridViewLapProgression.ResumeLayout();
-    }
+    // This method has been moved to LapProgressionManager
+    // All lap progression functionality is now handled by the manager class
   }
 
-  private void EnsureLapProgressionColumns(int maxLaps)
-  {
-    if (dataGridViewLapProgression == null) return;
 
-    // Remove existing lap columns (keep RiderId and Status)
-    var columnsToRemove = dataGridViewLapProgression.Columns.Cast<DataGridViewColumn>()
-      .Where(c => c.Name.StartsWith("Lap") && c.Name != "Status")
-      .ToList();
-
-    foreach (var col in columnsToRemove)
-    {
-      dataGridViewLapProgression.Columns.Remove(col);
-    }
-
-    // Add lap columns
-    for (int i = 1; i <= maxLaps; i++)
-    {
-      var lapColumn = new DataGridViewTextBoxColumn
-      {
-        Name = $"Lap{i}",
-        HeaderText = $"Lap {i}",
-        DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter },
-        Width = 150, // Fixed width for lap columns
-        Resizable = DataGridViewTriState.True
-      };
-
-      // Insert before Status column
-      var statusColumn = dataGridViewLapProgression.Columns["Status"];
-      if (statusColumn != null)
-      {
-        var statusColumnIndex = statusColumn.Index;
-        dataGridViewLapProgression.Columns.Insert(statusColumnIndex, lapColumn);
-      }
-      else
-      {
-        dataGridViewLapProgression.Columns.Add(lapColumn);
-      }
-    }
-
-    // Ensure RiderID column properties are maintained after column changes
-    var riderIdColumn = dataGridViewLapProgression.Columns["RiderId"];
-    if (riderIdColumn != null)
-    {
-      riderIdColumn.Width = 120;
-      riderIdColumn.Frozen = true; // Keep TagID column always visible when scrolling
-      riderIdColumn.Resizable = DataGridViewTriState.False;
-      riderIdColumn.MinimumWidth = 120;
-    }
-
-    // Ensure Status column properties are maintained
-    var statusCol = dataGridViewLapProgression.Columns["Status"];
-    if (statusCol != null)
-    {
-      statusCol.Width = 100;
-      statusCol.Resizable = DataGridViewTriState.True;
-    }
-  }
 
   private int CalculatePositionAtLap(string riderId, int lapNumber)
   {
@@ -3594,7 +2730,7 @@ public partial class Form1 : Form
     return lap?.LapTime;
   }
 
-  #endregion
+  // Lap progression functionality has been moved to LapProgressionManager
 
   /// <summary>
   /// Calculate position at lap using snapshot data (no locking needed)
@@ -3649,18 +2785,8 @@ public partial class Form1 : Form
 
   private void RecordLapProgression(string riderId, int lapNumber, int position, TimeSpan raceTime)
   {
-    var entry = new LapProgressionEntry
-    {
-      RiderId = riderId,
-      LapNumber = lapNumber,
-      Position = position,
-      RaceTime = raceTime,
-      CrossingTime = DateTime.Now,
-      LapTime = riders.ContainsKey(riderId) ? riders[riderId].LastLapTime : null,
-      IsDNF = riders.ContainsKey(riderId) && riders[riderId].IsDNF
-    };
-
-    lapProgressionHistory.Add(entry);
+    // Delegate to the lap progression manager
+    _lapProgressionManager.RecordLapProgression(riderId, lapNumber, position, raceTime, riders);
     lapProgressionNeedsUpdate = true;
   }
 
@@ -3696,5 +2822,4 @@ public partial class Form1 : Form
 
     return 999; // Not found or DNF
   }
-
 }

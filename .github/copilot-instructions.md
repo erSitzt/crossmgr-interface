@@ -40,3 +40,7 @@ DA11240EC8F5F402593D42762DC18C8524 17:49:03.824413 10  00002      C7 date=202507
 - Connection counter
 - Clear messages button
 - Status indicator
+
+## Copilot Usage
+
+- Do not revert the last change made by Copilot if premium requests limit is reached.

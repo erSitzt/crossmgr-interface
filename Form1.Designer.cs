@@ -73,6 +73,12 @@ partial class Form1
   private System.Windows.Forms.NumericUpDown numericUpDownAdditionalLaps;
   private System.Windows.Forms.Button buttonSetAdditionalLaps;
 
+  // Short lap detection controls
+  private System.Windows.Forms.Label labelMinimumLapTime;
+  private System.Windows.Forms.NumericUpDown numericUpDownMinimumLapTime;
+  private System.Windows.Forms.CheckBox checkBoxShortLapDetection;
+  private System.Windows.Forms.Button buttonSetShortLapSettings;
+
   private void InitializeComponent()
   {
     components = new System.ComponentModel.Container();
@@ -110,6 +116,10 @@ partial class Form1
     labelAdditionalLaps = new Label();
     numericUpDownAdditionalLaps = new NumericUpDown();
     buttonSetAdditionalLaps = new Button();
+    labelMinimumLapTime = new Label();
+    numericUpDownMinimumLapTime = new NumericUpDown();
+    checkBoxShortLapDetection = new CheckBox();
+    buttonSetShortLapSettings = new Button();
     groupBoxRaceStart = new GroupBox();
     radioButtonStartOnFirstTag = new RadioButton();
     radioButtonStartManual = new RadioButton();
@@ -131,6 +141,7 @@ partial class Form1
     tabPageLapChart.SuspendLayout();
     tabPageRaceSettings.SuspendLayout();
     ((System.ComponentModel.ISupportInitialize)numericUpDownAdditionalLaps).BeginInit();
+    ((System.ComponentModel.ISupportInitialize)numericUpDownMinimumLapTime).BeginInit();
     groupBoxRaceStart.SuspendLayout();
     SuspendLayout();
     // 
@@ -489,6 +500,10 @@ partial class Form1
     // 
     // tabPageRaceSettings
     // 
+    tabPageRaceSettings.Controls.Add(buttonSetShortLapSettings);
+    tabPageRaceSettings.Controls.Add(checkBoxShortLapDetection);
+    tabPageRaceSettings.Controls.Add(numericUpDownMinimumLapTime);
+    tabPageRaceSettings.Controls.Add(labelMinimumLapTime);
     tabPageRaceSettings.Controls.Add(labelAdditionalLaps);
     tabPageRaceSettings.Controls.Add(numericUpDownAdditionalLaps);
     tabPageRaceSettings.Controls.Add(buttonSetAdditionalLaps);
@@ -541,6 +556,51 @@ partial class Form1
     buttonSetAdditionalLaps.Text = "Set";
     buttonSetAdditionalLaps.UseVisualStyleBackColor = true;
     buttonSetAdditionalLaps.Click += buttonSetAdditionalLaps_Click;
+    // 
+    // labelMinimumLapTime
+    // 
+    labelMinimumLapTime.AutoSize = true;
+    labelMinimumLapTime.Location = new Point(29, 124);
+    labelMinimumLapTime.Margin = new Padding(4, 0, 4, 0);
+    labelMinimumLapTime.Name = "labelMinimumLapTime";
+    labelMinimumLapTime.Size = new Size(201, 25);
+    labelMinimumLapTime.TabIndex = 16;
+    labelMinimumLapTime.Text = "Minimum Lap Time (sec):";
+    // 
+    // numericUpDownMinimumLapTime
+    // 
+    numericUpDownMinimumLapTime.Location = new Point(295, 122);
+    numericUpDownMinimumLapTime.Margin = new Padding(4, 5, 4, 5);
+    numericUpDownMinimumLapTime.Maximum = new decimal(new int[] { 300, 0, 0, 0 });
+    numericUpDownMinimumLapTime.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+    numericUpDownMinimumLapTime.Name = "numericUpDownMinimumLapTime";
+    numericUpDownMinimumLapTime.Size = new Size(171, 31);
+    numericUpDownMinimumLapTime.TabIndex = 17;
+    numericUpDownMinimumLapTime.Value = new decimal(new int[] { 10, 0, 0, 0 });
+    // 
+    // checkBoxShortLapDetection
+    // 
+    checkBoxShortLapDetection.AutoSize = true;
+    checkBoxShortLapDetection.Checked = true;
+    checkBoxShortLapDetection.CheckState = CheckState.Checked;
+    checkBoxShortLapDetection.Location = new Point(474, 124);
+    checkBoxShortLapDetection.Margin = new Padding(4, 5, 4, 5);
+    checkBoxShortLapDetection.Name = "checkBoxShortLapDetection";
+    checkBoxShortLapDetection.Size = new Size(152, 29);
+    checkBoxShortLapDetection.TabIndex = 18;
+    checkBoxShortLapDetection.Text = "Enable Detection";
+    checkBoxShortLapDetection.UseVisualStyleBackColor = true;
+    // 
+    // buttonSetShortLapSettings
+    // 
+    buttonSetShortLapSettings.Location = new Point(634, 119);
+    buttonSetShortLapSettings.Margin = new Padding(4, 5, 4, 5);
+    buttonSetShortLapSettings.Name = "buttonSetShortLapSettings";
+    buttonSetShortLapSettings.Size = new Size(107, 38);
+    buttonSetShortLapSettings.TabIndex = 19;
+    buttonSetShortLapSettings.Text = "Set";
+    buttonSetShortLapSettings.UseVisualStyleBackColor = true;
+    //buttonSetShortLapSettings.Click += buttonSetShortLapSettings_Click;
     // 
     // groupBoxRaceStart
     // 
@@ -694,6 +754,7 @@ partial class Form1
     tabPageRaceSettings.ResumeLayout(false);
     tabPageRaceSettings.PerformLayout();
     ((System.ComponentModel.ISupportInitialize)numericUpDownAdditionalLaps).EndInit();
+    ((System.ComponentModel.ISupportInitialize)numericUpDownMinimumLapTime).EndInit();
     groupBoxRaceStart.ResumeLayout(false);
     groupBoxRaceStart.PerformLayout();
     ResumeLayout(false);
