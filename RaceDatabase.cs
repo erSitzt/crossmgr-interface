@@ -17,6 +17,11 @@ public class DbRace
   public string? LeaderAtTimeExpiry { get; set; }
   public int LeaderLapsAtTimeExpiry { get; set; }
   public int TargetLapsToFinishRace { get; set; }
+  public bool WaitingForLeaderFinish { get; set; }
+  public bool WaitingForFinalLaps { get; set; }
+  public DateTime? FinalLapsStartTime { get; set; }
+  public bool FiveMinuteWarningShown { get; set; }
+  public DateTime? LastSavedAt { get; set; }
   public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
@@ -35,6 +40,8 @@ public class DbRider
   public TimeSpan? LastLapTime { get; set; }
   public TimeSpan? PredictedLapTime { get; set; }
   public DateTime? EstimatedNextCrossing { get; set; }
+  public bool IsDNF { get; set; }
+  public DateTime? DNFTime { get; set; }
 }
 
 public class DbLap
@@ -172,7 +179,9 @@ public class RaceDataService : IDisposable
       BestLapTime = riderInfo.BestLapTime,
       LastLapTime = riderInfo.LastLapTime,
       PredictedLapTime = riderInfo.PredictedLapTime,
-      EstimatedNextCrossing = riderInfo.EstimatedNextCrossing
+      EstimatedNextCrossing = riderInfo.EstimatedNextCrossing,
+      IsDNF = riderInfo.IsDNF,
+      DNFTime = riderInfo.DNFTime
     };
 
     if (existingRider != null)
@@ -198,7 +207,28 @@ public class RaceDataService : IDisposable
 
   public void AddLap(string riderTagID, RiderLap lap, int positionAtCompletion)
   {
-    if (CurrentRaceId == 0) return;
+    if (CurrentRaceId == 0)
+    {
+      // Debug: Log when CurrentRaceId is 0
+      Console.WriteLine($"AddLap failed: CurrentRaceId is 0 for rider {riderTagID}, lap {lap.LapNumber}");
+      return;
+    }
+
+    // Check if this lap already exists to prevent duplicates
+    var existingLap = _laps.FindOne(l => l.RaceId == CurrentRaceId &&
+                                        l.RiderTagID == riderTagID &&
+                                        l.LapNumber == lap.LapNumber);
+
+    if (existingLap != null)
+    {
+      // Lap already exists, update it instead
+      existingLap.CrossingTime = lap.CrossingTime;
+      existingLap.LapTime = lap.LapTime;
+      existingLap.PositionAtCompletion = positionAtCompletion;
+      _laps.Update(existingLap);
+      Console.WriteLine($"Updated lap: Rider {riderTagID}, Lap {lap.LapNumber}, Race {CurrentRaceId}");
+      return;
+    }
 
     var dbLap = new DbLap
     {
@@ -211,6 +241,7 @@ public class RaceDataService : IDisposable
     };
 
     _laps.Insert(dbLap);
+    Console.WriteLine($"Inserted lap: Rider {riderTagID}, Lap {lap.LapNumber}, Race {CurrentRaceId}");
   }
 
   public List<DbLap> GetRiderLaps(string riderTagID)
@@ -348,6 +379,103 @@ public class RaceDataService : IDisposable
                                          ld.RiderB == riderB);
 
     return lapDiff?.LapDifference ?? defaultValue;
+  }
+
+  #endregion
+
+  #region Crash Recovery
+
+  /// <summary>
+  /// Gets the latest unfinished race for crash recovery
+  /// </summary>
+  public DbRace? GetLatestUnfinishedRace()
+  {
+    return _races.Find(r => !r.IsFinished)
+                 .OrderByDescending(r => r.StartTime)
+                 .FirstOrDefault();
+  }
+
+  /// <summary>
+  /// Restores rider data from database for crash recovery
+  /// </summary>
+  public Dictionary<string, RiderInfo> RestoreRiderData(int raceId)
+  {
+    var restoredRiders = new Dictionary<string, RiderInfo>();
+    var dbRiders = _riders.Find(r => r.RaceId == raceId).ToList();
+
+    Console.WriteLine($"RestoreRiderData: Found {dbRiders.Count} riders for race {raceId}");
+
+    foreach (var dbRider in dbRiders)
+    {
+      var riderInfo = new RiderInfo
+      {
+        TagID = dbRider.TagID,
+        FirstCrossing = dbRider.FirstCrossing,
+        LastCrossing = dbRider.LastCrossing,
+        RaceStartTime = dbRider.RaceStartTime,
+        FinalAllowedLap = dbRider.FinalAllowedLap,
+        IsDNF = dbRider.IsDNF,
+        DNFTime = dbRider.DNFTime
+      };
+
+      // Restore laps for this rider
+      var dbLaps = _laps.Find(l => l.RaceId == raceId && l.RiderTagID == dbRider.TagID)
+                        .OrderBy(l => l.LapNumber)
+                        .ToList();
+
+      Console.WriteLine($"RestoreRiderData: Rider {dbRider.TagID} has {dbLaps.Count} laps in database");
+
+      foreach (var dbLap in dbLaps)
+      {
+        riderInfo.Laps.Add(new RiderLap
+        {
+          TagID = dbLap.RiderTagID,
+          LapNumber = dbLap.LapNumber,
+          CrossingTime = dbLap.CrossingTime,
+          LapTime = dbLap.LapTime
+        });
+      }
+
+      restoredRiders[dbRider.TagID] = riderInfo;
+    }
+
+    Console.WriteLine($"RestoreRiderData: Returning {restoredRiders.Count} riders with total laps: {restoredRiders.Values.Sum(r => r.Laps.Count)}");
+    return restoredRiders;
+  }
+
+  /// <summary>
+  /// Saves complete race state for crash recovery
+  /// </summary>
+  public void SaveRaceState(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
+    DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, bool raceTimeExpired,
+    bool waitingForLeaderFinish, bool waitingForFinalLaps, DateTime? finalLapsStartTime,
+    string? leaderAtTimeExpiry, int leaderLapsAtTimeExpiry, int targetLapsToFinishRace,
+    bool fiveMinuteWarningShown)
+  {
+    if (CurrentRaceId == 0) return;
+
+    // Update race record with current state
+    UpdateRace(race =>
+    {
+      race.StartTime = raceStartTime ?? race.StartTime;
+      race.EndTime = raceEndTime;
+      race.IsFinished = raceFinished;
+      race.IsTimeExpired = raceTimeExpired;
+      race.WaitingForLeaderFinish = waitingForLeaderFinish;
+      race.WaitingForFinalLaps = waitingForFinalLaps;
+      race.FinalLapsStartTime = finalLapsStartTime;
+      race.LeaderAtTimeExpiry = leaderAtTimeExpiry;
+      race.LeaderLapsAtTimeExpiry = leaderLapsAtTimeExpiry;
+      race.TargetLapsToFinishRace = targetLapsToFinishRace;
+      race.FiveMinuteWarningShown = fiveMinuteWarningShown;
+      race.LastSavedAt = DateTime.Now;
+    });
+
+    // Save all rider data
+    foreach (var rider in riders.Values)
+    {
+      UpsertRider(rider);
+    }
   }
 
   #endregion

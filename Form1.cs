@@ -175,6 +175,9 @@ public partial class Form1 : Form
 
     // Initialize logging
     InitializeLogging();
+
+    // Perform crash recovery after the form is fully loaded and window handle is created
+    AttemptCrashRecovery();
   }
 
   private void buttonStart_Click(object? sender, EventArgs e)
@@ -631,6 +634,9 @@ public partial class Form1 : Form
       raceEndTime = raceStartTime.Value + raceDuration;
       raceStarted = true;
 
+      // Create new race in database
+      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration);
+
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
 
@@ -684,6 +690,16 @@ public partial class Form1 : Form
 
       riders[tagID].Laps.Add(firstLap);
 
+      // Save to database for crash recovery
+      if (currentRaceId.HasValue)
+      {
+        Task.Run(() =>
+        {
+          _raceDb.UpsertRider(riders[tagID]);
+          _raceDb.AddLap(tagID, firstLap, 1); // Position 1 for first rider
+        });
+      }
+
       // These operations will be called later after the lock is released
       Task.Run(() => RecordLapProgressionAfterLapCompletion(tagID, 1));
 
@@ -714,6 +730,18 @@ public partial class Form1 : Form
 
       rider.Laps.Add(newLap);
       rider.LastCrossing = crossingTime;
+
+      // Save to database for crash recovery
+      if (currentRaceId.HasValue)
+      {
+        Task.Run(() =>
+        {
+          _raceDb.UpsertRider(rider);
+          // Calculate current position for this rider
+          var position = CalculateCurrentPosition(tagID);
+          _raceDb.AddLap(tagID, newLap, position);
+        });
+      }
 
       // These operations will be called later after the lock is released
       Task.Run(() => RecordLapProgressionAfterLapCompletion(tagID, rider.TotalLaps));
@@ -3005,4 +3033,238 @@ public partial class Form1 : Form
 
     return 999; // Not found or DNF
   }
+
+  #region Crash Recovery
+
+  /// <summary>
+  /// Attempts to recover from a previous crash by restoring race state
+  /// </summary>
+  private void AttemptCrashRecovery()
+  {
+    try
+    {
+      var latestRace = _raceDb.GetLatestUnfinishedRace();
+      if (latestRace == null) return;
+
+      // Check if the race was recently active (within last 24 hours)
+      var timeSinceLastSave = DateTime.Now - (latestRace.LastSavedAt ?? latestRace.StartTime);
+      if (timeSinceLastSave.TotalHours > 24)
+      {
+        // Too old, don't auto-recover
+        return;
+      }
+
+      var result = MessageBox.Show(
+        $"Found an unfinished race from {latestRace.StartTime:yyyy-MM-dd HH:mm:ss}.\n\n" +
+        $"Would you like to restore this race?\n\n" +
+        $"Race Duration: {latestRace.Duration:mm\\:ss}\n" +
+        $"Last Saved: {latestRace.LastSavedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown"}",
+        "Crash Recovery",
+        MessageBoxButtons.YesNo,
+        MessageBoxIcon.Question);
+
+      if (result == DialogResult.Yes)
+      {
+        RestoreRaceState(latestRace);
+      }
+    }
+    catch (Exception ex)
+    {
+      MessageBox.Show($"Error during crash recovery: {ex.Message}", "Recovery Error",
+        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+  }
+
+  /// <summary>
+  /// Restores complete race state from database
+  /// </summary>
+  private void RestoreRaceState(DbRace raceToRestore)
+  {
+    try
+    {
+      // Set current race in database
+      _raceDb.SetCurrentRace(raceToRestore.Id);
+      currentRaceId = raceToRestore.Id;
+
+      // Restore race variables
+      raceStartTime = raceToRestore.StartTime;
+      raceEndTime = raceToRestore.EndTime;
+      raceDuration = raceToRestore.Duration;
+      raceFinished = raceToRestore.IsFinished;
+      raceTimeExpired = raceToRestore.IsTimeExpired;
+      waitingForLeaderFinish = raceToRestore.WaitingForLeaderFinish;
+      waitingForFinalLaps = raceToRestore.WaitingForFinalLaps;
+      finalLapsStartTime = raceToRestore.FinalLapsStartTime;
+      leaderAtTimeExpiry = raceToRestore.LeaderAtTimeExpiry;
+      leaderLapsAtTimeExpiry = raceToRestore.LeaderLapsAtTimeExpiry;
+      targetLapsToFinishRace = raceToRestore.TargetLapsToFinishRace;
+      fiveMinuteWarningShown = raceToRestore.FiveMinuteWarningShown;
+
+      // Mark race as started if it was in progress
+      if (raceStartTime.HasValue && !raceFinished)
+      {
+        raceStarted = true;
+        manualStartMode = true; // Assume manual start mode for recovered races
+      }
+
+      // Restore rider data
+      lock (ridersLock)
+      {
+        riders.Clear();
+        var restoredRiders = _raceDb.RestoreRiderData(raceToRestore.Id);
+
+        // Debug: Log restoration details
+        var totalLapsRestored = 0;
+        foreach (var kvp in restoredRiders)
+        {
+          riders[kvp.Key] = kvp.Value;
+          totalLapsRestored += kvp.Value.Laps.Count;
+        }
+
+        // Add a race event to show what was restored
+        AddRaceEvent($"Restored {restoredRiders.Count} riders with {totalLapsRestored} total laps");
+      }
+
+      // Restore position tracking
+      lastKnownPositions = _raceDb.GetLastKnownPositions();
+      lastKnownLapCounts = _raceDb.GetLastKnownLapCounts();
+
+      // Update displays
+      ridersDisplayNeedsUpdate = true;
+      lapChartNeedsUpdate = true;
+      _lapProgressionManager.NeedsUpdate = true;
+
+      // Auto-start TCP server if race was in progress
+      if (raceStarted && !raceFinished)
+      {
+        // Parse the port from the current UI (default to 53135 if not valid)
+        if (!int.TryParse(textBoxPort.Text, out int port) || port < 1 || port > 65535)
+        {
+          port = 53135; // Default port
+        }
+        StartTcpListener(port);
+      }
+
+      // Start periodic state saving
+      StartPeriodicStateSaving();
+
+      // Update UI to reflect restored state
+      BeginInvoke(new Action(() =>
+      {
+        // Update race status labels
+        if (labelRaceTime != null)
+        {
+          if (raceFinished)
+          {
+            labelRaceTime.Text = "Race: FINISHED";
+            labelRaceTime.BackColor = Color.LightGreen;
+          }
+          else if (raceStarted)
+          {
+            labelRaceTime.Text = raceTimeExpired ? "Race: TIME EXPIRED" : "Race: IN PROGRESS";
+            labelRaceTime.BackColor = raceTimeExpired ? Color.Orange : Color.LightBlue;
+          }
+        }
+
+        // Update connection status
+        UpdateUI(); // This will update the start/stop button states
+
+        // Update displays
+        ridersDisplayNeedsUpdate = true;
+        lapChartNeedsUpdate = true;
+        UpdateRidersDisplay();
+
+        // Force lap chart refresh if user is currently on lap chart tab
+        if (tabControl.SelectedIndex == 4)
+        {
+          lapChartNeedsUpdate = false;
+          panelLapChart.Invalidate();
+          panelLapChart.Refresh(); // Force immediate repaint
+        }
+        else
+        {
+          // Ensure it will update when user switches to lap chart tab
+          lapChartNeedsUpdate = true;
+        }
+
+        _lapProgressionManager.UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, this);
+
+        // Show recovery success message
+        var riderCount = riders.Count;
+        var totalLaps = riders.Values.Sum(r => r.TotalLaps);
+
+        if (labelLastTag != null)
+        {
+          labelLastTag.Text = $"RECOVERED: {riderCount} riders, {totalLaps} total laps";
+          labelLastTag.BackColor = Color.LightGreen;
+        }
+      }));
+
+      // Add race event outside the UI thread
+      var riderCount = riders.Count;
+      var totalLaps = riders.Values.Sum(r => r.TotalLaps);
+      AddRaceEvent($"Race state recovered: {riderCount} riders, {totalLaps} total laps");
+
+    }
+    catch (Exception ex)
+    {
+      MessageBox.Show($"Error restoring race state: {ex.Message}", "Restore Error",
+        MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+  }
+
+  /// <summary>
+  /// Starts periodic saving of race state to prevent data loss
+  /// </summary>
+  private void StartPeriodicStateSaving()
+  {
+    var saveTimer = new System.Windows.Forms.Timer();
+    saveTimer.Interval = 30000; // Save every 30 seconds
+    saveTimer.Tick += (sender, e) =>
+    {
+      if (raceStarted && !raceFinished && currentRaceId.HasValue)
+      {
+        Task.Run(() => SaveCurrentRaceState());
+      }
+    };
+    saveTimer.Start();
+  }
+
+  /// <summary>
+  /// Saves current race state to database for crash recovery
+  /// </summary>
+  private void SaveCurrentRaceState()
+  {
+    try
+    {
+      Dictionary<string, RiderInfo> riderSnapshot;
+      lock (ridersLock)
+      {
+        riderSnapshot = riders.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+      }
+
+      _raceDb.SaveRaceState(
+        riderSnapshot,
+        raceStartTime,
+        raceEndTime,
+        raceDuration,
+        raceFinished,
+        raceTimeExpired,
+        waitingForLeaderFinish,
+        waitingForFinalLaps,
+        finalLapsStartTime,
+        leaderAtTimeExpiry,
+        leaderLapsAtTimeExpiry,
+        targetLapsToFinishRace,
+        fiveMinuteWarningShown
+      );
+    }
+    catch (Exception ex)
+    {
+      // Log error but don't show to user (background operation)
+      Console.WriteLine($"Error saving race state: {ex.Message}");
+    }
+  }
+
+  #endregion
 }

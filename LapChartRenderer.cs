@@ -35,7 +35,7 @@ public class LapChartRenderer
     // Clear previous clickable elements
     _lapChartElements.Clear();
 
-    if (riders.Count == 0 || !raceStartTime.HasValue || !raceEndTime.HasValue)
+    if (riders.Count == 0 || !raceStartTime.HasValue)
     {
       DrawNoDataMessage(g, bounds);
       return;
