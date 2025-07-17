@@ -1,0 +1,71 @@
+  private void DetectAndSplitMissedReads(string tagID, RiderLap newLap, List<(string, bool)> messagesToAdd)
+  {
+    var rider = riders[tagID];
+    
+    // Only check if we have enough lap history to calculate averages
+    if (rider.Laps.Count < 3) return;
+    
+    var lapTime = newLap.LapTime?.TotalSeconds ?? 0;
+    if (lapTime <= 0) return;
+    
+    // Calculate average lap time from last 3 laps (excluding current)
+    var recentLaps = rider.Laps.TakeLast(3).Where(lap => lap.LapTime.HasValue).ToList();
+    if (recentLaps.Count < 2) return;
+    
+    var avgLapTime = recentLaps.Average(lap => lap.LapTime?.TotalSeconds ?? 0);
+    
+    // Check if current lap is significantly longer than average and close to a multiple
+    var ratio = lapTime / avgLapTime;
+    var tolerance = 0.15; // 15% tolerance
+    
+    // Check for multiples between 2 and 5
+    for (int multiple = 2; multiple <= 5; multiple++)
+    {
+      if (Math.Abs(ratio - multiple) <= tolerance)
+      {
+        // This lap appears to be approximately 'multiple' times the average - split it
+        messagesToAdd.Add(($"🔍 MISSED READS DETECTED: {tagID} lap {newLap.LapNumber} ({lapTime:F1}s) is ~{multiple}x average ({avgLapTime:F1}s). Splitting into {multiple} equal laps.", true));
+        
+        // Remove the long lap from the rider's laps
+        rider.Laps.RemoveAt(rider.Laps.Count - 1);
+        
+        // Calculate time between splits
+        var splitTime = TimeSpan.FromSeconds(lapTime / multiple);
+        var splitStartTime = newLap.CrossingTime - TimeSpan.FromSeconds(lapTime);
+        
+        // Create multiple equal-length laps
+        for (int i = 0; i < multiple; i++)
+        {
+          var splitLap = new RiderLap
+          {
+            TagID = tagID,
+            CrossingTime = splitStartTime + TimeSpan.FromSeconds((i + 1) * splitTime.TotalSeconds),
+            LapNumber = newLap.LapNumber - multiple + i + 1,
+            LapTime = splitTime
+          };
+          
+          rider.Laps.Add(splitLap);
+          
+          // Update database
+          if (currentRaceId.HasValue)
+          {
+            Task.Run(() =>
+            {
+              var position = PositionCalculator.CalculateCurrentPosition(tagID, riders);
+              _raceDb.AddLap(tagID, splitLap, position);
+            });
+          }
+        }
+        
+        // Update rider's last crossing time to the actual crossing time
+        rider.LastCrossing = newLap.CrossingTime;
+        
+        // Renumber subsequent laps
+        for (int i = rider.Laps.Count - multiple; i < rider.Laps.Count; i++)
+        {
+          rider.Laps[i].LapNumber = i + 1;
+        }
+        
+        messagesToAdd.Add(($"✅ Split complete: {multiple} laps of {splitTime.TotalSeconds:F1}s each created for {tagID}", false));
+        return; // Only split once per crossing
+      }
