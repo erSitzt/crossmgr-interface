@@ -88,30 +88,25 @@ public class LapProgressionManager
   /// <summary>
   /// Update the lap progression display
   /// </summary>
-  public void UpdateLapProgressionDisplay(Dictionary<string, RiderInfo> riders, bool raceFinished, bool waitingForFinalLaps, Control parentControl)
+  public void UpdateLapProgressionDisplay(List<RiderInfo> riderSnapshot, bool raceFinished, bool waitingForFinalLaps, Control parentControl)
   {
     if (_dataGridViewLapProgression == null) return;
 
     if (parentControl.InvokeRequired)
     {
-      parentControl.Invoke(new Action(() => UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, parentControl)));
+      parentControl.Invoke(new Action(() => UpdateLapProgressionDisplay(riderSnapshot, raceFinished, waitingForFinalLaps, parentControl)));
       return;
     }
 
     // Create a snapshot of rider data outside of UI operations to avoid deadlocks
-    List<RiderInfo> riderSnapshot;
     bool raceFinishedSnapshot;
     bool waitingForFinalLapsSnapshot;
 
-    lock (riders)
-    {
-      if (riders.Count == 0) return;
+    // Data is already a snapshot, so no locking needed
+    if (riderSnapshot.Count == 0) return;
 
-      // Create a quick snapshot of the data we need
-      riderSnapshot = riders.Values.ToList();
-      raceFinishedSnapshot = raceFinished;
-      waitingForFinalLapsSnapshot = waitingForFinalLaps;
-    }
+    raceFinishedSnapshot = raceFinished;
+    waitingForFinalLapsSnapshot = waitingForFinalLaps;
 
     try
     {

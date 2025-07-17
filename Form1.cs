@@ -128,15 +128,25 @@ public partial class Form1 : Form
     else if (tabControl.SelectedIndex == 5)
     {
       bool shouldUpdate = false;
+      List<RiderInfo> riderSnapshot = new();
+      bool raceFinishedSnapshot = false;
+      bool waitingForFinalLapsSnapshot = false;
+
       lock (ridersLock)
       {
         shouldUpdate = riders.Count > 0; // Always update when switching to lap progression tab
+        if (shouldUpdate)
+        {
+          riderSnapshot = riders.Values.ToList();
+          raceFinishedSnapshot = raceFinished;
+          waitingForFinalLapsSnapshot = waitingForFinalLaps;
+        }
         lapProgressionNeedsUpdate = false; // Clear the flag since we're updating now
       }
 
       if (shouldUpdate)
       {
-        _lapProgressionManager.UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, this);
+        _lapProgressionManager.UpdateLapProgressionDisplay(riderSnapshot, raceFinishedSnapshot, waitingForFinalLapsSnapshot, this);
       }
     }
   }
@@ -1430,6 +1440,7 @@ public partial class Form1 : Form
     // Set up the DataGridView columns
     dataGridViewRiders.Columns.Clear();
     dataGridViewRiders.Columns.Add("Position", "Pos");
+    dataGridViewRiders.Columns.Add("RiderNumber", "Number");
     dataGridViewRiders.Columns.Add("TagID", "Tag ID");
     dataGridViewRiders.Columns.Add("RiderName", "Rider Name");
     dataGridViewRiders.Columns.Add("Team", "Team");
@@ -1449,6 +1460,7 @@ public partial class Form1 : Form
       switch (column.Name)
       {
         case "Position": column.Width = 40; break;
+        case "RiderNumber": column.Width = 60; break;
         case "TagID": column.Width = 120; break; // Reduced to make room for name/team
         case "RiderName": column.Width = 150; break;
         case "Team": column.Width = 120; break;
@@ -1520,11 +1532,7 @@ public partial class Form1 : Form
       dataGridViewRiders.Rows.Clear();
 
       // Sort riders: Finishing riders first (by laps desc, then time asc), then DNF riders (by laps desc, then time asc)
-      var sortedRiders = riderSnapshot
-        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
-        .ThenByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
-        .ToList();
+      var sortedRiders = PositionCalculator.GetSortedRidersFromSnapshot(riderSnapshot);
 
       // Get leader info for gap calculations
       var leader = sortedRiders.FirstOrDefault();
@@ -1607,6 +1615,7 @@ public partial class Form1 : Form
 
         dataGridViewRiders.Rows.Add(
           (i + 1).ToString(),  // Position
+          string.IsNullOrEmpty(rider.RiderNumber) ? "" : rider.RiderNumber,  // Rider Number
           displayTagID,        // Tag ID
           riderName,          // Rider Name
           teamName,           // Team
@@ -1994,8 +2003,21 @@ public partial class Form1 : Form
     if (lapProgressionNeedsUpdate)
     {
       lapProgressionNeedsUpdate = false;
+
+      // Create snapshot for lap progression update
+      List<RiderInfo> riderSnapshot;
+      bool raceFinishedSnapshot;
+      bool waitingForFinalLapsSnapshot;
+
+      lock (ridersLock)
+      {
+        riderSnapshot = riders.Values.ToList();
+        raceFinishedSnapshot = raceFinished;
+        waitingForFinalLapsSnapshot = waitingForFinalLaps;
+      }
+
       // Update regardless of which tab is active - the manager will handle efficiency
-      _lapProgressionManager.UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, this);
+      _lapProgressionManager.UpdateLapProgressionDisplay(riderSnapshot, raceFinishedSnapshot, waitingForFinalLapsSnapshot, this);
     }
 
     // Check for DNF timeouts if we're in final laps phase
@@ -2033,11 +2055,7 @@ public partial class Form1 : Form
 
     try
     {
-      var sortedRiders = riderSnapshot
-        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
-        .ThenByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
-        .ToList();
+      var sortedRiders = PositionCalculator.GetSortedRidersFromSnapshot(riderSnapshot);
 
       for (int i = 0; i < Math.Min(sortedRiders.Count, dataGridViewRiders.Rows.Count); i++)
       {
@@ -2982,24 +3000,8 @@ public partial class Form1 : Form
 
   private int CalculateCurrentPosition(string riderId)
   {
-    if (!riders.ContainsKey(riderId)) return 999;
-
-    var targetRider = riders[riderId];
-    var sortedRiders = riders.Values
-      .Where(r => !r.IsDNF)
-      .OrderByDescending(r => r.TotalLaps)
-      .ThenBy(r => r.TotalTime)
-      .ToList();
-
-    for (int i = 0; i < sortedRiders.Count; i++)
-    {
-      if (sortedRiders[i].TagID == riderId)
-      {
-        return i + 1; // 1-based position
-      }
-    }
-
-    return 999; // Not found or DNF
+    // This method should only be called when ridersLock is already held
+    return PositionCalculator.CalculateCurrentPosition(riderId, riders);
   }
 
   #region Crash Recovery
@@ -3116,13 +3118,20 @@ public partial class Form1 : Form
       // Start periodic state saving
       StartPeriodicStateSaving();
 
+      // Create snapshot for UI update
+      var riderSnapshot = riders.Values.ToList();
+      var raceFinishedSnapshot = raceFinished;
+      var waitingForFinalLapsSnapshot = waitingForFinalLaps;
+      var riderCount = riders.Count;
+      var totalLaps = riders.Values.Sum(r => r.TotalLaps);
+
       // Update UI to reflect restored state
       BeginInvoke(new Action(() =>
       {
         // Update race status labels
         if (labelRaceTime != null)
         {
-          if (raceFinished)
+          if (raceFinishedSnapshot)
           {
             labelRaceTime.Text = "Race: FINISHED";
             labelRaceTime.BackColor = Color.LightGreen;
@@ -3155,12 +3164,9 @@ public partial class Form1 : Form
           lapChartNeedsUpdate = true;
         }
 
-        _lapProgressionManager.UpdateLapProgressionDisplay(riders, raceFinished, waitingForFinalLaps, this);
+        _lapProgressionManager.UpdateLapProgressionDisplay(riderSnapshot, raceFinishedSnapshot, waitingForFinalLapsSnapshot, this);
 
         // Show recovery success message
-        var riderCount = riders.Count;
-        var totalLaps = riders.Values.Sum(r => r.TotalLaps);
-
         if (labelLastTag != null)
         {
           labelLastTag.Text = $"RECOVERED: {riderCount} riders, {totalLaps} total laps";
@@ -3169,8 +3175,6 @@ public partial class Form1 : Form
       }));
 
       // Add race event outside the UI thread
-      var riderCount = riders.Count;
-      var totalLaps = riders.Values.Sum(r => r.TotalLaps);
       AddRaceEvent($"Race state recovered: {riderCount} riders, {totalLaps} total laps");
 
     }

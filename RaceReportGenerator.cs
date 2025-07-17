@@ -354,8 +354,8 @@ public class RaceReportGenerator
     }
 
     // Table headers
-    var headers = new[] { "Pos", "Name", "Team", "Laps", "Total Time", "Best Lap", "Gap" };
-    var columnWidths = new[] { 35, 120, 100, 45, 80, 80, 80 };
+    var headers = new[] { "Pos", "Number", "Name", "Team", "Laps", "Total Time", "Best Lap", "Gap" };
+    var columnWidths = new[] { 35, 50, 120, 100, 45, 80, 80, 80 };
     var totalTableWidth = columnWidths.Sum();
 
     // Draw headers
@@ -395,6 +395,7 @@ public class RaceReportGenerator
       var rowData = new[]
       {
         result.Position,
+        result.RiderNumber ?? "",
         (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID).Length > 18
           ? (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID)[..15] + "..."
           : (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID),

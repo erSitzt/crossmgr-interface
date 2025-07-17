@@ -1,11 +1,11 @@
-tagid,name,team
-RIDER001,John Smith,Team Alpha
-RIDER002,Sarah Johnson,Team Beta
-RIDER003,Mike Davis,Team Alpha
-RIDER004,Lisa Wilson,Team Gamma
-RIDER005,Tom Brown,Team Beta
-RIDER006,Amy Chen,Team Delta
-RIDER007,David Miller,Team Alpha
-RIDER008,Jennifer Garcia,Team Gamma
-RIDER009,Robert Taylor,Team Beta
-RIDER010,Maria Rodriguez,Team Delta
+tagid,number,name,team
+RIDER001,127,John Smith,Team Alpha
+RIDER002,293,Sarah Johnson,Team Beta
+RIDER003,156,Mike Davis,Team Alpha
+RIDER004,817,Lisa Wilson,Team Gamma
+RIDER005,342,Tom Brown,Team Beta
+RIDER006,194,Amy Chen,Team Delta
+RIDER007,675,David Miller,Team Alpha
+RIDER008,428,Jennifer Garcia,Team Gamma
+RIDER009,563,Robert Taylor,Team Beta
+RIDER010,719,Maria Rodriguez,Team Delta

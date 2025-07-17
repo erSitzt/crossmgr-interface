@@ -170,11 +170,23 @@ public static class PositionCalculator
   }
 
   /// <summary>
-  /// Get sorted riders list for current standings
+  /// Get sorted riders list from dictionary (for operations that already hold the ridersLock)
   /// </summary>
-  public static List<RiderInfo> GetSortedRiders(Dictionary<string, RiderInfo> riders)
+  public static List<RiderInfo> GetSortedRidersFromDictionary(Dictionary<string, RiderInfo> riders)
   {
     return riders.Values
+        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
+        .ThenByDescending(r => r.TotalLaps)
+        .ThenBy(r => r.TotalTime)
+        .ToList();
+  }
+
+  /// <summary>
+  /// Get sorted riders list from snapshot (thread-safe, no locking needed)
+  /// </summary>
+  public static List<RiderInfo> GetSortedRidersFromSnapshot(IEnumerable<RiderInfo> riderSnapshot)
+  {
+    return riderSnapshot
         .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
         .ThenByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
