@@ -53,6 +53,9 @@ public partial class Form1 : Form
   private int additionalLapsAfterTimeExpiry = 1; // Configurable number of laps after time expires
   private int dnfTimeoutMinutes = 2; // Configurable DNF timeout in minutes
 
+  // Lap time validation
+  private readonly TimeSpan minimumLapTime = TimeSpan.FromSeconds(10); // Ignore laps shorter than 10 seconds
+
   // Tag filtering
   private string tagFilterPrefix = "";
   private bool tagFilterEnabled = false;
@@ -601,7 +604,8 @@ public partial class Form1 : Form
         }
         else
         {
-          resultLap = ProcessNormalCrossingInternal(tagID, crossingTime, messagesToAdd);
+          var processedLap = ProcessNormalCrossingInternal(tagID, crossingTime, messagesToAdd);
+          resultLap = processedLap ?? new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
         }
       }
       // If in manual start mode and race hasn't started yet, ignore tags
@@ -611,7 +615,8 @@ public partial class Form1 : Form
       }
       else
       {
-        resultLap = ProcessNormalCrossingInternal(tagID, crossingTime, messagesToAdd);
+        var processedLap = ProcessNormalCrossingInternal(tagID, crossingTime, messagesToAdd);
+        resultLap = processedLap ?? new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
     }
 
@@ -627,7 +632,7 @@ public partial class Form1 : Form
     return resultLap;
   }
 
-  private RiderLap ProcessNormalCrossingInternal(string tagID, DateTime crossingTime, List<(string, bool)> messagesToAdd)
+  private RiderLap? ProcessNormalCrossingInternal(string tagID, DateTime crossingTime, List<(string, bool)> messagesToAdd)
   {
     // Track race start time on first crossing (only if not manual start mode)
     if (raceStartTime == null && !manualStartMode)
@@ -666,7 +671,22 @@ public partial class Form1 : Form
 
         if (additionalLapsAfterTimeExpiry == 0)
         {
-          messagesToAdd.Add(($"🏁 Race will finish immediately when leader completes their current lap (no additional laps).", true));
+          // When no additional laps are configured, each rider must only complete their current lap
+          messagesToAdd.Add(($"🏁 Race will finish when all riders complete their current lap (no additional laps).", true));
+
+          // Immediately set final allowed laps for all riders to their current lap + 1
+          // This way each rider can only complete the lap they are currently on
+          foreach (var rider in riders.Values.Where(r => !r.IsDNF))
+          {
+            rider.FinalAllowedLap = rider.TotalLaps + 1;
+          }
+
+          // Transition directly to final laps phase
+          waitingForFinalLaps = true;
+          finalLapsStartTime = DateTime.Now;
+          raceTimeExpired = false;
+
+          messagesToAdd.Add(($"🏁 Final laps phase started - each rider must finish their current lap only.", true));
         }
         else
         {
@@ -740,6 +760,17 @@ public partial class Form1 : Form
       var rider = riders[tagID];
       var previousCrossing = rider.LastCrossing;
       var lapTime = crossingTime - previousCrossing;
+
+      // Check for minimum lap time - ignore unrealistically short laps (likely RFID errors)
+      if (lapTime < minimumLapTime)
+      {
+        // Log the ignored short lap for debugging
+        var logMessage = $"IGNORED SHORT LAP: {tagID} - {lapTime.TotalSeconds:F3}s (minimum: {minimumLapTime.TotalSeconds}s)";
+        messagesToAdd.Add((logMessage, false));
+
+        // Return null to indicate no lap was processed
+        return null;
+      }
 
       var newLap = new RiderLap
       {
@@ -2753,7 +2784,7 @@ public partial class Form1 : Form
 
     if (additionalLapsAfterTimeExpiry == 0)
     {
-      AddMessage($"⚙️ Additional laps after time expiry set to: 0 (race finishes immediately when leader completes current lap)");
+      AddMessage($"⚙️ Additional laps after time expiry set to: 0 (race finishes when all riders complete their current lap)");
     }
     else
     {
