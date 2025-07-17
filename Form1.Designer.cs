@@ -616,14 +616,14 @@ partial class Form1
     labelAdditionalLaps.Name = "labelAdditionalLaps";
     labelAdditionalLaps.Size = new Size(226, 25);
     labelAdditionalLaps.TabIndex = 13;
-    labelAdditionalLaps.Text = "Additional Laps After Time:";
+    labelAdditionalLaps.Text = "Additional Laps After Time (0-10):";
     // 
     // numericUpDownAdditionalLaps
     // 
     numericUpDownAdditionalLaps.Location = new Point(295, 72);
     numericUpDownAdditionalLaps.Margin = new Padding(4, 5, 4, 5);
     numericUpDownAdditionalLaps.Maximum = new decimal(new int[] { 10, 0, 0, 0 });
-    numericUpDownAdditionalLaps.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+    numericUpDownAdditionalLaps.Minimum = new decimal(new int[] { 0, 0, 0, 0 });
     numericUpDownAdditionalLaps.Name = "numericUpDownAdditionalLaps";
     numericUpDownAdditionalLaps.Size = new Size(171, 31);
     numericUpDownAdditionalLaps.TabIndex = 14;

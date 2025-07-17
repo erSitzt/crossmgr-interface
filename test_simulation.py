@@ -280,7 +280,7 @@ def main():
         time.sleep(2)
         
         # Simulate a race to test realistic lapping in final quarter
-        simulate_race(sock, num_riders=100, race_duration_minutes=12)
+        simulate_race(sock, num_riders=40, race_duration_minutes=10)
         
     except KeyboardInterrupt:
         print("\nTest interrupted by user")

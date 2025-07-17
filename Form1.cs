@@ -661,9 +661,18 @@ public partial class Form1 : Form
         leaderAtTimeExpiry = currentLeader.TagID;
         leaderLapsAtTimeExpiry = currentLeader.TotalLaps;
         raceTimeExpired = true;
-        var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+
         messagesToAdd.Add(($"⏰ Race time expired! Leader {leaderAtTimeExpiry} currently has {leaderLapsAtTimeExpiry} laps completed.", true));
-        messagesToAdd.Add(($"🏁 Race will finish after leader completes any ongoing lap plus {additionalLapsAfterTimeExpiry} additional {lapsText}.", true));
+
+        if (additionalLapsAfterTimeExpiry == 0)
+        {
+          messagesToAdd.Add(($"🏁 Race will finish immediately when leader completes their current lap (no additional laps).", true));
+        }
+        else
+        {
+          var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+          messagesToAdd.Add(($"🏁 Race will finish after leader completes any ongoing lap plus {additionalLapsAfterTimeExpiry} additional {lapsText}.", true));
+        }
       }
     }
 
@@ -777,14 +786,28 @@ public partial class Form1 : Form
           var originalLeader = leaderAtTimeExpiry;
           leaderAtTimeExpiry = tagID;
 
-          var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
-          if (tagID == originalLeader)
+          if (additionalLapsAfterTimeExpiry == 0)
           {
-            messagesToAdd.Add(($"🏁 LEADER {tagID} crossed after time expiry! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when leader completes {targetLapsToFinishRace} total laps.", true));
+            if (tagID == originalLeader)
+            {
+              messagesToAdd.Add(($"🏁 LEADER {tagID} crossed after time expiry! Race will finish when leader completes {targetLapsToFinishRace} total laps (no additional laps).", true));
+            }
+            else
+            {
+              messagesToAdd.Add(($"🏁 NEW LEADER {tagID} crossed after time expiry (was {originalLeader})! Race will finish when new leader completes {targetLapsToFinishRace} total laps (no additional laps).", true));
+            }
           }
           else
           {
-            messagesToAdd.Add(($"🏁 NEW LEADER {tagID} crossed after time expiry (was {originalLeader})! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when new leader completes {targetLapsToFinishRace} total laps.", true));
+            var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+            if (tagID == originalLeader)
+            {
+              messagesToAdd.Add(($"🏁 LEADER {tagID} crossed after time expiry! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when leader completes {targetLapsToFinishRace} total laps.", true));
+            }
+            else
+            {
+              messagesToAdd.Add(($"🏁 NEW LEADER {tagID} crossed after time expiry (was {originalLeader})! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when new leader completes {targetLapsToFinishRace} total laps.", true));
+            }
           }
         }
         else
@@ -2727,7 +2750,15 @@ public partial class Form1 : Form
   private void buttonSetAdditionalLaps_Click(object sender, EventArgs e)
   {
     additionalLapsAfterTimeExpiry = (int)numericUpDownAdditionalLaps.Value;
-    AddMessage($"⚙️ Additional laps after time expiry set to: {additionalLapsAfterTimeExpiry}");
+
+    if (additionalLapsAfterTimeExpiry == 0)
+    {
+      AddMessage($"⚙️ Additional laps after time expiry set to: 0 (race finishes immediately when leader completes current lap)");
+    }
+    else
+    {
+      AddMessage($"⚙️ Additional laps after time expiry set to: {additionalLapsAfterTimeExpiry}");
+    }
 
     // If race has already finished in time mode, update the target
     if (raceTimeExpired && targetLapsToFinishRace > 0)
@@ -2743,8 +2774,16 @@ public partial class Form1 : Form
         // Calculate target: leader's current lap (in progress when time expired) + additional laps
         var leaderCurrentLapWhenTimeExpired = leaderLapsAtTimeExpiry + 1;
         targetLapsToFinishRace = leaderCurrentLapWhenTimeExpired + additionalLapsAfterTimeExpiry;
-        var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
-        AddMessage($"🏁 Updated race finish target to {targetLapsToFinishRace} laps (leader was on lap {leaderCurrentLapWhenTimeExpired} when time expired + {additionalLapsAfterTimeExpiry} additional {lapsText})");
+
+        if (additionalLapsAfterTimeExpiry == 0)
+        {
+          AddMessage($"🏁 Updated race finish target to {targetLapsToFinishRace} laps (leader was on lap {leaderCurrentLapWhenTimeExpired} when time expired + 0 additional laps)");
+        }
+        else
+        {
+          var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
+          AddMessage($"🏁 Updated race finish target to {targetLapsToFinishRace} laps (leader was on lap {leaderCurrentLapWhenTimeExpired} when time expired + {additionalLapsAfterTimeExpiry} additional {lapsText})");
+        }
       }
     }
   }
