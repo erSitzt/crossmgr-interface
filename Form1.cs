@@ -884,30 +884,7 @@ public partial class Form1 : Form
     }
   }
 
-  private void DisplayRiderSummary(string tagID)
-  {
-    string message;
 
-    lock (ridersLock)
-    {
-      if (riders.ContainsKey(tagID))
-      {
-        var rider = riders[tagID];
-        var bestLap = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-        var lastLap = rider.LastLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-        var totalTime = rider.TotalTime.ToString(@"mm\:ss\.fff");
-
-        message = $"📊 Rider {tagID}: {rider.TotalLaps} laps | Best: {bestLap} | Last: {lastLap} | Total: {totalTime}";
-      }
-      else
-      {
-        message = $"📊 Rider {tagID}: Not found";
-      }
-    }
-
-    // Send message outside the lock
-    AddMessage(message);
-  }
 
   private void DisplayAllRidersSummary()
   {
@@ -2370,86 +2347,9 @@ public partial class Form1 : Form
     return ridersAhead + 1; // Position is number of riders ahead + 1
   }
 
-  private int CalculatePositionAtLap(string riderId, int lapNumber, List<RiderInfo> riderSnapshot)
-  {
-    // Find all riders who had completed at least 'lapNumber' laps
-    // and determine this rider's position among them based on when they completed that lap
 
-    var targetRider = riderSnapshot.FirstOrDefault(r => r.TagID == riderId);
-    if (targetRider == null) return 999;
 
-    var riderLap = targetRider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-    if (riderLap == null) return 999; // Should not happen
 
-    var ridersAtThisLap = new List<(string Id, DateTime CompletionTime, int TotalLapsAtTime)>();
-
-    foreach (var otherRider in riderSnapshot)
-    {
-      var otherRiderLap = otherRider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-
-      if (otherRiderLap != null)
-      {
-        // Count how many laps this rider had when they completed this lap
-        var lapsAtTime = otherRider.Laps.Count(l => l.CrossingTime <= otherRiderLap.CrossingTime);
-        ridersAtThisLap.Add((otherRider.TagID, otherRiderLap.CrossingTime, lapsAtTime));
-      }
-    }
-
-    // Sort by laps completed (desc) then by completion time (asc)
-    ridersAtThisLap.Sort((a, b) =>
-    {
-      var lapComparison = b.TotalLapsAtTime.CompareTo(a.TotalLapsAtTime);
-      if (lapComparison != 0) return lapComparison;
-      return a.CompletionTime.CompareTo(b.CompletionTime);
-    });
-
-    // Find position
-    for (int i = 0; i < ridersAtThisLap.Count; i++)
-    {
-      if (ridersAtThisLap[i].Id == riderId)
-      {
-        return i + 1; // 1-based position
-      }
-    }
-
-    return 999; // Fallback
-  }
-
-  private void DrawTooltip(Graphics g, string text, Point mousePosition)
-  {
-    if (string.IsNullOrEmpty(text)) return;
-
-    var font = new Font("Arial", 10, FontStyle.Bold);
-    var textSize = g.MeasureString(text, font);
-
-    // Position tooltip near mouse but ensure it stays within bounds
-    var tooltipX = mousePosition.X + 10;
-    var tooltipY = mousePosition.Y - 30;
-
-    if (tooltipX + (int)textSize.Width > panelLapChart.Width)
-      tooltipX = mousePosition.X - (int)textSize.Width - 10;
-    if (tooltipY < 0)
-      tooltipY = mousePosition.Y + 20;
-
-    var tooltipRect = new Rectangle(
-      tooltipX - 5,
-      tooltipY - 3,
-      (int)textSize.Width + 10,
-      (int)textSize.Height + 6);
-
-    // Draw tooltip background with shadow
-    var shadowRect = new Rectangle(tooltipRect.X + 2, tooltipRect.Y + 2,
-      tooltipRect.Width, tooltipRect.Height);
-    g.FillRectangle(Brushes.Gray, shadowRect);
-
-    g.FillRectangle(Brushes.LightYellow, tooltipRect);
-    g.DrawRectangle(Pens.Black, tooltipRect);
-
-    // Draw text
-    g.DrawString(text, font, Brushes.Black, tooltipX, tooltipY);
-
-    font.Dispose();
-  }
 
   private void RaceStartMode_CheckedChanged(object? sender, EventArgs e)
   {
@@ -2748,32 +2648,6 @@ public partial class Form1 : Form
     }
   }
 
-  /// <summary>
-  /// Calculates the extended duration for the chart to show rider predictions beyond the race end time
-  /// </summary>
-  private double CalculateExtendedChartDuration(double raceDurationMs)
-  {
-    // Extend the chart duration beyond race time to show predicted finishes
-    // Add approximately 25% more time or at least 5 minutes, whichever is greater
-    var extensionMs = Math.Max(raceDurationMs * 0.25, 5 * 60 * 1000); // 25% or 5 minutes minimum
-    return raceDurationMs + extensionMs;
-  }
-
-  /// <summary>
-  /// Calculates the maximum number of laps a rider should complete for race completion display
-  /// </summary>
-  private int CalculateMaxLapsForRaceCompletion(RiderInfo rider)
-  {
-    // If race has finished and this rider has a final allowed lap, use that
-    if (rider.FinalAllowedLap != int.MaxValue)
-    {
-      return rider.FinalAllowedLap;
-    }
-
-    // If race is still ongoing or no specific limit set, allow reasonable prediction
-    // Limit to current laps + a reasonable number of additional laps (e.g., 10)
-    return rider.TotalLaps + 10;
-  }
 
   /// <summary>
   /// Event handler for the Set Additional Laps button
@@ -3075,129 +2949,9 @@ public partial class Form1 : Form
     lastPositionCheck = DateTime.Now;
   }
 
-  #region Lap Progression Tab - Removed (handled by LapProgressionManager)
-
-  // These fields are now managed by LapProgressionManager:
-  // - DataGridView dataGridViewLapProgression
-  // - Button buttonRefreshProgression
-
-  #endregion
 
 
 
-
-
-
-
-  private void UpdateLapProgressionDisplay()
-  {
-    // This method has been moved to LapProgressionManager
-    // All lap progression functionality is now handled by the manager class
-  }
-
-
-
-  private int CalculatePositionAtLap(string riderId, int lapNumber)
-  {
-    // Find all riders who had completed at least 'lapNumber' laps
-    // and determine this rider's position among them based on when they completed that lap
-
-    var riderLap = riders[riderId].Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-    if (riderLap == null) return 999; // Should not happen
-
-    var ridersAtThisLap = new List<(string Id, DateTime CompletionTime, int TotalLapsAtTime)>();
-
-    foreach (var kvp in riders)
-    {
-      var otherRider = kvp.Value;
-      var otherRiderLap = otherRider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-
-      if (otherRiderLap != null)
-      {
-        // Count how many laps this rider had when they completed this lap
-        var lapsAtTime = otherRider.Laps.Count(l => l.CrossingTime <= otherRiderLap.CrossingTime);
-        ridersAtThisLap.Add((kvp.Key, otherRiderLap.CrossingTime, lapsAtTime));
-      }
-    }
-
-    // Sort by laps completed (desc) then by completion time (asc)
-    ridersAtThisLap.Sort((a, b) =>
-    {
-      var lapComparison = b.TotalLapsAtTime.CompareTo(a.TotalLapsAtTime);
-      if (lapComparison != 0) return lapComparison;
-      return a.CompletionTime.CompareTo(b.CompletionTime);
-    });
-
-    // Find position
-    for (int i = 0; i < ridersAtThisLap.Count; i++)
-    {
-      if (ridersAtThisLap[i].Id == riderId)
-      {
-        return i + 1; // 1-based position
-      }
-    }
-
-    return 999; // Fallback
-  }
-
-  private TimeSpan? GetLapTime(RiderInfo rider, int lapNumber)
-  {
-    var lap = rider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-    return lap?.LapTime;
-  }
-
-  // Lap progression functionality has been moved to LapProgressionManager
-
-  /// <summary>
-  /// Calculate position at lap using snapshot data (no locking needed)
-  /// </summary>
-  private int CalculatePositionAtLapFromSnapshot(RiderInfo targetRider, int lapNumber, List<RiderInfo> riderSnapshot)
-  {
-    var riderLap = targetRider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-    if (riderLap == null) return 999; // Should not happen
-
-    var ridersAtThisLap = new List<(string Id, DateTime CompletionTime, int TotalLapsAtTime)>();
-
-    foreach (var otherRider in riderSnapshot)
-    {
-      var otherRiderLap = otherRider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-
-      if (otherRiderLap != null)
-      {
-        // Count how many laps this rider had when they completed this lap
-        var lapsAtTime = otherRider.Laps.Count(l => l.CrossingTime <= otherRiderLap.CrossingTime);
-        ridersAtThisLap.Add((otherRider.TagID, otherRiderLap.CrossingTime, lapsAtTime));
-      }
-    }
-
-    // Sort by laps completed (desc) then by completion time (asc)
-    ridersAtThisLap.Sort((a, b) =>
-    {
-      var lapComparison = b.TotalLapsAtTime.CompareTo(a.TotalLapsAtTime);
-      if (lapComparison != 0) return lapComparison;
-      return a.CompletionTime.CompareTo(b.CompletionTime);
-    });
-
-    // Find position
-    for (int i = 0; i < ridersAtThisLap.Count; i++)
-    {
-      if (ridersAtThisLap[i].Id == targetRider.TagID)
-      {
-        return i + 1; // 1-based position
-      }
-    }
-
-    return 999; // Fallback
-  }
-
-  /// <summary>
-  /// Get lap time from rider data directly (no dictionary access needed)
-  /// </summary>
-  private TimeSpan? GetLapTimeFromRider(RiderInfo rider, int lapNumber)
-  {
-    var lap = rider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-    return lap?.LapTime;
-  }
 
   private void RecordLapProgression(string riderId, int lapNumber, int position, TimeSpan raceTime)
   {
