@@ -402,8 +402,8 @@ public class RaceReportGenerator
       var rowData = new[]
       {
         result.Position,
-        (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID).Length > 18 
-          ? (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID)[..15] + "..." 
+        (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID).Length > 18
+          ? (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID)[..15] + "..."
           : (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID),
         (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : "").Length > 15
           ? (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : "")[..12] + "..."
