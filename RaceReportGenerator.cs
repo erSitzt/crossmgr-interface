@@ -12,7 +12,6 @@ public class RaceReportGenerator
   private PrintDocument _printDocument;
   private RaceReportData? _reportData;
   private int _currentPage = 0;
-  private int _totalPages = 0;
   private int _currentRiderIndex = 0; // Track which rider we're printing
   private float _headerHeight = 0; // Height of page header section
 
@@ -131,13 +130,13 @@ public class RaceReportGenerator
       {
         Position = rider.IsDNF ? "DNF" : (i + 1).ToString(),
         TagID = rider.TagID,
-        RiderNumber = riderInfo?.RiderNumber,
+        RiderNumber = riderInfo?.RiderNumber ?? "",
         RiderName = riderInfo != null && !string.IsNullOrWhiteSpace(riderInfo.FirstName + riderInfo.LastName)
                     ? $"{riderInfo.FirstName} {riderInfo.LastName}".Trim()
-                    : null,
-        Team = riderInfo?.Team,
-        Category = riderInfo?.Category,
-        Machine = riderInfo?.Machine,
+                    : "",
+        Team = riderInfo?.Team ?? "",
+        Category = riderInfo?.Category ?? "",
+        Machine = riderInfo?.Machine ?? "",
         TotalLaps = rider.TotalLaps,
         TotalTime = rider.TotalTime,
         BestLapTime = rider.BestLapTime,
@@ -200,11 +199,11 @@ public class RaceReportGenerator
     var pageRect = e.PageBounds;
     var printableArea = e.MarginBounds;
 
-    // Fonts
-    var titleFont = new Font("Arial", 18, FontStyle.Bold);
-    var headerFont = new Font("Arial", 12, FontStyle.Bold);
-    var normalFont = new Font("Arial", 10);
-    var smallFont = new Font("Arial", 8);
+    // Fonts - using using statements to ensure non-null
+    using var titleFont = new Font("Arial", 18, FontStyle.Bold);
+    using var headerFont = new Font("Arial", 12, FontStyle.Bold);
+    using var normalFont = new Font("Arial", 10);
+    using var smallFont = new Font("Arial", 8);
 
     float yPos = printableArea.Top;
     float leftMargin = printableArea.Left;
@@ -215,7 +214,7 @@ public class RaceReportGenerator
     {
       // Title
       var titleText = _reportData.RaceTitle ?? "Race Results";
-      var titleSize = g.MeasureString(titleText ?? "Race Results", titleFont!);
+      var titleSize = g.MeasureString(titleText, titleFont!);
       g.DrawString(titleText, titleFont, Brushes.Black,
         leftMargin + (printableArea.Width - titleSize.Width) / 2, yPos);
       yPos += titleSize.Height + 10;
@@ -234,7 +233,7 @@ public class RaceReportGenerator
     {
       // On subsequent pages, just show title and skip to results
       var titleText = (_reportData.RaceTitle ?? "Race Results") + " (continued)";
-      var titleSize = g.MeasureString(titleText ?? "Race Results", headerFont!);
+      var titleSize = g.MeasureString(titleText, headerFont!);
       g.DrawString(titleText, headerFont, Brushes.Black,
         leftMargin + (printableArea.Width - titleSize.Width) / 2, yPos);
       yPos += titleSize.Height + 20;
@@ -248,12 +247,6 @@ public class RaceReportGenerator
     var footerSize = g.MeasureString(footerText, smallFont);
     g.DrawString(footerText, smallFont, Brushes.Gray,
       rightMargin - footerSize.Width, pageRect.Bottom - 30);
-
-    // Cleanup fonts
-    titleFont.Dispose();
-    headerFont.Dispose();
-    normalFont.Dispose();
-    smallFont.Dispose();
 
     // Set up for next page if needed
     if (hasMorePages)
