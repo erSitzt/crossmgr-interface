@@ -123,10 +123,21 @@ public class RaceReportGenerator
     for (int i = 0; i < sortedRiders.Count; i++)
     {
       var rider = sortedRiders[i];
+
+      // Find rider info for this tag
+      var riderInfo = riders.Values.FirstOrDefault(r => r.TagID == rider.TagID);
+
       var result = new RiderResult
       {
         Position = rider.IsDNF ? "DNF" : (i + 1).ToString(),
         TagID = rider.TagID,
+        RiderNumber = riderInfo?.RiderNumber,
+        RiderName = riderInfo != null && !string.IsNullOrWhiteSpace(riderInfo.FirstName + riderInfo.LastName)
+                    ? $"{riderInfo.FirstName} {riderInfo.LastName}".Trim()
+                    : null,
+        Team = riderInfo?.Team,
+        Category = riderInfo?.Category,
+        Machine = riderInfo?.Machine,
         TotalLaps = rider.TotalLaps,
         TotalTime = rider.TotalTime,
         BestLapTime = rider.BestLapTime,
@@ -350,8 +361,8 @@ public class RaceReportGenerator
     }
 
     // Table headers
-    var headers = new[] { "Pos", "Rider ID", "Laps", "Total Time", "Best Lap", "Avg Lap", "Gap" };
-    var columnWidths = new[] { 40, 120, 50, 80, 80, 80, 80 };
+    var headers = new[] { "Pos", "Name", "Team", "Laps", "Total Time", "Best Lap", "Gap" };
+    var columnWidths = new[] { 35, 120, 100, 45, 80, 80, 80 };
     var totalTableWidth = columnWidths.Sum();
 
     // Draw headers
@@ -391,11 +402,15 @@ public class RaceReportGenerator
       var rowData = new[]
       {
         result.Position,
-        result.TagID.Length > 15 ? result.TagID.Substring(0, 12) + "..." : result.TagID,
+        (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID).Length > 18 
+          ? (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID)[..15] + "..." 
+          : (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID),
+        (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : "").Length > 15
+          ? (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : "")[..12] + "..."
+          : (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : ""),
         result.TotalLaps.ToString(),
         result.TotalTime.ToString(@"mm\:ss\.fff"),
         result.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
-        result.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
         GetGapText(result)
       };
 
@@ -518,21 +533,27 @@ public class RaceReportGenerator
 
     // Results table
     sb.AppendLine("RACE RESULTS:");
-    sb.AppendLine(new string('=', 95));
-    sb.AppendLine($"{"Pos",-4} {"Rider ID",-20} {"Laps",-5} {"Total Time",-12} {"Best Lap",-10} {"Avg Lap",-10} {"Gap",-15}");
-    sb.AppendLine(new string('-', 95));
+    sb.AppendLine(new string('=', 130));
+    sb.AppendLine($"{"Pos",-4} {"Tag ID",-12} {"Name",-20} {"Team",-15} {"Laps",-5} {"Total Time",-12} {"Best Lap",-10} {"Avg Lap",-10} {"Gap",-15}");
+    sb.AppendLine(new string('-', 130));
 
     foreach (var result in _reportData.RiderResults)
     {
       var gapText = GetGapText(result);
       var bestLap = result.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
       var avgLap = result.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+      var riderName = !string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : "";
+      var team = !string.IsNullOrWhiteSpace(result.Team) ? result.Team : "";
 
-      sb.AppendLine($"{result.Position,-4} {result.TagID,-20} {result.TotalLaps,-5} " +
+      // Truncate long names/teams if needed to fit format
+      if (riderName.Length > 19) riderName = riderName[..16] + "...";
+      if (team.Length > 14) team = team[..11] + "...";
+
+      sb.AppendLine($"{result.Position,-4} {result.TagID,-12} {riderName,-20} {team,-15} {result.TotalLaps,-5} " +
                    $"{result.TotalTime:mm\\:ss\\.fff,-12} {bestLap,-10} {avgLap,-10} {gapText,-15}");
     }
 
-    sb.AppendLine(new string('=', 95));
+    sb.AppendLine(new string('=', 130));
     sb.AppendLine();
     sb.AppendLine($"Report generated: {_reportData.GeneratedAt:yyyy-MM-dd HH:mm:ss}");
 
@@ -594,7 +615,7 @@ public class RaceReportGenerator
     sheet.Cell(currentRow, 1).Value = _reportData.RaceTitle;
     sheet.Cell(currentRow, 1).Style.Font.FontSize = 18;
     sheet.Cell(currentRow, 1).Style.Font.Bold = true;
-    sheet.Range(currentRow, 1, currentRow, 8).Merge();
+    sheet.Range(currentRow, 1, currentRow, 12).Merge();
     currentRow += 2;
 
     // Race information
@@ -624,7 +645,7 @@ public class RaceReportGenerator
     currentRow += 2;
 
     // Headers
-    var headers = new[] { "Position", "Tag ID", "Laps", "Total Time", "Best Lap", "Avg Lap", "Gap", "Status" };
+    var headers = new[] { "Position", "Tag ID", "Number", "Rider Name", "Team", "Category", "Laps", "Total Time", "Best Lap", "Avg Lap", "Gap", "Status" };
     for (int i = 0; i < headers.Length; i++)
     {
       var cell = sheet.Cell(currentRow, i + 1);
@@ -640,12 +661,16 @@ public class RaceReportGenerator
     {
       sheet.Cell(currentRow, 1).Value = rider.Position;
       sheet.Cell(currentRow, 2).Value = rider.TagID;
-      sheet.Cell(currentRow, 3).Value = rider.TotalLaps;
-      sheet.Cell(currentRow, 4).Value = rider.TotalTime.ToString(@"hh\:mm\:ss\.fff");
-      sheet.Cell(currentRow, 5).Value = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-      sheet.Cell(currentRow, 6).Value = rider.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-      sheet.Cell(currentRow, 7).Value = rider.Gap ?? "";
-      sheet.Cell(currentRow, 8).Value = rider.Status;
+      sheet.Cell(currentRow, 3).Value = rider.RiderNumber ?? "";
+      sheet.Cell(currentRow, 4).Value = rider.RiderName ?? "";
+      sheet.Cell(currentRow, 5).Value = rider.Team ?? "";
+      sheet.Cell(currentRow, 6).Value = rider.Category ?? "";
+      sheet.Cell(currentRow, 7).Value = rider.TotalLaps;
+      sheet.Cell(currentRow, 8).Value = rider.TotalTime.ToString(@"hh\:mm\:ss\.fff");
+      sheet.Cell(currentRow, 9).Value = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+      sheet.Cell(currentRow, 10).Value = rider.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+      sheet.Cell(currentRow, 11).Value = rider.Gap ?? "";
+      sheet.Cell(currentRow, 12).Value = rider.Status;
 
       // Color coding for positions
       if (rider.Position == "1" && rider.Status != "DNF")
@@ -658,7 +683,7 @@ public class RaceReportGenerator
         sheet.Row(currentRow).Style.Fill.BackgroundColor = XLColor.LightGray;
 
       // Add borders
-      sheet.Range(currentRow, 1, currentRow, 8).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+      sheet.Range(currentRow, 1, currentRow, 12).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
       currentRow++;
     }
@@ -685,7 +710,10 @@ public class RaceReportGenerator
     foreach (var rider in _reportData.RiderResults)
     {
       // Rider header
-      sheet.Cell(currentRow, 1).Value = $"Rider: {rider.TagID} (Position: {rider.Position})";
+      var riderDisplay = !string.IsNullOrWhiteSpace(rider.RiderName)
+        ? $"{rider.RiderName} (Tag: {rider.TagID})"
+        : $"Tag: {rider.TagID}";
+      sheet.Cell(currentRow, 1).Value = $"Rider: {riderDisplay} (Position: {rider.Position})";
       sheet.Cell(currentRow, 1).Style.Font.Bold = true;
       sheet.Cell(currentRow, 1).Style.Fill.BackgroundColor = XLColor.LightBlue;
       sheet.Range(currentRow, 1, currentRow, 4).Merge();
@@ -826,6 +854,11 @@ public class RiderResult
 {
   public string Position { get; set; } = "";
   public string TagID { get; set; } = "";
+  public string RiderNumber { get; set; } = "";
+  public string RiderName { get; set; } = "";
+  public string Team { get; set; } = "";
+  public string Category { get; set; } = "";
+  public string Machine { get; set; } = "";
   public int TotalLaps { get; set; }
   public TimeSpan TotalTime { get; set; }
   public TimeSpan? BestLapTime { get; set; }
@@ -838,6 +871,19 @@ public class RiderResult
   // Additional properties for Excel export
   public string Gap => GapToLeader?.ToString(@"hh\:mm\:ss") ?? "";
   public string Status => IsDNF ? "DNF" : "Finished";
+
+  /// <summary>
+  /// Display name for the rider (name if available, otherwise tag ID)
+  /// </summary>
+  public string DisplayName
+  {
+    get
+    {
+      if (!string.IsNullOrEmpty(RiderName))
+        return RiderName;
+      return TagID;
+    }
+  }
 }
 
 /// <summary>

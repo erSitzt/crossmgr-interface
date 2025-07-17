@@ -22,6 +22,7 @@ public partial class Form1 : Form
   private readonly LapProgressionManager _lapProgressionManager;
   private readonly RaceStateManager _raceStateManager;
   private readonly RaceReportGenerator _raceReportGenerator;
+  private readonly RiderDataImporter _riderDataImporter;
 
   // Rider tracking
   private readonly Dictionary<string, RiderInfo> riders = new();
@@ -87,6 +88,7 @@ public partial class Form1 : Form
     _lapChartRenderer = new LapChartRenderer();
     _lapProgressionManager = new LapProgressionManager();
     _raceReportGenerator = new RaceReportGenerator();
+    _riderDataImporter = new RiderDataImporter();
 
     this.Load += Form1_Load;
     InitializeRidersDataGrid();
@@ -671,10 +673,20 @@ public partial class Form1 : Form
 
     if (!riders.ContainsKey(tagID))
     {
+      // Get imported rider data if available
+      var importedData = _riderDataImporter.GetRiderData(tagID);
+
       // First time seeing this rider
       riders[tagID] = new RiderInfo
       {
         TagID = tagID,
+        RiderNumber = importedData?.RiderNumber ?? "",
+        FirstName = importedData?.FirstName ?? "",
+        LastName = importedData?.LastName ?? "",
+        Team = importedData?.Team ?? "",
+        Category = importedData?.Category ?? "",
+        Machine = importedData?.Machine ?? "",
+        LastCrossingTime = crossingTime,
         FirstCrossing = crossingTime,
         LastCrossing = crossingTime,
         RaceStartTime = raceStartTime
@@ -1242,6 +1254,122 @@ public partial class Form1 : Form
     }
   }
 
+  private void buttonImportRiders_Click(object? sender, EventArgs e)
+  {
+    try
+    {
+      using (var openFileDialog = new OpenFileDialog())
+      {
+        openFileDialog.Title = "Import Rider Data";
+        openFileDialog.Filter = "Excel files (*.xlsx)|*.xlsx|CSV files (*.csv)|*.csv|All files (*.*)|*.*";
+        openFileDialog.FilterIndex = 1;
+
+        if (openFileDialog.ShowDialog() == DialogResult.OK)
+        {
+          int importedCount = 0;
+          string fileName = openFileDialog.FileName;
+          string extension = Path.GetExtension(fileName).ToLower();
+
+          // Import based on file type
+          if (extension == ".xlsx" || extension == ".xls")
+          {
+            importedCount = _riderDataImporter.ImportFromExcel(fileName);
+          }
+          else if (extension == ".csv")
+          {
+            importedCount = _riderDataImporter.ImportFromCsv(fileName);
+          }
+          else
+          {
+            MessageBox.Show("Unsupported file format. Please select an Excel (.xlsx) or CSV (.csv) file.",
+              "Invalid File Type", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+          }
+
+          // Update UI to show import status
+          if (importedCount > 0)
+          {
+            labelImportStatus.Text = $"✓ {importedCount} riders imported";
+            labelImportStatus.ForeColor = Color.DarkGreen;
+
+            AddMessage($"📋 Imported rider data for {importedCount} riders from {Path.GetFileName(fileName)}");
+
+            // Apply imported data to any existing riders
+            ApplyImportedDataToExistingRiders();
+          }
+          else
+          {
+            labelImportStatus.Text = "⚠ No riders imported";
+            labelImportStatus.ForeColor = Color.Orange;
+            MessageBox.Show("No rider data was imported. Please check the file format and content.",
+              "Import Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+          }
+        }
+      }
+    }
+    catch (Exception ex)
+    {
+      labelImportStatus.Text = "✗ Import failed";
+      labelImportStatus.ForeColor = Color.Red;
+      MessageBox.Show($"Error importing rider data: {ex.Message}", "Import Error",
+        MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+  }
+
+  /// <summary>
+  /// Apply imported rider data to existing riders that don't have names/teams
+  /// </summary>
+  private void ApplyImportedDataToExistingRiders()
+  {
+    lock (ridersLock)
+    {
+      int updatedCount = 0;
+
+      foreach (var rider in riders.Values)
+      {
+        var importedData = _riderDataImporter.GetRiderData(rider.TagID);
+        if (importedData != null)
+        {
+          // Update rider information if not already set
+          if (string.IsNullOrEmpty(rider.FirstName) && !string.IsNullOrEmpty(importedData.FirstName))
+            rider.FirstName = importedData.FirstName;
+
+          if (string.IsNullOrEmpty(rider.LastName) && !string.IsNullOrEmpty(importedData.LastName))
+            rider.LastName = importedData.LastName;
+
+          if (string.IsNullOrEmpty(rider.Team) && !string.IsNullOrEmpty(importedData.Team))
+            rider.Team = importedData.Team;
+
+          if (string.IsNullOrEmpty(rider.RiderNumber) && !string.IsNullOrEmpty(importedData.RiderNumber))
+            rider.RiderNumber = importedData.RiderNumber;
+
+          if (string.IsNullOrEmpty(rider.Category) && !string.IsNullOrEmpty(importedData.Category))
+            rider.Category = importedData.Category;
+
+          if (string.IsNullOrEmpty(rider.Machine) && !string.IsNullOrEmpty(importedData.Machine))
+            rider.Machine = importedData.Machine;
+
+          updatedCount++;
+
+          // Update database with new rider information
+          if (currentRaceId.HasValue)
+          {
+            _raceDb.UpsertRider(rider);
+          }
+        }
+      }
+
+      if (updatedCount > 0)
+      {
+        AddMessage($"📋 Updated {updatedCount} existing riders with imported data");
+
+        // Refresh displays to show updated rider information
+        ridersDisplayNeedsUpdate = true;
+        lapChartNeedsUpdate = true;
+      }
+    }
+  }
+
   private void buttonSetDuration_Click(object? sender, EventArgs e)
   {
     var minutes = (int)numericUpDownRaceDuration.Value;
@@ -1272,6 +1400,8 @@ public partial class Form1 : Form
     dataGridViewRiders.Columns.Clear();
     dataGridViewRiders.Columns.Add("Position", "Pos");
     dataGridViewRiders.Columns.Add("TagID", "Tag ID");
+    dataGridViewRiders.Columns.Add("RiderName", "Rider Name");
+    dataGridViewRiders.Columns.Add("Team", "Team");
     dataGridViewRiders.Columns.Add("Laps", "Laps");
     dataGridViewRiders.Columns.Add("LastLap", "Last Lap");
     dataGridViewRiders.Columns.Add("BestLap", "Best Lap");
@@ -1288,7 +1418,9 @@ public partial class Form1 : Form
       switch (column.Name)
       {
         case "Position": column.Width = 40; break;
-        case "TagID": column.Width = 160; break; // Increased to accommodate up to 24-character tag IDs
+        case "TagID": column.Width = 120; break; // Reduced to make room for name/team
+        case "RiderName": column.Width = 150; break;
+        case "Team": column.Width = 120; break;
         case "Laps": column.Width = 50; break;
         case "LastLap": column.Width = 85; break;
         case "BestLap": column.Width = 85; break;
@@ -1328,6 +1460,13 @@ public partial class Form1 : Form
       riderSnapshot = riders.Values.Select(r => new RiderInfo
       {
         TagID = r.TagID,
+        RiderNumber = r.RiderNumber,
+        FirstName = r.FirstName,
+        LastName = r.LastName,
+        Team = r.Team,
+        Category = r.Category,
+        Machine = r.Machine,
+        LastCrossingTime = r.LastCrossingTime,
         FirstCrossing = r.FirstCrossing,
         LastCrossing = r.LastCrossing,
         RaceStartTime = r.RaceStartTime,
@@ -1432,9 +1571,14 @@ public partial class Form1 : Form
 
         // Add row to grid
         var displayTagID = rider.IsDNF ? $"{rider.TagID} (DNF)" : rider.TagID;
+        var riderName = rider.DisplayName != rider.TagID ? rider.DisplayName : "";
+        var teamName = rider.Team;
+
         dataGridViewRiders.Rows.Add(
           (i + 1).ToString(),  // Position
-          displayTagID,
+          displayTagID,        // Tag ID
+          riderName,          // Rider Name
+          teamName,           // Team
           rider.TotalLaps.ToString(),
           rider.LastLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
           rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",

@@ -6,6 +6,13 @@ namespace CrossMgrInterface;
 public class RiderInfo
 {
   public string TagID { get; set; } = "";
+  public string RiderNumber { get; set; } = "";
+  public string FirstName { get; set; } = "";
+  public string LastName { get; set; } = "";
+  public string Team { get; set; } = "";
+  public string Category { get; set; } = "";
+  public string Machine { get; set; } = "";
+  public DateTime LastCrossingTime { get; set; }
   public List<RiderLap> Laps { get; set; } = new List<RiderLap>();
   public DateTime FirstCrossing { get; set; }
   public DateTime LastCrossing { get; set; }
@@ -13,6 +20,21 @@ public class RiderInfo
   public int FinalAllowedLap { get; set; } = int.MaxValue; // Maximum lap number allowed for this rider after race finish
   public bool IsDNF { get; set; } = false; // Did Not Finish - marked when rider times out after race ends
   public DateTime? DNFTime { get; set; } // When the rider was marked as DNF
+
+  /// <summary>
+  /// Display name combining first and last name, or just tag ID if no name available
+  /// </summary>
+  public string DisplayName
+  {
+    get
+    {
+      if (!string.IsNullOrEmpty(FirstName) || !string.IsNullOrEmpty(LastName))
+      {
+        return $"{FirstName} {LastName}".Trim();
+      }
+      return TagID;
+    }
+  }
 
   public int TotalLaps => Laps.Count;
   public TimeSpan? BestLapTime => Laps.Where(l => l.LapTime.HasValue).Min(l => l.LapTime);

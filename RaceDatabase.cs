@@ -30,6 +30,13 @@ public class DbRider
   public int Id { get; set; }
   public int RaceId { get; set; }
   public string TagID { get; set; } = "";
+  public string RiderNumber { get; set; } = "";
+  public string FirstName { get; set; } = "";
+  public string LastName { get; set; } = "";
+  public string Team { get; set; } = "";
+  public string Category { get; set; } = "";
+  public string Machine { get; set; } = "";
+  public DateTime LastCrossingTime { get; set; }
   public DateTime FirstCrossing { get; set; }
   public DateTime LastCrossing { get; set; }
   public DateTime? RaceStartTime { get; set; }
@@ -170,6 +177,13 @@ public class RaceDataService : IDisposable
     {
       RaceId = CurrentRaceId,
       TagID = riderInfo.TagID,
+      RiderNumber = riderInfo.RiderNumber,
+      FirstName = riderInfo.FirstName,
+      LastName = riderInfo.LastName,
+      Team = riderInfo.Team,
+      Category = riderInfo.Category,
+      Machine = riderInfo.Machine,
+      LastCrossingTime = riderInfo.LastCrossingTime,
       FirstCrossing = riderInfo.FirstCrossing,
       LastCrossing = riderInfo.LastCrossing,
       RaceStartTime = riderInfo.RaceStartTime,
@@ -410,6 +424,13 @@ public class RaceDataService : IDisposable
       var riderInfo = new RiderInfo
       {
         TagID = dbRider.TagID,
+        RiderNumber = dbRider.RiderNumber,
+        FirstName = dbRider.FirstName,
+        LastName = dbRider.LastName,
+        Team = dbRider.Team,
+        Category = dbRider.Category,
+        Machine = dbRider.Machine,
+        LastCrossingTime = dbRider.LastCrossingTime,
         FirstCrossing = dbRider.FirstCrossing,
         LastCrossing = dbRider.LastCrossing,
         RaceStartTime = dbRider.RaceStartTime,
