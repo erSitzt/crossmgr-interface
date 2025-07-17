@@ -139,10 +139,15 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
         print(f"  - {rider} will DNF after completing lap {dnf_lap_numbers[rider]}")
     print(f"  - {num_dnf_riders} rider(s) selected for DNF testing")
     
+    # --- Inject RFID error simulation ---
+    error_rider = random.choice(riders)
+    error_short_laps_remaining = random.randint(1, 2)
+    error_short_lap_indices = set(random.sample(range(3, 8), error_short_laps_remaining))  # Occur between lap 3-7
+    # --- End RFID error simulation ---
+
     while time.time() < race_end:
         # Determine which rider should cross next
         current_time = time.time()
-        
         for rider in riders:
             # Skip riders who have already DNF'd
             if rider in dnf_completed:
@@ -185,10 +190,14 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
                     send_tag_read(sock, rider, lap_number[rider])
                     print(f"  P{position} {rider} completed lap {lap_number[rider]} (race start)")
                     
-                    # Check if this rider should DNF after this lap
-                    if rider in dnf_riders and lap_number[rider] >= dnf_lap_numbers[rider]:
-                        dnf_completed.add(rider)
-                        print(f"  >>> {rider} DNF after lap {lap_number[rider]} <<<")
+                    # --- Inject short lap error for error_rider ---
+                    if rider == error_rider and lap_number[rider] in error_short_lap_indices:
+                        short_lap_time = rider_base_lap_times[rider] * random.uniform(0.15, 0.20)
+                        time.sleep(short_lap_time)
+                        lap_number[rider] += 1
+                        send_tag_read(sock, rider, lap_number[rider])
+                        print(f"  P{position} {rider} completed ERRONEOUS SHORT LAP {lap_number[rider]} (lap time: {short_lap_time:.1f}s)")
+                    # --- End error injection ---
             else:
                 # Check if it's time for next lap
                 time_since_last = current_time - rider_last_crossing[rider]
@@ -215,15 +224,14 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
                     
                     print(f"  P{position} {rider} completed lap {lap_number[rider]} (lap time: {time_since_last:.1f}s)")
                     
-                    # Check if this rider should DNF after this lap
-                    if rider in dnf_riders and lap_number[rider] >= dnf_lap_numbers[rider]:
-                        dnf_completed.add(rider)
-                        print(f"  >>> {rider} DNF after lap {lap_number[rider]} <<<")
-                        continue  # Skip further processing for this rider
-                    
-                    # Smaller adjustment to base lap time (more realistic race progression)
-                    improvement_rate = rider_improvement_rates.get(rider, 0)
-                    rider_base_lap_times[rider] += random.uniform(-0.2, 0.3) + improvement_rate
+                    # --- Inject short lap error for error_rider ---
+                    if rider == error_rider and lap_number[rider] in error_short_lap_indices:
+                        short_lap_time = rider_base_lap_times[rider] * random.uniform(0.15, 0.20)
+                        time.sleep(short_lap_time)
+                        lap_number[rider] += 1
+                        send_tag_read(sock, rider, lap_number[rider])
+                        print(f"  P{position} {rider} completed ERRONEOUS SHORT LAP {lap_number[rider]} (lap time: {short_lap_time:.1f}s)")
+                    # --- End error injection ---
         
         # Wait a bit before checking again
         time.sleep(1)
