@@ -10,4 +10,5 @@ public class LapChartElement
   public int LapNumber { get; set; }
   public TimeSpan? LapTime { get; set; }
   public bool IsRider { get; set; } // true for rider label, false for individual lap
+  public bool IsSplitLap { get; set; } = false; // true if this lap was created by splitting missed reads
 }

@@ -131,7 +131,9 @@ public class LapProgressionManager
 
       foreach (var rider in sortedRiders)
       {
-        var row = new List<object> { rider.TagID };
+        var hasSplitLaps = rider.Laps.Any(l => l.IsSplitLap);
+        var riderDisplayName = hasSplitLaps ? $"{rider.TagID} *" : rider.TagID;
+        var row = new List<object> { riderDisplayName };
 
         // Add position for each completed lap
         for (int lap = 1; lap <= maxLaps; lap++)
@@ -204,12 +206,18 @@ public class LapProgressionManager
             }
 
             string cellValue = $"P{position} {positionChangeArrow}{lapTimeChangeArrow}";
+
+            // Check if this lap is a split lap
+            var lapData = rider.Laps.FirstOrDefault(l => l.LapNumber == lap);
+            var isSplitLap = lapData?.IsSplitLap ?? false;
+
             if (lapTime.HasValue)
             {
-              cellValue += $"\n{lapTime.Value:mm\\:ss\\.fff}";
+              var splitIndicator = isSplitLap ? "*" : "";
+              cellValue += $"\n{lapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
             }
 
-            row.Add(new { Value = cellValue, BackColor = cellBackColor });
+            row.Add(new { Value = cellValue, BackColor = cellBackColor, IsSplitLap = isSplitLap });
           }
           else
           {
@@ -275,9 +283,18 @@ public class LapProgressionManager
           if (row[i] != null && row[i].GetType().GetProperty("BackColor") != null)
           {
             var backColor = (Color)(row[i].GetType().GetProperty("BackColor")?.GetValue(row[i]) ?? Color.White);
+            var isSplitLap = (bool)(row[i].GetType().GetProperty("IsSplitLap")?.GetValue(row[i]) ?? false);
+
             if (i < currentGridRow.Cells.Count)
             {
               currentGridRow.Cells[i].Style.BackColor = backColor;
+
+              // Add special formatting for split laps
+              if (isSplitLap)
+              {
+                currentGridRow.Cells[i].Style.ForeColor = Color.Red;
+                currentGridRow.Cells[i].Style.Font = new Font(currentGridRow.DefaultCellStyle.Font ?? _dataGridViewLapProgression.DefaultCellStyle.Font, FontStyle.Bold);
+              }
             }
           }
         }

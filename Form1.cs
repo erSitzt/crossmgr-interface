@@ -793,6 +793,9 @@ public partial class Form1 : Form
       rider.Laps.Add(newLap);
       rider.LastCrossing = crossingTime;
 
+      // Check for missed reads and split if necessary
+      DetectAndSplitMissedReads(tagID, messagesToAdd);
+
       // Save to database for crash recovery
       if (currentRaceId.HasValue)
       {
@@ -894,7 +897,121 @@ public partial class Form1 : Form
     }
   }
 
+  /// <summary>
+  /// Detect and split laps that may represent multiple missed RFID reads
+  /// If a lap is very long but close to a multiple of the rider's average lap time,
+  /// split it into multiple equal-length laps
+  /// </summary>
+  private void DetectAndSplitMissedReads(string tagID, List<(string, bool)> messagesToAdd)
+  {
+    var rider = riders[tagID];
+    if (rider.Laps.Count < 3) return; // Need at least 3 laps to analyze (skip first lap)
 
+    var lastLap = rider.Laps.Last();
+    if (!lastLap.LapTime.HasValue) return;
+
+    var lastLapTime = lastLap.LapTime.Value;
+
+    // Calculate recent average lap time (excluding the last lap and the first lap)
+    var recentLaps = rider.Laps.Skip(1) // Skip the first lap
+        .Take(rider.Laps.Count - 2) // Exclude the last lap as well
+        .Where(l => l.LapTime.HasValue)
+        .TakeLast(5) // Use last 5 laps for average
+        .ToList();
+
+    if (recentLaps.Count < 2) return; // Need at least 2 previous laps (excluding first)
+
+    var avgLapTime = TimeSpan.FromMilliseconds(
+        recentLaps.Average(l => l.LapTime!.Value.TotalMilliseconds));
+
+    // Check if the last lap is 2-5 times the average lap time
+    var ratio = lastLapTime.TotalMilliseconds / avgLapTime.TotalMilliseconds;
+
+    if (ratio >= 1.8 && ratio <= 5.5) // Allow some tolerance
+    {
+      // Determine how many laps this represents
+      int missedLaps = (int)Math.Round(ratio);
+
+      if (missedLaps >= 2 && missedLaps <= 5)
+      {
+        // Calculate equal split lap time
+        var splitLapTime = TimeSpan.FromMilliseconds(lastLapTime.TotalMilliseconds / missedLaps);
+
+        // Calculate global average lap time from all riders to validate split lap time
+        var globalAvgLapTime = CalculateGlobalAverageLapTime();
+        if (globalAvgLapTime.HasValue)
+        {
+          // Check if split laps would be too short compared to global average
+          var splitToGlobalRatio = splitLapTime.TotalMilliseconds / globalAvgLapTime.Value.TotalMilliseconds;
+          if (splitToGlobalRatio < 0.5) // Split laps are less than 50% of global average
+          {
+            messagesToAdd.Add(($"⚠️ MISSED READS NOT SPLIT: {tagID} - Split laps would be too short ({splitLapTime.TotalSeconds:F1}s vs global avg {globalAvgLapTime.Value.TotalSeconds:F1}s)", true));
+            return; // Don't split if it would create unrealistically short laps
+          }
+        }
+
+        // Remove the original long lap
+        rider.Laps.RemoveAt(rider.Laps.Count - 1);
+
+        // Add the split laps
+        var baseCrossingTime = lastLap.CrossingTime - lastLapTime;
+        for (int i = 1; i <= missedLaps; i++)
+        {
+          var splitCrossingTime = baseCrossingTime + TimeSpan.FromMilliseconds(splitLapTime.TotalMilliseconds * i);
+
+          var splitLap = new RiderLap
+          {
+            TagID = tagID,
+            CrossingTime = splitCrossingTime,
+            LapNumber = rider.Laps.Count + 1,
+            LapTime = splitLapTime,
+            IsSplitLap = true // Mark this as a split lap
+          };
+
+          rider.Laps.Add(splitLap);
+
+          // Update database for each split lap
+          if (currentRaceId.HasValue)
+          {
+            Task.Run(() =>
+            {
+              var position = CalculateCurrentPosition(tagID);
+              _raceDb.AddLap(tagID, splitLap, position);
+            });
+          }
+        }
+
+        // Update rider's last crossing time
+        rider.LastCrossing = lastLap.CrossingTime;
+
+        messagesToAdd.Add(($"🔄 MISSED READS DETECTED: {tagID} - Split {lastLapTime.TotalSeconds:F1}s lap into {missedLaps} laps of {splitLapTime.TotalSeconds:F1}s each", true));
+      }
+    }
+  }
+
+  /// <summary>
+  /// Calculate the global average lap time from all riders (excluding first laps)
+  /// </summary>
+  private TimeSpan? CalculateGlobalAverageLapTime()
+  {
+    var allLapTimes = new List<TimeSpan>();
+
+    foreach (var rider in riders.Values)
+    {
+      // Skip first lap for each rider and collect lap times
+      var lapTimes = rider.Laps.Skip(1) // Skip first lap
+          .Where(l => l.LapTime.HasValue)
+          .Select(l => l.LapTime!.Value)
+          .ToList();
+
+      allLapTimes.AddRange(lapTimes);
+    }
+
+    if (allLapTimes.Count == 0) return null;
+
+    var avgMilliseconds = allLapTimes.Average(t => t.TotalMilliseconds);
+    return TimeSpan.FromMilliseconds(avgMilliseconds);
+  }
 
   private void DisplayAllRidersSummary()
   {
@@ -1609,7 +1726,13 @@ public partial class Form1 : Form
         }
 
         // Add row to grid
+        var hasSplitLaps = rider.Laps.Any(l => l.IsSplitLap);
         var displayTagID = rider.IsDNF ? $"{rider.TagID} (DNF)" : rider.TagID;
+        if (hasSplitLaps && !rider.IsDNF)
+        {
+          displayTagID = $"{rider.TagID} *"; // Add asterisk to indicate split laps
+        }
+
         var riderName = rider.DisplayName != rider.TagID ? rider.DisplayName : "";
         var teamName = rider.Team;
 
@@ -1647,6 +1770,13 @@ public partial class Form1 : Form
           row.DefaultCellStyle.BackColor = Color.Silver;  // 2nd place
         else if (i == 2)
           row.DefaultCellStyle.BackColor = Color.FromArgb(205, 127, 50);  // 3rd place (bronze)
+
+        // Mark riders with split laps
+        if (hasSplitLaps && !rider.IsDNF)
+        {
+          row.Cells["TagID"].Style.ForeColor = Color.Red;
+          row.Cells["TagID"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+        }
 
         // Highlight overdue riders (but not if they're already DNF)
         if (timeToNextStr == "Overdue" && !rider.IsDNF)

@@ -129,7 +129,8 @@ public class LapChartRenderer
     string? newHoverInfo = null;
     if (hoveredElement != null && !hoveredElement.IsRider && hoveredElement.LapTime.HasValue)
     {
-      newHoverInfo = $"Lap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}";
+      var splitIndicator = hoveredElement.IsSplitLap ? " (Split)" : "";
+      newHoverInfo = $"Lap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
     }
 
     if (newHoverInfo != _hoveredLapInfo)
@@ -456,8 +457,24 @@ public class LapChartRenderer
       if (lapRect.Width > 0 && lapRect.X < bounds.Right && lapRect.Right > bounds.X)
       {
         var colorIndex = i % lapColors.Length;
-        g.FillRectangle(new SolidBrush(lapColors[colorIndex]), lapRect);
-        g.DrawRectangle(Pens.Black, lapRect);
+        var lapColor = lapColors[colorIndex];
+
+        if (lap.IsSplitLap)
+        {
+          // Draw split laps with a dithered/hatched pattern
+          using var hatchBrush = new HatchBrush(HatchStyle.DottedDiamond, Color.White, lapColor);
+          g.FillRectangle(hatchBrush, lapRect);
+
+          // Draw a thicker border for split laps
+          using var splitPen = new Pen(Color.Red, 2);
+          g.DrawRectangle(splitPen, lapRect);
+        }
+        else
+        {
+          // Normal lap - solid color
+          g.FillRectangle(new SolidBrush(lapColor), lapRect);
+          g.DrawRectangle(Pens.Black, lapRect);
+        }
 
         // Add lap rectangle as hoverable element
         _lapChartElements.Add(new LapChartElement
@@ -466,18 +483,22 @@ public class LapChartRenderer
           RiderId = rider.TagID,
           LapNumber = i + 1,
           LapTime = lapDuration,
-          IsRider = false
+          IsRider = false,
+          IsSplitLap = lap.IsSplitLap
         });
 
         // Draw lap number if there's space
         if (lapRect.Width > 20)
         {
-          var lapText = (i + 1).ToString();
+          var lapText = lap.IsSplitLap ? $"{i + 1}*" : (i + 1).ToString(); // Add asterisk for split laps
           var font = new Font("Arial", 8, FontStyle.Bold);
           var textSize = g.MeasureString(lapText, font);
           var textX = lapRect.X + (lapRect.Width - textSize.Width) / 2;
           var textY = lapRect.Y + (lapRect.Height - textSize.Height) / 2;
-          g.DrawString(lapText, font, Brushes.Black, textX, textY);
+
+          // Use red text for split laps
+          var textBrush = lap.IsSplitLap ? Brushes.Red : Brushes.Black;
+          g.DrawString(lapText, font, textBrush, textX, textY);
           font.Dispose();
         }
       }

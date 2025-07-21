@@ -1,0 +1,11 @@
+[sample_riders]
+FileType=VARYING
+UseHeaderRow=1
+StartAtRow=2
+Separator=,
+Delimiter="
+FileEncoding=AUTO
+Field1=tagid,,8,,0
+Field2=number,,3,,8
+Field3=name,,13,,11
+Field4=team,,10,,24

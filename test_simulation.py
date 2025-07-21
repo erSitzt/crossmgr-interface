@@ -105,12 +105,40 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
         # DNF between lap 3 and 8 (so they get some laps in but DNF before race end)
         dnf_lap_numbers[rider] = random.randint(3, 8)
     
+    # Select 2 riders to simulate missed RFID reads (different from DNF riders)
+    available_for_missed_reads = [r for r in riders if r not in dnf_riders]
+    missed_read_riders = random.sample(available_for_missed_reads, 2)
+    missed_read_schedule = {}
+    
+    for rider in missed_read_riders:
+        # Each rider will have 1-2 missed read events during the race
+        num_missed_events = random.randint(1, 2)
+        # Schedule missed reads between lap 3 and lap 7 (after lap 2, before lap 8)
+        
+        missed_read_schedule[rider] = []
+        for _ in range(num_missed_events):
+            # Random lap number for missed read event to start (lap 3-7)
+            start_lap = random.randint(3, 7)
+            # Skip 2-3 RFID reads (representing missed reads)
+            skip_count = random.randint(2, 3)
+            
+            missed_read_schedule[rider].append({
+                'start_lap': start_lap,
+                'skip_count': skip_count,
+                'skipped_so_far': 0,
+                'active': False,
+                'triggered': False
+            })
+        
+        # Sort by start lap number
+        missed_read_schedule[rider].sort(key=lambda x: x['start_lap'])
+    
     race_start = time.time()
     race_end = race_start + (race_duration_minutes * 60)
     
     lap_number = {rider: 0 for rider in riders}
     
-    print(f"\nRider profiles (8-minute race, lapping expected in final 2 minutes):")
+    print(f"\nRider profiles ({race_duration_minutes}-minute race, lapping expected in final 2 minutes):")
     for i, rider in enumerate(riders):
         improvement = rider_improvement_rates.get(rider, 0)
         consistency = rider_consistency.get(rider, 3)
@@ -126,12 +154,13 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
         else:
             profile = "back markers (risk lapping)"
         
-        print(f"  {rider}: {rider_base_lap_times[rider]:.1f}s base, {profile}")
+        missed_indicator = " [MISSED READS]" if rider in missed_read_riders else ""
+        print(f"  {rider}: {rider_base_lap_times[rider]:.1f}s base, {profile}{missed_indicator}")
     
     print(f"\nExpected race dynamics:")
-    print(f"  - Leaders will complete ~13-14 laps in 8 minutes")
-    print(f"  - Back markers will complete ~11-12 laps")
-    print(f"  - Lapping should occur around minute 6-7 (75% race distance)")
+    print(f"  - Leaders will complete ~{int(race_duration_minutes * 60 / 35)}-{int(race_duration_minutes * 60 / 32)} laps in {race_duration_minutes} minutes")
+    print(f"  - Back markers will complete ~{int(race_duration_minutes * 60 / 43)}-{int(race_duration_minutes * 60 / 40)} laps")
+    print(f"  - Lapping should occur around minute {int(race_duration_minutes * 0.75)} ({int(75)}% race distance)")
     print(f"  - Only top 2-3 riders should lap the slowest 3-5 riders")
     
     print(f"\nDNF simulation:")
@@ -139,11 +168,12 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
         print(f"  - {rider} will DNF after completing lap {dnf_lap_numbers[rider]}")
     print(f"  - {num_dnf_riders} rider(s) selected for DNF testing")
     
-    # --- Inject RFID error simulation ---
-    error_rider = random.choice(riders)
-    error_short_laps_remaining = random.randint(1, 2)
-    error_short_lap_indices = set(random.sample(range(3, 8), error_short_laps_remaining))  # Occur between lap 3-7
-    # --- End RFID error simulation ---
+    print(f"\nMissed RFID read simulation:")
+    for rider in missed_read_riders:
+        events = missed_read_schedule[rider]
+        for event in events:
+            print(f"  - {rider} will skip {event['skip_count']} RFID reads starting at lap {event['start_lap']}")
+    print(f"  - {len(missed_read_riders)} rider(s) selected for missed read testing")
 
     while time.time() < race_end:
         # Determine which rider should cross next
@@ -189,14 +219,6 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
                     
                     send_tag_read(sock, rider, lap_number[rider])
                     print(f"  P{position} {rider} completed lap {lap_number[rider]} (race start)")
-                    
-                    # --- Inject short lap error for error_rider ---
-                    if rider == error_rider and lap_number[rider] in error_short_lap_indices:
-                        short_lap_time = rider_base_lap_times[rider] * random.uniform(0.15, 0.20)
-                        time.sleep(short_lap_time)
-                        lap_number[rider] += 1
-                        send_tag_read(sock, rider, lap_number[rider])
-                        print(f"  P{position} {rider} completed ERRONEOUS SHORT LAP {lap_number[rider]} (lap time: {short_lap_time:.1f}s)")
                     # --- End error injection ---
             else:
                 # Check if it's time for next lap
@@ -205,33 +227,72 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
                     rider_last_crossing[rider] = current_time
                     lap_number[rider] += 1
                     
-                    # Calculate position for this lap
-                    current_laps = [(r, lap_number.get(r, 0)) for r in riders]
-                    current_laps.sort(key=lambda x: x[1], reverse=True)
-                    position = next(i for i, (r, _) in enumerate(current_laps, 1) if r == rider)
+                    # Check if we should skip sending this RFID read (missed read simulation)
+                    should_skip_read = False
+                    if rider in missed_read_schedule:
+                        for event in missed_read_schedule[rider]:
+                            if event['active'] and not event['triggered']:
+                                event['skipped_so_far'] += 1
+                                should_skip_read = True
+                                print(f"  >>> MISSED READ: {rider} completed lap {lap_number[rider]} but RFID read skipped ({event['skipped_so_far']}/{event['skip_count']})")
+                                
+                                # Check if we've skipped enough reads
+                                if event['skipped_so_far'] >= event['skip_count']:
+                                    event['triggered'] = True
+                                    event['active'] = False
+                                    
+                                    # Now send the accumulated laps as one long lap
+                                    total_time_since_last_read = time_since_last
+                                    print(f"  >>> MISSED READ END: {rider} sending accumulated lap after {total_time_since_last_read:.1f}s ({event['skip_count']} laps missed)")
+                                    
+                                    # Calculate position for this lap
+                                    current_laps = [(r, lap_number.get(r, 0)) for r in riders]
+                                    current_laps.sort(key=lambda x: x[1], reverse=True)
+                                    position = next(i for i, (r, _) in enumerate(current_laps, 1) if r == rider)
+                                    
+                                    # Store lap details
+                                    if rider not in rider_lap_details:
+                                        rider_lap_details[rider] = []
+                                    rider_lap_details[rider].append({
+                                        'lap': lap_number[rider],
+                                        'position': position,
+                                        'race_time': current_time - race_start,
+                                        'lap_time': total_time_since_last_read
+                                    })
+                                    
+                                    send_tag_read(sock, rider, lap_number[rider])
+                                    print(f"  P{position} {rider} completed lap {lap_number[rider]} (accumulated time: {total_time_since_last_read:.1f}s - should be split by app)")
+                                break
                     
-                    # Store lap details
-                    if rider not in rider_lap_details:
-                        rider_lap_details[rider] = []
-                    rider_lap_details[rider].append({
-                        'lap': lap_number[rider],
-                        'position': position,
-                        'race_time': current_time - race_start,
-                        'lap_time': time_since_last
-                    })
-                    
-                    send_tag_read(sock, rider, lap_number[rider])
-                    
-                    print(f"  P{position} {rider} completed lap {lap_number[rider]} (lap time: {time_since_last:.1f}s)")
-                    
-                    # --- Inject short lap error for error_rider ---
-                    if rider == error_rider and lap_number[rider] in error_short_lap_indices:
-                        short_lap_time = rider_base_lap_times[rider] * random.uniform(0.15, 0.20)
-                        time.sleep(short_lap_time)
-                        lap_number[rider] += 1
+                    if not should_skip_read:
+                        # Normal lap processing
+                        # Calculate position for this lap
+                        current_laps = [(r, lap_number.get(r, 0)) for r in riders]
+                        current_laps.sort(key=lambda x: x[1], reverse=True)
+                        position = next(i for i, (r, _) in enumerate(current_laps, 1) if r == rider)
+                        
+                        # Store lap details
+                        if rider not in rider_lap_details:
+                            rider_lap_details[rider] = []
+                        rider_lap_details[rider].append({
+                            'lap': lap_number[rider],
+                            'position': position,
+                            'race_time': current_time - race_start,
+                            'lap_time': time_since_last
+                        })
+                        
                         send_tag_read(sock, rider, lap_number[rider])
-                        print(f"  P{position} {rider} completed ERRONEOUS SHORT LAP {lap_number[rider]} (lap time: {short_lap_time:.1f}s)")
-                    # --- End error injection ---
+                        
+                        print(f"  P{position} {rider} completed lap {lap_number[rider]} (lap time: {time_since_last:.1f}s)")
+                        
+                        # Check for missed RFID read simulation
+                        if rider in missed_read_schedule:
+                            for event in missed_read_schedule[rider]:
+                                # Check if we should start skipping reads
+                                if event['start_lap'] == lap_number[rider] and not event['active'] and not event['triggered']:
+                                    event['active'] = True
+                                    print(f"  >>> MISSED READ START: {rider} will skip next {event['skip_count']} RFID reads")
+                                    break
         
         # Wait a bit before checking again
         time.sleep(1)
@@ -247,11 +308,24 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
         for rider in dnf_completed:
             print(f"  - {rider} DNF after {lap_number[rider]} laps (planned DNF at lap {dnf_lap_numbers[rider]})")
     
+    # Show missed read summary
+    print(f"\nMissed Read Events Summary:")
+    for rider in missed_read_riders:
+        events = missed_read_schedule[rider]
+        triggered_events = [e for e in events if e['triggered']]
+        if triggered_events:
+            print(f"  {rider}: {len(triggered_events)} missed read event(s) triggered")
+            for event in triggered_events:
+                print(f"    - Started at lap {event['start_lap']}: skipped {event['skip_count']} RFID reads")
+        else:
+            print(f"  {rider}: No missed read events triggered (race may have ended too early)")
+    
     print(f"\nDetailed lap history with positions:")
     for rider in riders:
         dnf_marker = " (DNF)" if rider in dnf_completed else ""
+        missed_marker = " [MISSED READS]" if rider in missed_read_riders else ""
         if rider in rider_lap_details:
-            print(f"\n{rider}{dnf_marker}:")
+            print(f"\n{rider}{dnf_marker}{missed_marker}:")
             for lap_info in rider_lap_details[rider]:
                 lap_time_str = ""
                 if 'lap_time' in lap_info:
@@ -259,7 +333,7 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
                 race_time_str = f"{lap_info['race_time']:.1f}s"
                 print(f"  Lap {lap_info['lap']}: P{lap_info['position']} at {race_time_str}{lap_time_str}")
         else:
-            print(f"\n{rider}{dnf_marker}: No laps completed")
+            print(f"\n{rider}{dnf_marker}{missed_marker}: No laps completed")
 
 def send_tag_read(sock, tag_id, lap_count):
     """Send a DA tag read message"""
