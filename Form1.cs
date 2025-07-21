@@ -793,18 +793,27 @@ public partial class Form1 : Form
       rider.Laps.Add(newLap);
       rider.LastCrossing = crossingTime;
 
-      // Check for missed reads and split if necessary
+      // Check for missed reads and split if necessary BEFORE saving to database
       DetectAndSplitMissedReads(tagID, messagesToAdd);
 
-      // Save to database for crash recovery
+      // Save to database for crash recovery - but only if the lap wasn't split
+      // If it was split, the split detection already saved the split laps
       if (currentRaceId.HasValue)
       {
         Task.Run(() =>
         {
           _raceDb.UpsertRider(rider);
-          // Calculate current position for this rider
-          var position = CalculateCurrentPosition(tagID);
-          _raceDb.AddLap(tagID, newLap, position);
+
+          // Check if the last lap is still the same lap we created (not split)
+          if (rider.Laps.LastOrDefault()?.CrossingTime == newLap.CrossingTime &&
+              rider.Laps.LastOrDefault()?.LapTime == newLap.LapTime &&
+              !rider.Laps.LastOrDefault()?.IsSplitLap == true)
+          {
+            // The lap wasn't split, so save it normally
+            var position = CalculateCurrentPosition(tagID);
+            _raceDb.AddLap(tagID, newLap, position);
+          }
+          // If the lap was split, the DetectAndSplitMissedReads method already saved the split laps
         });
       }
 
@@ -950,11 +959,25 @@ public partial class Form1 : Form
           }
         }
 
+        // Store the original lap number before removing it
+        var originalLapNumber = lastLap.LapNumber;
+
         // Remove the original long lap
         rider.Laps.RemoveAt(rider.Laps.Count - 1);
 
-        // Add the split laps
+        // Also remove the original lap from the database and any subsequent laps that might conflict
+        if (currentRaceId.HasValue)
+        {
+          // Delete the original lap and any laps with higher numbers (to handle edge cases)
+          for (int lapToDelete = originalLapNumber; lapToDelete <= originalLapNumber + missedLaps; lapToDelete++)
+          {
+            _raceDb.DeleteLap(tagID, lapToDelete);
+          }
+        }
+
+        // Add the split laps - they will replace the original lap with the same starting lap number
         var baseCrossingTime = lastLap.CrossingTime - lastLapTime;
+
         for (int i = 1; i <= missedLaps; i++)
         {
           var splitCrossingTime = baseCrossingTime + TimeSpan.FromMilliseconds(splitLapTime.TotalMilliseconds * i);
@@ -963,21 +986,18 @@ public partial class Form1 : Form
           {
             TagID = tagID,
             CrossingTime = splitCrossingTime,
-            LapNumber = rider.Laps.Count + 1,
+            LapNumber = originalLapNumber + i - 1, // Start from original lap number
             LapTime = splitLapTime,
             IsSplitLap = true // Mark this as a split lap
           };
 
           rider.Laps.Add(splitLap);
 
-          // Update database for each split lap
+          // Update database for each split lap - do this synchronously to maintain order
           if (currentRaceId.HasValue)
           {
-            Task.Run(() =>
-            {
-              var position = CalculateCurrentPosition(tagID);
-              _raceDb.AddLap(tagID, splitLap, position);
-            });
+            var position = CalculateCurrentPosition(tagID);
+            _raceDb.AddLap(tagID, splitLap, position);
           }
         }
 

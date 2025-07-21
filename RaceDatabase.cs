@@ -60,6 +60,7 @@ public class DbLap
   public DateTime CrossingTime { get; set; }
   public TimeSpan? LapTime { get; set; }
   public int PositionAtCompletion { get; set; }
+  public bool IsSplitLap { get; set; } = false; // Track if this lap was created by splitting missed reads
 }
 
 public class DbPositionSnapshot
@@ -239,6 +240,7 @@ public class RaceDataService : IDisposable
       existingLap.CrossingTime = lap.CrossingTime;
       existingLap.LapTime = lap.LapTime;
       existingLap.PositionAtCompletion = positionAtCompletion;
+      existingLap.IsSplitLap = lap.IsSplitLap;
       _laps.Update(existingLap);
       Console.WriteLine($"Updated lap: Rider {riderTagID}, Lap {lap.LapNumber}, Race {CurrentRaceId}");
       return;
@@ -251,7 +253,8 @@ public class RaceDataService : IDisposable
       LapNumber = lap.LapNumber,
       CrossingTime = lap.CrossingTime,
       LapTime = lap.LapTime,
-      PositionAtCompletion = positionAtCompletion
+      PositionAtCompletion = positionAtCompletion,
+      IsSplitLap = lap.IsSplitLap
     };
 
     _laps.Insert(dbLap);
@@ -272,6 +275,24 @@ public class RaceDataService : IDisposable
     return _laps.Find(l => l.RaceId == CurrentRaceId)
                .OrderBy(l => l.CrossingTime)
                .ToList();
+  }
+
+  public bool DeleteLap(string riderTagID, int lapNumber)
+  {
+    if (CurrentRaceId == 0) return false;
+
+    var lapToDelete = _laps.FindOne(l => l.RaceId == CurrentRaceId &&
+                                        l.RiderTagID == riderTagID &&
+                                        l.LapNumber == lapNumber);
+
+    if (lapToDelete != null)
+    {
+      _laps.Delete(lapToDelete.Id);
+      Console.WriteLine($"Deleted lap: Rider {riderTagID}, Lap {lapNumber}, Race {CurrentRaceId}");
+      return true;
+    }
+
+    return false;
   }
 
   #endregion
@@ -453,7 +474,8 @@ public class RaceDataService : IDisposable
           TagID = dbLap.RiderTagID,
           LapNumber = dbLap.LapNumber,
           CrossingTime = dbLap.CrossingTime,
-          LapTime = dbLap.LapTime
+          LapTime = dbLap.LapTime,
+          IsSplitLap = dbLap.IsSplitLap
         });
       }
 
