@@ -2412,7 +2412,7 @@ public partial class Form1 : Form
         var details = new StringBuilder();
         details.AppendLine($"Rider: {riderId}");
         details.AppendLine($"Total Laps: {rider.TotalLaps}");
-        details.AppendLine($"Total Time: {rider.TotalTime:hh\\:mm\\:ss}");
+        details.AppendLine($"Total Time: {rider.TotalTime:hh\\:mm\\:ss\\.fff}");
         if (rider.BestLapTime.HasValue)
           details.AppendLine($"Best Lap: {rider.BestLapTime.Value:mm\\:ss\\.fff}");
         details.AppendLine();

@@ -130,7 +130,17 @@ public class LapChartRenderer
     if (hoveredElement != null && !hoveredElement.IsRider && hoveredElement.LapTime.HasValue)
     {
       var splitIndicator = hoveredElement.IsSplitLap ? " (Split)" : "";
-      newHoverInfo = $"Lap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
+      var lapInfo = $"Lap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
+
+      // Add lap start and end times if available
+      if (hoveredElement.LapStartTime.HasValue && hoveredElement.LapEndTime.HasValue)
+      {
+        var startTime = hoveredElement.LapStartTime.Value.ToString("HH:mm:ss.fff");
+        var endTime = hoveredElement.LapEndTime.Value.ToString("HH:mm:ss.fff");
+        lapInfo += $"\nStart: {startTime}\nEnd: {endTime}";
+      }
+
+      newHoverInfo = lapInfo;
     }
 
     if (newHoverInfo != _hoveredLapInfo)
@@ -484,7 +494,9 @@ public class LapChartRenderer
           LapNumber = i + 1,
           LapTime = lapDuration,
           IsRider = false,
-          IsSplitLap = lap.IsSplitLap
+          IsSplitLap = lap.IsSplitLap,
+          LapStartTime = lapStartTime,
+          LapEndTime = lap.CrossingTime
         });
 
         // Draw lap number if there's space
