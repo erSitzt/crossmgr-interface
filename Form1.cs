@@ -535,6 +535,50 @@ public partial class Form1 : Form
         date = remainder.Substring(dateIndex + 5, 8);
       }
 
+      // Parse the actual crossing time from the message
+      DateTime crossingTime;
+      if (!string.IsNullOrEmpty(date) && date.Length == 8)
+      {
+        // Try to parse the date and time from the message
+        try
+        {
+          // Parse date: YYYYMMDD
+          string year = date.Substring(0, 4);
+          string month = date.Substring(4, 2);
+          string day = date.Substring(6, 2);
+
+          // Parse time: HH:mm:ss.ffffff (or similar format)
+          var timeParts = timeStr.Split(':');
+          if (timeParts.Length >= 3)
+          {
+            var seconds = timeParts[2].Split('.');
+            int hour = int.Parse(timeParts[0]);
+            int minute = int.Parse(timeParts[1]);
+            int second = int.Parse(seconds[0]);
+            int microsecond = seconds.Length > 1 ? int.Parse(seconds[1].PadRight(6, '0').Substring(0, 6)) : 0;
+            int millisecond = microsecond / 1000;
+
+            crossingTime = new DateTime(int.Parse(year), int.Parse(month), int.Parse(day),
+                                      hour, minute, second, millisecond);
+          }
+          else
+          {
+            // Fallback to current time if parsing fails
+            crossingTime = DateTime.Now;
+          }
+        }
+        catch
+        {
+          // Fallback to current time if parsing fails
+          crossingTime = DateTime.Now;
+        }
+      }
+      else
+      {
+        // No date provided, use current time
+        crossingTime = DateTime.Now;
+      }
+
       // Format for display
       string displayTime = DateTime.Now.ToString("HH:mm:ss.fff");
       string formattedTagID = FormatTagID(tagID);
@@ -549,8 +593,7 @@ public partial class Form1 : Form
         return; // Skip lap processing for filtered tags
       }
 
-      // Process rider lap tracking
-      var crossingTime = DateTime.Now; // Use current time as crossing time
+      // Process rider lap tracking using the parsed crossing time
       var lapInfo = ProcessRiderCrossing(tagID, crossingTime);
 
       string lapInfoStr = $"Lap {lapInfo.LapNumber}";
@@ -559,7 +602,7 @@ public partial class Form1 : Form
         lapInfoStr += $" ({lapInfo.LapTime.Value:mm\\:ss\\.fff})";
       }
 
-      string formattedMessage = $"🏷️  Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} {lapInfoStr} [{displayTime}]";
+      string formattedMessage = $"🏷️  Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} {lapInfoStr} [Parsed: {crossingTime:HH:mm:ss.fff}]";
 
       AddTagEvent($"[{clientEndpoint}] {formattedMessage}");
 
@@ -1598,7 +1641,7 @@ public partial class Form1 : Form
       {
         case "Position": column.Width = 40; break;
         case "RiderNumber": column.Width = 60; break;
-        case "TagID": column.Width = 120; break; // Reduced to make room for name/team
+        case "TagID": column.Width = 200; break; // Increased to accommodate up to 32-character tag IDs
         case "RiderName": column.Width = 150; break;
         case "Team": column.Width = 120; break;
         case "Laps": column.Width = 50; break;

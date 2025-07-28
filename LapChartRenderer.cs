@@ -56,9 +56,9 @@ public class LapChartRenderer
 
     // Chart layout parameters
     const int margin = 20;
-    const int riderBarHeight = 40;
+    const int riderBarHeight = 50;
     const int riderSpacing = 5;
-    const int labelWidth = 200; // Increased to accommodate up to 24-character tag IDs
+    const int labelWidth = 400; // Increased width for consistent two-line display of 32-character tag IDs
     var chartWidth = bounds.Width - margin * 2 - labelWidth;
     var chartHeight = sortedRiders.Count * (riderBarHeight + riderSpacing);
 
@@ -213,50 +213,25 @@ public class LapChartRenderer
 
     var textBrush = position < 3 ? Brushes.Black : Brushes.White;
 
-    // Use adaptive font sizing to fit longer tag IDs
-    var fontSize = 10;
-    Font font = new Font("Arial", fontSize, FontStyle.Bold);
-    var textSize = g.MeasureString(labelText, font);
+    // Always use consistent two-line format for all riders
+    var font = new Font("Arial", 9, FontStyle.Bold);
 
-    // If text doesn't fit, reduce font size
-    while (textSize.Width > labelRect.Width - 4 && fontSize > 6)
-    {
-      font.Dispose();
-      fontSize--;
-      font = new Font("Arial", fontSize, FontStyle.Bold);
-      textSize = g.MeasureString(labelText, font);
-    }
+    // Split text: position on first line, tag ID on second line
+    var positionText = $"#{position + 1}:";
+    var tagText = rider.TagID;
 
-    // If still too long, try splitting into two lines
-    if (textSize.Width > labelRect.Width - 4)
-    {
-      font.Dispose();
-      font = new Font("Arial", 8, FontStyle.Bold);
+    var positionSize = g.MeasureString(positionText, font);
+    var tagSize = g.MeasureString(tagText, font);
 
-      // Split text: position on first line, tag ID on second line
-      var positionText = $"#{position + 1}:";
-      var tagText = rider.TagID;
+    // Draw position text centered on first line
+    var positionY = labelRect.Y + 4;
+    var positionX = labelRect.X + (labelRect.Width - positionSize.Width) / 2;
+    g.DrawString(positionText, font, textBrush, positionX, positionY);
 
-      var positionSize = g.MeasureString(positionText, font);
-      var tagSize = g.MeasureString(tagText, font);
-
-      // Draw position text centered on first line
-      var positionY = labelRect.Y + 2;
-      var positionX = labelRect.X + (labelRect.Width - positionSize.Width) / 2;
-      g.DrawString(positionText, font, textBrush, positionX, positionY);
-
-      // Draw tag ID centered on second line
-      var tagY = labelRect.Y + labelRect.Height / 2 + 2;
-      var tagX = labelRect.X + (labelRect.Width - tagSize.Width) / 2;
-      g.DrawString(tagText, font, textBrush, tagX, tagY);
-    }
-    else
-    {
-      // Single line - center the text
-      var textX = labelRect.X + (labelRect.Width - textSize.Width) / 2;
-      var textY = labelRect.Y + (labelRect.Height - textSize.Height) / 2;
-      g.DrawString(labelText, font, textBrush, textX, textY);
-    }
+    // Draw tag ID centered on second line
+    var tagY = labelRect.Y + labelRect.Height / 2 + 4;
+    var tagX = labelRect.X + (labelRect.Width - tagSize.Width) / 2;
+    g.DrawString(tagText, font, textBrush, tagX, tagY);
 
     font.Dispose();
     labelBrush.Dispose();

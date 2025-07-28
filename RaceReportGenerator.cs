@@ -527,9 +527,9 @@ public class RaceReportGenerator
 
     // Results table
     sb.AppendLine("RACE RESULTS:");
-    sb.AppendLine(new string('=', 130));
-    sb.AppendLine($"{"Pos",-4} {"Tag ID",-12} {"Name",-20} {"Team",-15} {"Laps",-5} {"Total Time",-12} {"Best Lap",-10} {"Avg Lap",-10} {"Gap",-15}");
-    sb.AppendLine(new string('-', 130));
+    sb.AppendLine(new string('=', 160)); // Increased width to accommodate longer tag IDs
+    sb.AppendLine($"{"Pos",-4} {"Tag ID",-35} {"Name",-20} {"Team",-15} {"Laps",-5} {"Total Time",-12} {"Best Lap",-10} {"Avg Lap",-10} {"Gap",-15}");
+    sb.AppendLine(new string('-', 160)); // Increased width to accommodate longer tag IDs
 
     foreach (var result in _reportData.RiderResults)
     {
@@ -543,11 +543,11 @@ public class RaceReportGenerator
       if (riderName.Length > 19) riderName = riderName[..16] + "...";
       if (team.Length > 14) team = team[..11] + "...";
 
-      sb.AppendLine($"{result.Position,-4} {result.TagID,-12} {riderName,-20} {team,-15} {result.TotalLaps,-5} " +
+      sb.AppendLine($"{result.Position,-4} {result.TagID,-35} {riderName,-20} {team,-15} {result.TotalLaps,-5} " +
                    $"{result.TotalTime:mm\\:ss\\.fff,-12} {bestLap,-10} {avgLap,-10} {gapText,-15}");
     }
 
-    sb.AppendLine(new string('=', 130));
+    sb.AppendLine(new string('=', 160)); // Increased width to accommodate longer tag IDs
     sb.AppendLine();
     sb.AppendLine($"Report generated: {_reportData.GeneratedAt:yyyy-MM-dd HH:mm:ss}");
 
