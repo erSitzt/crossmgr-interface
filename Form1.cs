@@ -61,6 +61,10 @@ public partial class Form1 : Form
   private bool tagFilterEnabled = false;
   private int filteredTagCount = 0;
 
+  // Tag ignore list for excluding specific tags from processing
+  private readonly HashSet<string> ignoredTags = new();
+  private int ignoredTagCount = 0;
+
   // Logging
   private string logFilePath = "";
   private readonly object logLock = new object();
@@ -182,6 +186,9 @@ public partial class Form1 : Form
     panelLapChart.MouseClick += PanelLapChart_MouseClick;
     panelLapChart.MouseMove += PanelLapChart_MouseMove;
     panelLapChart.MouseLeave += PanelLapChart_MouseLeave;
+
+    // Add context menu to tag events list
+    InitializeTagEventsContextMenu();
 
     // Set up race start mode controls
     radioButtonStartOnFirstTag.CheckedChanged += RaceStartMode_CheckedChanged;
@@ -586,11 +593,22 @@ public partial class Form1 : Form
       // Check tag filter
       if (!ShouldProcessTag(tagID))
       {
-        // Log filtered tag but don't process lap tracking
-        filteredTagCount++;
-        string filteredMessage = $"🚫 Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} [FILTERED #{filteredTagCount} - doesn't match prefix '{tagFilterPrefix}'] [{displayTime}]";
-        AddTagEvent($"[{clientEndpoint}] {filteredMessage}");
-        return; // Skip lap processing for filtered tags
+        // Check if it's ignored vs filtered
+        if (ignoredTags.Contains(tagID))
+        {
+          // Log ignored tag but don't process lap tracking
+          ignoredTagCount++;
+          string ignoredMessage = $"⛔ Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} [IGNORED #{ignoredTagCount} - tag in ignore list] [{displayTime}]";
+          AddTagEvent($"[{clientEndpoint}] {ignoredMessage}");
+        }
+        else
+        {
+          // Log filtered tag but don't process lap tracking
+          filteredTagCount++;
+          string filteredMessage = $"🚫 Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} [FILTERED #{filteredTagCount} - doesn't match prefix '{tagFilterPrefix}'] [{displayTime}]";
+          AddTagEvent($"[{clientEndpoint}] {filteredMessage}");
+        }
+        return; // Skip lap processing for filtered/ignored tags
       }
 
       // Process rider lap tracking using the parsed crossing time
@@ -1655,6 +1673,80 @@ public partial class Form1 : Form
         case "Gap": column.Width = 80; break;
       }
     }
+
+    // Add context menu for tag operations
+    var contextMenu = new ContextMenuStrip();
+
+    var addToIgnoreItem = new ToolStripMenuItem("Add Tag to Ignore List")
+    {
+      ShortcutKeys = Keys.Delete
+    };
+    addToIgnoreItem.Click += (s, e) => HandleAddTagToIgnoreList();
+
+    var removeFromIgnoreItem = new ToolStripMenuItem("Remove Tag from Ignore List");
+    removeFromIgnoreItem.Click += (s, e) => HandleRemoveTagFromIgnoreList();
+
+    var showIgnoreListItem = new ToolStripMenuItem("Show Ignore List");
+    showIgnoreListItem.Click += (s, e) => ShowIgnoreList();
+
+    var clearIgnoreListItem = new ToolStripMenuItem("Clear Ignore List");
+    clearIgnoreListItem.Click += (s, e) => ClearIgnoreList();
+
+    contextMenu.Items.AddRange(new ToolStripItem[]
+    {
+      addToIgnoreItem,
+      removeFromIgnoreItem,
+      new ToolStripSeparator(),
+      showIgnoreListItem,
+      clearIgnoreListItem
+    });
+
+    dataGridViewRiders.ContextMenuStrip = contextMenu;
+  }
+
+  private void InitializeTagEventsContextMenu()
+  {
+    // Create context menu for tag events list
+    var contextMenu = new ContextMenuStrip();
+
+    var addToIgnoreItem = new ToolStripMenuItem("Add Tag to Ignore List");
+    addToIgnoreItem.Click += (s, e) => HandleTagEventsAddToIgnoreList();
+
+    var removeFromIgnoreItem = new ToolStripMenuItem("Remove Tag from Ignore List");
+    removeFromIgnoreItem.Click += (s, e) => HandleTagEventsRemoveFromIgnoreList();
+
+    var showIgnoreListItem = new ToolStripMenuItem("Show Ignore List");
+    showIgnoreListItem.Click += (s, e) => ShowIgnoreList();
+
+    var clearIgnoreListItem = new ToolStripMenuItem("Clear Ignore List");
+    clearIgnoreListItem.Click += (s, e) => ClearIgnoreList();
+
+    contextMenu.Items.AddRange(new ToolStripItem[]
+    {
+      addToIgnoreItem,
+      removeFromIgnoreItem,
+      new ToolStripSeparator(),
+      showIgnoreListItem,
+      clearIgnoreListItem
+    });
+
+    // Update context menu items based on current selection
+    contextMenu.Opening += (s, e) =>
+    {
+      string? tagId = ExtractTagFromSelectedEvent();
+      bool hasSelection = !string.IsNullOrEmpty(tagId);
+      bool isIgnored = hasSelection && tagId != null && ignoredTags.Contains(tagId);
+
+      addToIgnoreItem.Enabled = hasSelection && !isIgnored;
+      addToIgnoreItem.Text = hasSelection ? $"Add {tagId} to Ignore List" : "Add Tag to Ignore List";
+
+      removeFromIgnoreItem.Enabled = hasSelection && isIgnored;
+      removeFromIgnoreItem.Text = hasSelection ? $"Remove {tagId} from Ignore List" : "Remove Tag from Ignore List";
+
+      clearIgnoreListItem.Enabled = ignoredTags.Count > 0;
+    };
+
+    listBoxTagEvents.ContextMenuStrip = contextMenu;
   }
 
   private void UpdateRidersDisplay()
@@ -2398,6 +2490,10 @@ public partial class Form1 : Form
 
   private bool ShouldProcessTag(string tagID)
   {
+    // First check if tag is in the ignore list
+    if (ignoredTags.Contains(tagID))
+      return false;
+
     if (!tagFilterEnabled || string.IsNullOrEmpty(tagFilterPrefix))
       return true;
 
@@ -2414,6 +2510,211 @@ public partial class Form1 : Form
 
     return false;
   }
+
+  #region Tag Ignore List Management
+
+  /// <summary>
+  /// Adds a tag to the ignore list
+  /// </summary>
+  private void AddTagToIgnoreList(string tagID)
+  {
+    if (string.IsNullOrWhiteSpace(tagID))
+      return;
+
+    if (ignoredTags.Add(tagID))
+    {
+      AddMessage($"⛔ Added tag '{tagID}' to ignore list. Total ignored tags: {ignoredTags.Count}");
+
+      // If this tag has existing data, mark the rider as ignored
+      lock (ridersLock)
+      {
+        if (riders.ContainsKey(tagID))
+        {
+          var rider = riders[tagID];
+          AddMessage($"⚠️ Tag '{tagID}' has existing race data ({rider.TotalLaps} laps). Consider clearing rider data if this tag should not be in the race.");
+        }
+      }
+    }
+    else
+    {
+      AddMessage($"⚠️ Tag '{tagID}' is already in the ignore list.");
+    }
+  }
+
+  /// <summary>
+  /// Removes a tag from the ignore list
+  /// </summary>
+  private void RemoveTagFromIgnoreList(string tagID)
+  {
+    if (ignoredTags.Remove(tagID))
+    {
+      AddMessage($"✅ Removed tag '{tagID}' from ignore list. Total ignored tags: {ignoredTags.Count}");
+    }
+    else
+    {
+      AddMessage($"⚠️ Tag '{tagID}' was not found in the ignore list.");
+    }
+  }
+
+  /// <summary>
+  /// Clears all tags from the ignore list
+  /// </summary>
+  private void ClearIgnoreList()
+  {
+    var count = ignoredTags.Count;
+    ignoredTags.Clear();
+    ignoredTagCount = 0;
+    AddMessage($"🗑️ Cleared ignore list. Removed {count} ignored tags.");
+  }
+
+  /// <summary>
+  /// Shows the current ignore list
+  /// </summary>
+  private void ShowIgnoreList()
+  {
+    if (ignoredTags.Count == 0)
+    {
+      AddMessage("📋 Ignore list is empty.");
+      return;
+    }
+
+    AddMessage($"📋 Current ignore list ({ignoredTags.Count} tags):");
+    foreach (var tag in ignoredTags.OrderBy(t => t))
+    {
+      AddMessage($"   ⛔ {tag}");
+    }
+  }
+
+  #endregion
+
+  #region Context Menu Handlers
+
+  /// <summary>
+  /// Handles adding the selected tag to the ignore list from the riders grid context menu
+  /// </summary>
+  private void HandleAddTagToIgnoreList()
+  {
+    if (dataGridViewRiders.SelectedRows.Count > 0)
+    {
+      var selectedRow = dataGridViewRiders.SelectedRows[0];
+      var tagID = selectedRow.Cells["TagID"].Value?.ToString();
+
+      if (!string.IsNullOrEmpty(tagID))
+      {
+        AddTagToIgnoreList(tagID);
+      }
+    }
+    else if (dataGridViewRiders.CurrentCell != null)
+    {
+      var currentRow = dataGridViewRiders.CurrentCell.OwningRow;
+      if (currentRow != null)
+      {
+        var tagIDCell = currentRow.Cells["TagID"];
+        var tagID = tagIDCell?.Value?.ToString();
+
+        if (!string.IsNullOrEmpty(tagID))
+        {
+          AddTagToIgnoreList(tagID);
+        }
+      }
+    }
+    else
+    {
+      AddMessage("⚠️ No rider selected. Please select a rider first.");
+    }
+  }
+
+  /// <summary>
+  /// Handles removing the selected tag from the ignore list from the riders grid context menu
+  /// </summary>
+  private void HandleRemoveTagFromIgnoreList()
+  {
+    if (dataGridViewRiders.SelectedRows.Count > 0)
+    {
+      var selectedRow = dataGridViewRiders.SelectedRows[0];
+      var tagID = selectedRow.Cells["TagID"].Value?.ToString();
+
+      if (!string.IsNullOrEmpty(tagID))
+      {
+        RemoveTagFromIgnoreList(tagID);
+      }
+    }
+    else if (dataGridViewRiders.CurrentCell != null)
+    {
+      var currentRow = dataGridViewRiders.CurrentCell.OwningRow;
+      if (currentRow != null)
+      {
+        var tagIDCell = currentRow.Cells["TagID"];
+        var tagID = tagIDCell?.Value?.ToString();
+
+        if (!string.IsNullOrEmpty(tagID))
+        {
+          RemoveTagFromIgnoreList(tagID);
+        }
+      }
+    }
+    else
+    {
+      AddMessage("⚠️ No rider selected. Please select a rider first.");
+    }
+  }
+
+  /// <summary>
+  /// Handles adding the selected tag to the ignore list from the tag events list context menu
+  /// </summary>
+  private void HandleTagEventsAddToIgnoreList()
+  {
+    string? tagId = ExtractTagFromSelectedEvent();
+    if (!string.IsNullOrEmpty(tagId))
+    {
+      AddTagToIgnoreList(tagId);
+    }
+    else
+    {
+      AddMessage("⚠️ No tag event selected or tag ID could not be extracted.");
+    }
+  }
+
+  /// <summary>
+  /// Handles removing the selected tag from the ignore list from the tag events list context menu
+  /// </summary>
+  private void HandleTagEventsRemoveFromIgnoreList()
+  {
+    string? tagId = ExtractTagFromSelectedEvent();
+    if (!string.IsNullOrEmpty(tagId))
+    {
+      RemoveTagFromIgnoreList(tagId);
+    }
+    else
+    {
+      AddMessage("⚠️ No tag event selected or tag ID could not be extracted.");
+    }
+  }
+
+  /// <summary>
+  /// Extracts the tag ID from the currently selected item in the tag events list
+  /// </summary>
+  private string? ExtractTagFromSelectedEvent()
+  {
+    if (listBoxTagEvents.SelectedItem == null)
+      return null;
+
+    string eventText = listBoxTagEvents.SelectedItem.ToString() ?? "";
+
+    // Tag events format: "HH:mm:ss.fff - Tag: TAGID (status message)"
+    // Extract the tag ID between "Tag: " and " ("
+    int tagStart = eventText.IndexOf("Tag: ");
+    if (tagStart == -1) return null;
+
+    tagStart += 5; // Skip "Tag: "
+    int tagEnd = eventText.IndexOf(" (", tagStart);
+    if (tagEnd == -1) tagEnd = eventText.Length;
+
+    string tagId = eventText.Substring(tagStart, tagEnd - tagStart).Trim();
+    return string.IsNullOrEmpty(tagId) ? null : tagId;
+  }
+
+  #endregion
 
   private void panelLapChart_Paint(object? sender, PaintEventArgs e)
   {
@@ -2436,14 +2737,24 @@ public partial class Form1 : Form
 
   private void PanelLapChart_MouseClick(object? sender, MouseEventArgs e)
   {
-    if (e.Button != MouseButtons.Left) return;
-
     // Adjust mouse position for scroll offset
     var adjustedLocation = new Point(e.Location.X - panelLapChart.AutoScrollPosition.X,
                                    e.Location.Y - panelLapChart.AutoScrollPosition.Y);
 
-    // Delegate to the lap chart renderer
-    _lapChartRenderer.HandleMouseClick(adjustedLocation, ShowRiderDetails, () => panelLapChart.Invalidate());
+    if (e.Button == MouseButtons.Left)
+    {
+      // Delegate to the lap chart renderer for left clicks
+      _lapChartRenderer.HandleMouseClick(adjustedLocation, ShowRiderDetails, () => panelLapChart.Invalidate());
+    }
+    else if (e.Button == MouseButtons.Right)
+    {
+      // Handle right-click for context menu
+      string? tagId = _lapChartRenderer.HandleRightClick(adjustedLocation);
+      if (!string.IsNullOrEmpty(tagId))
+      {
+        ShowTagContextMenu(tagId, e.Location);
+      }
+    }
   }
 
   private void PanelLapChart_MouseMove(object? sender, MouseEventArgs e)
@@ -2556,6 +2867,42 @@ public partial class Form1 : Form
     }
 
     return ridersAhead + 1; // Position is number of riders ahead + 1
+  }
+
+  /// <summary>
+  /// Show context menu for tag operations
+  /// </summary>
+  private void ShowTagContextMenu(string tagId, Point location)
+  {
+    var contextMenu = new ContextMenuStrip();
+
+    bool isIgnored = ignoredTags.Contains(tagId);
+
+    if (isIgnored)
+    {
+      var removeItem = new ToolStripMenuItem($"Remove {tagId} from ignore list");
+      removeItem.Click += (s, e) => RemoveTagFromIgnoreList(tagId);
+      contextMenu.Items.Add(removeItem);
+    }
+    else
+    {
+      var addItem = new ToolStripMenuItem($"Add {tagId} to ignore list");
+      addItem.Click += (s, e) => AddTagToIgnoreList(tagId);
+      contextMenu.Items.Add(addItem);
+    }
+
+    contextMenu.Items.Add(new ToolStripSeparator());
+
+    var showListItem = new ToolStripMenuItem("Show ignore list...");
+    showListItem.Click += (s, e) => ShowIgnoreList();
+    contextMenu.Items.Add(showListItem);
+
+    var clearListItem = new ToolStripMenuItem("Clear ignore list");
+    clearListItem.Click += (s, e) => ClearIgnoreList();
+    clearListItem.Enabled = ignoredTags.Count > 0;
+    contextMenu.Items.Add(clearListItem);
+
+    contextMenu.Show(panelLapChart, location);
   }
 
 

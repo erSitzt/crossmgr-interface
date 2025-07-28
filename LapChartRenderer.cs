@@ -99,7 +99,7 @@ public class LapChartRenderer
     if (!string.IsNullOrEmpty(_hoveredLapInfo))
     {
       var mousePos = panelLapChart.PointToClient(Cursor.Position);
-      
+
       // Reset transform before drawing tooltip to avoid scroll offset issues
       g.ResetTransform();
       DrawTooltip(g, _hoveredLapInfo, mousePos);
@@ -120,6 +120,19 @@ public class LapChartRenderer
       return true;
     }
     return false;
+  }
+
+  /// <summary>
+  /// Handles right-click events on the lap chart for context menu
+  /// </summary>
+  public string? HandleRightClick(Point adjustedLocation)
+  {
+    var clickedElement = _lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(adjustedLocation));
+    if (clickedElement != null && clickedElement.IsRider)
+    {
+      return clickedElement.RiderId;
+    }
+    return null;
   }
 
   /// <summary>
