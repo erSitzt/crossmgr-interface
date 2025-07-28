@@ -141,7 +141,7 @@ public partial class Form1 : Form
         shouldUpdate = riders.Count > 0; // Always update when switching to lap progression tab
         if (shouldUpdate)
         {
-          riderSnapshot = riders.Values.ToList();
+          riderSnapshot = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
           raceFinishedSnapshot = raceFinished;
           waitingForFinalLapsSnapshot = waitingForFinalLaps;
         }
@@ -596,10 +596,9 @@ public partial class Form1 : Form
         // Check if it's ignored vs filtered
         if (ignoredTags.Contains(tagID))
         {
-          // Log ignored tag but don't process lap tracking
+          // Completely ignore - don't log or process anything for ignored tags
           ignoredTagCount++;
-          string ignoredMessage = $"⛔ Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} [IGNORED #{ignoredTagCount} - tag in ignore list] [{displayTime}]";
-          AddTagEvent($"[{clientEndpoint}] {ignoredMessage}");
+          return; // Exit early, don't log ignored tags anywhere
         }
         else
         {
@@ -725,9 +724,9 @@ public partial class Form1 : Form
     // Check if race time has expired and we need to wait for leader
     if (raceStartTime.HasValue && raceEndTime.HasValue && DateTime.Now > raceEndTime.Value && !raceTimeExpired && !waitingForLeaderFinish && !raceFinished && !waitingForFinalLaps)
     {
-      // Find current leader (exclude DNF riders)
+      // Find current leader (exclude DNF riders and ignored riders)
       var currentLeader = riders.Values
-        .Where(r => !r.IsDNF)
+        .Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID))
         .OrderByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .FirstOrDefault();
@@ -747,7 +746,7 @@ public partial class Form1 : Form
 
           // Immediately set final allowed laps for all riders to their current lap + 1
           // This way each rider can only complete the lap they are currently on
-          foreach (var rider in riders.Values.Where(r => !r.IsDNF))
+          foreach (var rider in riders.Values.Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID)))
           {
             rider.FinalAllowedLap = rider.TotalLaps + 1;
           }
@@ -885,7 +884,7 @@ public partial class Form1 : Form
       if (raceTimeExpired && !waitingForLeaderFinish && !waitingForFinalLaps && !raceFinished)
       {
         var currentLeader = riders.Values
-          .Where(r => !r.IsDNF)
+          .Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID))
           .OrderByDescending(r => r.TotalLaps)
           .ThenBy(r => r.TotalTime)
           .FirstOrDefault();
@@ -1109,6 +1108,7 @@ public partial class Form1 : Form
         messages.Add("📊 === RIDERS SUMMARY ===");
 
         var sortedRiders = riders.Values
+          .Where(r => !ignoredTags.Contains(r.TagID)) // Exclude ignored riders
           .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
           .ThenByDescending(r => r.TotalLaps)
           .ThenBy(r => r.TotalTime)
@@ -1430,7 +1430,9 @@ public partial class Form1 : Form
 
       lock (ridersLock)
       {
-        riderSnapshot = riders.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        riderSnapshot = riders
+          .Where(kvp => !ignoredTags.Contains(kvp.Key))
+          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         raceStartSnapshot = raceStartTime;
         raceDurationSnapshot = raceDuration;
         raceFinishedSnapshot = raceFinished;
@@ -1772,24 +1774,27 @@ public partial class Form1 : Form
         return;
 
       // Create deep copies of rider data to avoid references to locked objects
-      riderSnapshot = riders.Values.Select(r => new RiderInfo
-      {
-        TagID = r.TagID,
-        RiderNumber = r.RiderNumber,
-        FirstName = r.FirstName,
-        LastName = r.LastName,
-        Team = r.Team,
-        Category = r.Category,
-        Machine = r.Machine,
-        LastCrossingTime = r.LastCrossingTime,
-        FirstCrossing = r.FirstCrossing,
-        LastCrossing = r.LastCrossing,
-        RaceStartTime = r.RaceStartTime,
-        IsDNF = r.IsDNF,
-        FinalAllowedLap = r.FinalAllowedLap,
-        Laps = r.Laps.ToList() // Create copy of laps list
-        // Note: EstimatedNextCrossing and PredictedLapTime are computed properties
-      }).ToList();
+      // Filter out ignored riders
+      riderSnapshot = riders.Values
+        .Where(r => !ignoredTags.Contains(r.TagID))
+        .Select(r => new RiderInfo
+        {
+          TagID = r.TagID,
+          RiderNumber = r.RiderNumber,
+          FirstName = r.FirstName,
+          LastName = r.LastName,
+          Team = r.Team,
+          Category = r.Category,
+          Machine = r.Machine,
+          LastCrossingTime = r.LastCrossingTime,
+          FirstCrossing = r.FirstCrossing,
+          LastCrossing = r.LastCrossing,
+          RaceStartTime = r.RaceStartTime,
+          IsDNF = r.IsDNF,
+          FinalAllowedLap = r.FinalAllowedLap,
+          Laps = r.Laps.ToList() // Create copy of laps list
+                                 // Note: EstimatedNextCrossing and PredictedLapTime are computed properties
+        }).ToList();
 
       raceStartSnapshot = raceStartTime;
       raceFinishedSnapshot = raceFinished;
@@ -1978,9 +1983,12 @@ public partial class Form1 : Form
     {
       raceStartSnapshot = raceStartTime;
       raceEndSnapshot = raceEndTime;
-      riderCount = riders.Count;
-      dnfCount = riders.Values.Count(r => r.IsDNF);
-      totalLaps = riders.Values.Sum(r => r.TotalLaps);
+
+      // Filter out ignored riders from statistics
+      var activeRiders = riders.Values.Where(r => !ignoredTags.Contains(r.TagID));
+      riderCount = activeRiders.Count();
+      dnfCount = activeRiders.Count(r => r.IsDNF);
+      totalLaps = activeRiders.Sum(r => r.TotalLaps);
       lastTagSnapshot = lastTagID;
       lastTagTimeSnapshot = lastTagTime;
       raceFinishedSnapshot = raceFinished;
@@ -2141,9 +2149,9 @@ public partial class Form1 : Form
 
     lock (ridersLock)
     {
-      // Find the rider expected to cross next
+      // Find the rider expected to cross next (exclude ignored riders)
       nextRider = riders.Values
-        .Where(r => r.EstimatedNextCrossing.HasValue)
+        .Where(r => r.EstimatedNextCrossing.HasValue && !ignoredTags.Contains(r.TagID))
         .OrderBy(r => r.EstimatedNextCrossing!.Value)
         .FirstOrDefault();
     }
@@ -2182,9 +2190,9 @@ public partial class Form1 : Form
 
     lock (ridersLock)
     {
-      // Find the current leader (exclude DNF riders)
+      // Find the current leader (exclude DNF riders and ignored riders)
       leader = riders.Values
-        .Where(r => !r.IsDNF)
+        .Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID))
         .OrderByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .FirstOrDefault();
@@ -2296,7 +2304,7 @@ public partial class Form1 : Form
 
       lock (ridersLock)
       {
-        riderSnapshot = riders.Values.ToList();
+        riderSnapshot = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
         raceFinishedSnapshot = raceFinished;
         waitingForFinalLapsSnapshot = waitingForFinalLaps;
       }
@@ -2334,7 +2342,7 @@ public partial class Form1 : Form
 
     lock (ridersLock)
     {
-      riderSnapshot = riders.Values.ToList();
+      riderSnapshot = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
       raceFinishedSnapshot = raceFinished;
     }
 
@@ -2414,9 +2422,9 @@ public partial class Form1 : Form
 
     lock (ridersLock)
     {
-      // Find the current leader (exclude DNF riders)
+      // Find the current leader (exclude DNF riders and ignored riders)
       leader = riders.Values
-        .Where(r => !r.IsDNF)
+        .Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID))
         .OrderByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .FirstOrDefault();
@@ -2514,7 +2522,7 @@ public partial class Form1 : Form
   #region Tag Ignore List Management
 
   /// <summary>
-  /// Adds a tag to the ignore list
+  /// Adds a tag to the ignore list and removes any existing rider data
   /// </summary>
   private void AddTagToIgnoreList(string tagID)
   {
@@ -2525,14 +2533,53 @@ public partial class Form1 : Form
     {
       AddMessage($"⛔ Added tag '{tagID}' to ignore list. Total ignored tags: {ignoredTags.Count}");
 
-      // If this tag has existing data, mark the rider as ignored
+      // Remove any existing rider data for this tag
+      bool hadExistingData = false;
       lock (ridersLock)
       {
         if (riders.ContainsKey(tagID))
         {
           var rider = riders[tagID];
-          AddMessage($"⚠️ Tag '{tagID}' has existing race data ({rider.TotalLaps} laps). Consider clearing rider data if this tag should not be in the race.");
+          hadExistingData = true;
+
+          // Remove from riders dictionary
+          riders.Remove(tagID);
+
+          // Remove from position tracking
+          lastKnownPositions.Remove(tagID);
+          lastKnownLapCounts.Remove(tagID);
+
+          AddMessage($"🗑️ Removed existing race data for ignored tag '{tagID}' ({rider.TotalLaps} laps)");
+
+          // Mark displays for update
+          ridersDisplayNeedsUpdate = true;
+          lapChartNeedsUpdate = true;
+          lapProgressionNeedsUpdate = true;
         }
+      }
+
+      // Remove from database if exists
+      if (hadExistingData && currentRaceId.HasValue)
+      {
+        Task.Run(() =>
+        {
+          // Delete all laps for this rider
+          var riderLaps = _raceDb.GetRiderLaps(tagID);
+          foreach (var lap in riderLaps)
+          {
+            _raceDb.DeleteLap(tagID, lap.LapNumber);
+          }
+
+          // Remove rider from database by trying to get all riders and filtering out this one
+          // Since there's no direct DeleteRider method, we rely on the rider being excluded from future queries
+          AddMessage($"🗄️ Removed all lap data for tag '{tagID}' from database");
+        });
+      }
+
+      // Update displays if user is viewing them
+      if (tabControl.SelectedIndex == 2) // Riders tab
+      {
+        BeginInvoke(new Action(UpdateRidersDisplay));
       }
     }
     else
@@ -2827,7 +2874,7 @@ public partial class Form1 : Form
 
     foreach (var otherRider in riders.Values)
     {
-      if (otherRider.TagID == riderId) continue;
+      if (otherRider.TagID == riderId || ignoredTags.Contains(otherRider.TagID)) continue;
 
       // Count laps completed by this other rider at the time of the target rider's lap completion
       int otherRiderLapsAtTime = 0;
@@ -3124,9 +3171,9 @@ public partial class Form1 : Form
 
     var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
 
-    // Count DNF riders
-    var dnfRiders = riders.Values.Where(r => r.IsDNF).ToList();
-    var finishedRiders = riders.Values.Where(r => !r.IsDNF).Count();
+    // Count DNF riders (exclude ignored riders)
+    var dnfRiders = riders.Values.Where(r => r.IsDNF && !ignoredTags.Contains(r.TagID)).ToList();
+    var finishedRiders = riders.Values.Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID)).Count();
 
     AddMessage($"🏁 RACE COMPLETELY FINISHED! All riders have completed their final laps or timed out.");
     AddMessage($"🏁 Final race duration: {actualRaceDuration:mm\\:ss}");
@@ -3227,7 +3274,7 @@ public partial class Form1 : Form
     if (raceTimeExpired && targetLapsToFinishRace > 0)
     {        // Recalculate target laps based on new setting (exclude DNF riders from leader calculation)
       var currentLeader = riders.Values
-        .Where(r => !r.IsDNF)
+        .Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID))
         .OrderByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .FirstOrDefault();
@@ -3541,7 +3588,9 @@ public partial class Form1 : Form
   private int CalculateCurrentPosition(string riderId)
   {
     // This method should only be called when ridersLock is already held
-    return PositionCalculator.CalculateCurrentPosition(riderId, riders);
+    // Filter out ignored riders for position calculations
+    var activeRiders = riders.Where(kvp => !ignoredTags.Contains(kvp.Key)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+    return PositionCalculator.CalculateCurrentPosition(riderId, activeRiders);
   }
 
   #region Crash Recovery
@@ -3658,12 +3707,12 @@ public partial class Form1 : Form
       // Start periodic state saving
       StartPeriodicStateSaving();
 
-      // Create snapshot for UI update
-      var riderSnapshot = riders.Values.ToList();
+      // Create snapshot for UI update (exclude ignored riders)
+      var riderSnapshot = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
       var raceFinishedSnapshot = raceFinished;
       var waitingForFinalLapsSnapshot = waitingForFinalLaps;
-      var riderCount = riders.Count;
-      var totalLaps = riders.Values.Sum(r => r.TotalLaps);
+      var riderCount = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).Count();
+      var totalLaps = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).Sum(r => r.TotalLaps);
 
       // Update UI to reflect restored state
       BeginInvoke(new Action(() =>
@@ -3752,7 +3801,9 @@ public partial class Form1 : Form
       Dictionary<string, RiderInfo> riderSnapshot;
       lock (ridersLock)
       {
-        riderSnapshot = riders.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        riderSnapshot = riders
+          .Where(kvp => !ignoredTags.Contains(kvp.Key))
+          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
       }
 
       _raceDb.SaveRaceState(
