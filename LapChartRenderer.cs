@@ -99,6 +99,9 @@ public class LapChartRenderer
     if (!string.IsNullOrEmpty(_hoveredLapInfo))
     {
       var mousePos = panelLapChart.PointToClient(Cursor.Position);
+      
+      // Reset transform before drawing tooltip to avoid scroll offset issues
+      g.ResetTransform();
       DrawTooltip(g, _hoveredLapInfo, mousePos);
     }
   }
