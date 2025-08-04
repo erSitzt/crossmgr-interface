@@ -2811,7 +2811,7 @@ public partial class Form1 : Form
                                    e.Location.Y - panelLapChart.AutoScrollPosition.Y);
 
     // Delegate to the lap chart renderer
-    bool hasHoveredElement = _lapChartRenderer.HandleMouseMove(adjustedLocation, () => panelLapChart.Invalidate());
+    bool hasHoveredElement = _lapChartRenderer.HandleMouseMove(adjustedLocation, () => panelLapChart.Invalidate(), riders);
 
     // Change cursor when hovering over clickable elements
     panelLapChart.Cursor = hasHoveredElement ? Cursors.Hand : Cursors.Default;

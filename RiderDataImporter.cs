@@ -54,13 +54,33 @@ public class RiderDataImporter
       using (var workbook = new XLWorkbook(filePath))
       {
         var worksheet = workbook.Worksheets.First();
-        var rows = worksheet.RowsUsed().Skip(1); // Skip header row
+        var rows = worksheet.RowsUsed().ToList();
 
-        foreach (var row in rows)
+        if (rows.Count <= 1) return 0; // No data rows
+
+        // Check if first row contains headers
+        var firstRow = rows[0];
+        var hasHeaders = HasHeaders(firstRow);
+
+        Dictionary<string, int>? columnMap = null;
+        int startRow = 0;
+
+        if (hasHeaders)
+        {
+          // Parse headers to create column mapping
+          columnMap = ParseExcelHeaders(firstRow);
+          startRow = 1;
+        }
+
+        // Parse data rows
+        for (int i = startRow; i < rows.Count; i++)
         {
           try
           {
-            var riderData = ParseRowToRiderData(row);
+            var riderData = columnMap != null
+              ? ParseRowWithHeaders(rows[i], columnMap)
+              : ParseRowToRiderData(rows[i]);
+
             if (!string.IsNullOrEmpty(riderData.TagID))
             {
               _riderDataLookup[riderData.TagID.ToUpper()] = riderData;
@@ -70,7 +90,7 @@ public class RiderDataImporter
           catch (Exception ex)
           {
             // Log error but continue with other rows
-            Console.WriteLine($"Error parsing row {row.RowNumber()}: {ex.Message}");
+            Console.WriteLine($"Error parsing row {rows[i].RowNumber()}: {ex.Message}");
           }
         }
       }
@@ -177,30 +197,33 @@ public class RiderDataImporter
   {
     var riderData = new RiderImportData();
 
-    // Try to read from standard column positions or by header names
+    // Expected column order based on sample_riders.SCH:
+    // Column 1: TagID
+    // Column 2: RiderNumber  
+    // Column 3: Name (full name)
+    // Column 4: Team
     var cellCount = row.CellsUsed().Count();
 
     if (cellCount >= 1) riderData.TagID = GetCellValue(row.Cell(1));
-    if (cellCount >= 2)
+    if (cellCount >= 2) riderData.RiderNumber = GetCellValue(row.Cell(2));
+    if (cellCount >= 3)
     {
-      var nameOrFirstName = GetCellValue(row.Cell(2));
+      var fullName = GetCellValue(row.Cell(3));
       // If it contains a space, split into first and last name
-      if (nameOrFirstName.Contains(' '))
+      if (fullName.Contains(' '))
       {
-        var parts = nameOrFirstName.Split(' ', 2);
+        var parts = fullName.Split(' ', 2);
         riderData.FirstName = parts[0];
         riderData.LastName = parts[1];
       }
       else
       {
-        riderData.FirstName = nameOrFirstName;
+        riderData.FirstName = fullName;
       }
     }
-    if (cellCount >= 3) riderData.Team = GetCellValue(row.Cell(3));
-    if (cellCount >= 4) riderData.LastName = GetCellValue(row.Cell(4));
-    if (cellCount >= 5) riderData.RiderNumber = GetCellValue(row.Cell(5));
-    if (cellCount >= 6) riderData.Category = GetCellValue(row.Cell(6));
-    if (cellCount >= 7) riderData.Machine = GetCellValue(row.Cell(7));
+    if (cellCount >= 4) riderData.Team = GetCellValue(row.Cell(4));
+    if (cellCount >= 5) riderData.Category = GetCellValue(row.Cell(5));
+    if (cellCount >= 6) riderData.Machine = GetCellValue(row.Cell(6));
 
     return riderData;
   }
@@ -272,6 +295,65 @@ public class RiderDataImporter
       riderData.Machine = machine;
 
     return riderData;
+  }
+
+  private bool HasHeaders(IXLRow firstRow)
+  {
+    // Check if first row contains text that looks like headers
+    var cells = firstRow.CellsUsed().Take(4).ToList();
+    if (cells.Count == 0) return false;
+
+    // Look for common header patterns
+    foreach (var cell in cells)
+    {
+      var value = GetCellValue(cell).ToLower();
+      if (value.Contains("tag") || value.Contains("number") || value.Contains("name") ||
+          value.Contains("team") || value.Contains("rider") || value.Contains("id"))
+      {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private Dictionary<string, int> ParseExcelHeaders(IXLRow headerRow)
+  {
+    var columnMap = new Dictionary<string, int>();
+    var cells = headerRow.CellsUsed().ToList();
+
+    for (int i = 0; i < cells.Count; i++)
+    {
+      var columnName = GetCellValue(cells[i]).Trim().ToLower();
+      if (!string.IsNullOrEmpty(columnName))
+      {
+        columnMap[columnName] = i + 1; // Excel columns are 1-based
+      }
+    }
+
+    return columnMap;
+  }
+
+  private RiderImportData ParseRowWithHeaders(IXLRow row, Dictionary<string, int> columnMap)
+  {
+    var riderData = new RiderImportData();
+
+    // Convert Excel row to string array for reuse with existing logic
+    var maxColumn = columnMap.Values.Max();
+    var values = new string[maxColumn];
+
+    for (int i = 1; i <= maxColumn; i++)
+    {
+      values[i - 1] = GetCellValue(row.Cell(i));
+    }
+
+    // Convert column map to 0-based indexing for consistency with CSV parser
+    var zeroBasedColumnMap = columnMap.ToDictionary(
+      kvp => kvp.Key,
+      kvp => kvp.Value - 1
+    );
+
+    return ParseValuesToRiderData(values, zeroBasedColumnMap);
   }
 
   private bool TryGetValue(string[] values, Dictionary<string, int> columnMap, string[] possibleColumnNames, out string value)

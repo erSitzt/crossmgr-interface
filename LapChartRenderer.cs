@@ -138,25 +138,41 @@ public class LapChartRenderer
   /// <summary>
   /// Handles mouse move events on the lap chart
   /// </summary>
-  public bool HandleMouseMove(Point adjustedLocation, Action invalidateCallback)
+  public bool HandleMouseMove(Point adjustedLocation, Action invalidateCallback, Dictionary<string, RiderInfo>? riders = null)
   {
     var hoveredElement = _lapChartElements.FirstOrDefault(elem => elem.Bounds.Contains(adjustedLocation));
 
     string? newHoverInfo = null;
-    if (hoveredElement != null && !hoveredElement.IsRider && hoveredElement.LapTime.HasValue)
+    if (hoveredElement != null)
     {
-      var splitIndicator = hoveredElement.IsSplitLap ? " (Split)" : "";
-      var lapInfo = $"Lap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
-
-      // Add lap start and end times if available
-      if (hoveredElement.LapStartTime.HasValue && hoveredElement.LapEndTime.HasValue)
+      // Get rider information
+      string riderInfo = hoveredElement.RiderId;
+      if (riders != null && riders.TryGetValue(hoveredElement.RiderId, out var rider))
       {
-        var startTime = hoveredElement.LapStartTime.Value.ToString("HH:mm:ss.fff");
-        var endTime = hoveredElement.LapEndTime.Value.ToString("HH:mm:ss.fff");
-        lapInfo += $"\nStart: {startTime}\nEnd: {endTime}";
+        riderInfo = $"#{rider.RiderNumber} {rider.DisplayName}";
       }
 
-      newHoverInfo = lapInfo;
+      if (hoveredElement.IsRider)
+      {
+        // Show rider information for rider labels
+        newHoverInfo = riderInfo;
+      }
+      else if (hoveredElement.LapTime.HasValue)
+      {
+        // Show lap information with rider details for lap rectangles
+        var splitIndicator = hoveredElement.IsSplitLap ? " (Split)" : "";
+        var lapInfo = $"{riderInfo}\nLap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
+
+        // Add lap start and end times if available
+        if (hoveredElement.LapStartTime.HasValue && hoveredElement.LapEndTime.HasValue)
+        {
+          var startTime = hoveredElement.LapStartTime.Value.ToString("HH:mm:ss.fff");
+          var endTime = hoveredElement.LapEndTime.Value.ToString("HH:mm:ss.fff");
+          lapInfo += $"\nStart: {startTime}\nEnd: {endTime}";
+        }
+
+        newHoverInfo = lapInfo;
+      }
     }
 
     if (newHoverInfo != _hoveredLapInfo)
@@ -204,7 +220,14 @@ public class LapChartRenderer
   private void DrawRiderLabel(Graphics g, RiderInfo rider, int margin, int y, int labelWidth, int riderBarHeight, int position)
   {
     var labelRect = new Rectangle(margin, y, labelWidth - 10, riderBarHeight);
-    var labelText = $"#{position + 1}: {rider.TagID}";
+
+    // Build label text with rider number and name for tooltip/debugging
+    var labelText = $"#{position + 1}:";
+    if (!string.IsNullOrEmpty(rider.RiderNumber))
+      labelText += $" {rider.RiderNumber}";
+    var displayName = rider.DisplayName != rider.TagID ? rider.DisplayName : rider.TagID;
+    labelText += $" - {displayName}";
+
     var labelBrush = GetPositionBrush(position);
 
     // Highlight if this rider is selected
@@ -232,22 +255,28 @@ public class LapChartRenderer
     // Always use consistent two-line format for all riders
     var font = new Font("Arial", 9, FontStyle.Bold);
 
-    // Split text: position on first line, tag ID on second line
+    // Build display text with rider number and name
     var positionText = $"#{position + 1}:";
-    var tagText = rider.TagID;
+    if (!string.IsNullOrEmpty(rider.RiderNumber))
+    {
+      positionText += $" {rider.RiderNumber}";
+    }
+
+    // Use rider name if available, otherwise fall back to tag ID
+    var nameText = rider.DisplayName != rider.TagID ? rider.DisplayName : rider.TagID;
 
     var positionSize = g.MeasureString(positionText, font);
-    var tagSize = g.MeasureString(tagText, font);
+    var nameSize = g.MeasureString(nameText, font);
 
-    // Draw position text centered on first line
+    // Draw position and number on first line
     var positionY = labelRect.Y + 4;
     var positionX = labelRect.X + (labelRect.Width - positionSize.Width) / 2;
     g.DrawString(positionText, font, textBrush, positionX, positionY);
 
-    // Draw tag ID centered on second line
-    var tagY = labelRect.Y + labelRect.Height / 2 + 4;
-    var tagX = labelRect.X + (labelRect.Width - tagSize.Width) / 2;
-    g.DrawString(tagText, font, textBrush, tagX, tagY);
+    // Draw name or tag ID on second line
+    var nameY = labelRect.Y + labelRect.Height / 2 + 4;
+    var nameX = labelRect.X + (labelRect.Width - nameSize.Width) / 2;
+    g.DrawString(nameText, font, textBrush, nameX, nameY);
 
     font.Dispose();
     labelBrush.Dispose();
