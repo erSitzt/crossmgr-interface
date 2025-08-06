@@ -132,7 +132,31 @@ public class LapProgressionManager
       foreach (var rider in sortedRiders)
       {
         var hasSplitLaps = rider.Laps.Any(l => l.IsSplitLap);
-        var riderDisplayName = hasSplitLaps ? $"{rider.TagID} *" : rider.TagID;
+
+        // Build rider display name with number and name
+        var riderDisplayName = "";
+        if (!string.IsNullOrEmpty(rider.RiderNumber))
+        {
+          riderDisplayName = $"#{rider.RiderNumber}";
+        }
+
+        // Add rider name if different from tag ID
+        var displayName = rider.DisplayName != rider.TagID ? rider.DisplayName : rider.TagID;
+        if (!string.IsNullOrEmpty(riderDisplayName))
+        {
+          riderDisplayName += $" {displayName}";
+        }
+        else
+        {
+          riderDisplayName = displayName;
+        }
+
+        // Add split lap indicator if needed
+        if (hasSplitLaps)
+        {
+          riderDisplayName += " *";
+        }
+
         var row = new List<object> { riderDisplayName };
 
         // Add position for each completed lap
@@ -367,7 +391,7 @@ public class LapProgressionManager
     _dataGridViewLapProgression.GridColor = Color.LightGray;
     _dataGridViewLapProgression.RowHeadersVisible = false;
 
-    _dataGridViewLapProgression.Columns.Add("RiderId", "Rider");
+    _dataGridViewLapProgression.Columns.Add("RiderId", "Rider Name");
     _dataGridViewLapProgression.Columns.Add("Lap1", "Lap 1");
     _dataGridViewLapProgression.Columns.Add("Lap2", "Lap 2");
     _dataGridViewLapProgression.Columns.Add("Lap3", "Lap 3");
