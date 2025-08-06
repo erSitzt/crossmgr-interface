@@ -40,9 +40,87 @@ public class RaceReportGenerator
   }
 
   /// <summary>
+  /// Generates and shows print preview for all classes + overall report
+  /// </summary>
+  public void ShowClassBasedPrintPreview(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
+    DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle = "Race Results",
+    DateTime? additionalLapsSignShown = null, DateTime? raceActuallyEnded = null, int additionalLapsCount = 0)
+  {
+    // Get unique classes
+    var classes = GetUniqueClasses(riders);
+
+    if (classes.Count <= 1)
+    {
+      // No classes or only one class, show regular report
+      ShowPrintPreview(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+        raceTitle, additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+      return;
+    }
+
+    // Show overall report first
+    ShowPrintPreview(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+      $"{raceTitle} - Overall Results", additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+
+    // Show class-specific reports
+    foreach (var className in classes.OrderBy(c => c))
+    {
+      var classRiders = FilterRidersByClass(riders, className);
+      if (classRiders.Count > 0)
+      {
+        ShowPrintPreview(classRiders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+          $"{raceTitle} - Class: {className}", additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+      }
+    }
+  }
+
+  /// <summary>
   /// Prints the race report directly
   /// </summary>
   public void PrintReport(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
+    DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle = "Race Results",
+    DateTime? additionalLapsSignShown = null, DateTime? raceActuallyEnded = null, int additionalLapsCount = 0)
+  {
+    // Get unique classes
+    var classes = GetUniqueClasses(riders);
+
+    if (classes.Count <= 1)
+    {
+      // No classes or only one class, print regular report
+      PrintSingleReport(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+        raceTitle, additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+      return;
+    }
+
+    // Multiple classes - ask user what to print
+    var result = MessageBox.Show(
+      $"Multiple classes detected ({classes.Count} classes).\n\n" +
+      "Yes: Print all reports (Overall + each class)\n" +
+      "No: Print overall report only\n" +
+      "Cancel: Cancel printing",
+      "Print Options", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+
+    switch (result)
+    {
+      case DialogResult.Yes:
+        // Print overall + all class reports
+        PrintClassBasedReports(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+          raceTitle, additionalLapsSignShown, raceActuallyEnded, additionalLapsCount, classes);
+        break;
+      case DialogResult.No:
+        // Print overall only
+        PrintSingleReport(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+          $"{raceTitle} - Overall Results", additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+        break;
+      case DialogResult.Cancel:
+        // Do nothing
+        break;
+    }
+  }
+
+  /// <summary>
+  /// Prints a single race report
+  /// </summary>
+  private void PrintSingleReport(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
     DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle = "Race Results",
     DateTime? additionalLapsSignShown = null, DateTime? raceActuallyEnded = null, int additionalLapsCount = 0)
   {
@@ -61,9 +139,67 @@ public class RaceReportGenerator
   }
 
   /// <summary>
+  /// Prints class-based reports
+  /// </summary>
+  private void PrintClassBasedReports(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
+    DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle,
+    DateTime? additionalLapsSignShown, DateTime? raceActuallyEnded, int additionalLapsCount, List<string> classes)
+  {
+    using var printDialog = new PrintDialog();
+    printDialog.Document = _printDocument;
+
+    if (printDialog.ShowDialog() == DialogResult.OK)
+    {
+      // Print overall report
+      _reportData = PrepareReportData(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+        $"{raceTitle} - Overall Results", additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+      _currentPage = 0;
+      _currentRiderIndex = 0;
+      _printDocument.Print();
+
+      // Print class-specific reports
+      foreach (var className in classes.OrderBy(c => c))
+      {
+        var classRiders = FilterRidersByClass(riders, className);
+        if (classRiders.Count > 0)
+        {
+          _reportData = PrepareReportData(classRiders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+            $"{raceTitle} - Class: {className}", additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+          _currentPage = 0;
+          _currentRiderIndex = 0;
+          _printDocument.Print();
+        }
+      }
+    }
+  }
+
+  /// <summary>
   /// Exports race report to file (Text or Excel)
   /// </summary>
   public void ExportToFile(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
+    DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle = "Race Results",
+    DateTime? additionalLapsSignShown = null, DateTime? raceActuallyEnded = null, int additionalLapsCount = 0)
+  {
+    // Get unique classes
+    var classes = GetUniqueClasses(riders);
+
+    if (classes.Count <= 1)
+    {
+      // No classes or only one class, export regular report
+      ExportSingleReportToFile(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+        raceTitle, additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+      return;
+    }
+
+    // Multiple classes - export all reports
+    ExportClassBasedReportsToFile(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+      raceTitle, additionalLapsSignShown, raceActuallyEnded, additionalLapsCount, classes);
+  }
+
+  /// <summary>
+  /// Exports a single race report to file
+  /// </summary>
+  private void ExportSingleReportToFile(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
     DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle = "Race Results",
     DateTime? additionalLapsSignShown = null, DateTime? raceActuallyEnded = null, int additionalLapsCount = 0)
   {
@@ -94,6 +230,91 @@ public class RaceReportGenerator
       MessageBox.Show($"Race report exported to:\n{saveDialog.FileName}", "Export Complete",
         MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
+  }
+
+  /// <summary>
+  /// Exports class-based reports to files
+  /// </summary>
+  private void ExportClassBasedReportsToFile(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
+    DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle,
+    DateTime? additionalLapsSignShown, DateTime? raceActuallyEnded, int additionalLapsCount, List<string> classes)
+  {
+    using var folderDialog = new FolderBrowserDialog();
+    folderDialog.Description = "Select folder to save class-based race reports";
+    folderDialog.UseDescriptionForTitle = true;
+
+    if (folderDialog.ShowDialog() == DialogResult.OK)
+    {
+      var baseFileName = $"Race_Report_{DateTime.Now:yyyyMMdd_HHmmss}";
+      var exportedFiles = new List<string>();
+
+      try
+      {
+        // Export overall report
+        var overallFileName = Path.Combine(folderDialog.SelectedPath, $"{baseFileName}_Overall.xlsx");
+        _reportData = PrepareReportData(riders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+          $"{raceTitle} - Overall Results", additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+        ExportToExcel(overallFileName);
+        exportedFiles.Add(overallFileName);
+
+        // Export class-specific reports
+        foreach (var className in classes.OrderBy(c => c))
+        {
+          var classRiders = FilterRidersByClass(riders, className);
+          if (classRiders.Count > 0)
+          {
+            var classFileName = Path.Combine(folderDialog.SelectedPath,
+              $"{baseFileName}_Class_{SanitizeFileName(className)}.xlsx");
+
+            _reportData = PrepareReportData(classRiders, raceStartTime, raceEndTime, raceDuration, raceFinished,
+              $"{raceTitle} - Class: {className}", additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
+            ExportToExcel(classFileName);
+            exportedFiles.Add(classFileName);
+          }
+        }
+
+        var filesList = string.Join("\n", exportedFiles.Select(f => Path.GetFileName(f)));
+        MessageBox.Show($"Race reports exported to:\n{folderDialog.SelectedPath}\n\nFiles created:\n{filesList}",
+          "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+      }
+      catch (Exception ex)
+      {
+        MessageBox.Show($"Error exporting reports: {ex.Message}", "Export Error",
+          MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
+    }
+  }
+
+  /// <summary>
+  /// Gets unique classes from rider data
+  /// </summary>
+  private List<string> GetUniqueClasses(Dictionary<string, RiderInfo> riders)
+  {
+    return riders.Values
+      .Where(r => !string.IsNullOrEmpty(r.Category))
+      .Select(r => r.Category)
+      .Distinct()
+      .OrderBy(c => c)
+      .ToList();
+  }
+
+  /// <summary>
+  /// Filters riders by specific class
+  /// </summary>
+  private Dictionary<string, RiderInfo> FilterRidersByClass(Dictionary<string, RiderInfo> riders, string className)
+  {
+    return riders
+      .Where(kvp => kvp.Value.Category == className)
+      .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+  }
+
+  /// <summary>
+  /// Sanitizes a filename by removing invalid characters
+  /// </summary>
+  private string SanitizeFileName(string fileName)
+  {
+    var invalidChars = Path.GetInvalidFileNameChars();
+    return string.Join("_", fileName.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries));
   }
 
   private RaceReportData PrepareReportData(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
@@ -214,7 +435,7 @@ public class RaceReportGenerator
     {
       // Title
       var titleText = _reportData.RaceTitle ?? "Race Results";
-      var titleSize = g.MeasureString(titleText, titleFont!);
+      var titleSize = g.MeasureString(titleText, titleFont);
       g.DrawString(titleText, titleFont, Brushes.Black,
         leftMargin + (printableArea.Width - titleSize.Width) / 2, yPos);
       yPos += titleSize.Height + 10;
@@ -233,7 +454,7 @@ public class RaceReportGenerator
     {
       // On subsequent pages, just show title and skip to results
       var titleText = (_reportData.RaceTitle ?? "Race Results") + " (continued)";
-      var titleSize = g.MeasureString(titleText, headerFont!);
+      var titleSize = g.MeasureString(titleText, headerFont);
       g.DrawString(titleText, headerFont, Brushes.Black,
         leftMargin + (printableArea.Width - titleSize.Width) / 2, yPos);
       yPos += titleSize.Height + 20;

@@ -82,6 +82,9 @@ public partial class Form1 : Form
   private readonly List<LapProgressionEntry> lapProgressionHistory = new();
   private bool lapProgressionNeedsUpdate = false;
 
+  // Class filtering
+  private string selectedClassFilter = "All Classes";
+
   public Form1()
   {
     InitializeComponent();
@@ -99,6 +102,7 @@ public partial class Form1 : Form
 
     this.Load += Form1_Load;
     InitializeRidersDataGrid();
+    PopulateClassFilter();
 
     // Add event handler for tab changes
     tabControl.SelectedIndexChanged += TabControl_SelectedIndexChanged;
@@ -1469,7 +1473,7 @@ public partial class Form1 : Form
         switch (reportDialog.SelectedAction)
         {
           case ReportAction.Preview:
-            _raceReportGenerator.ShowPrintPreview(riderSnapshot, raceStartSnapshot,
+            _raceReportGenerator.ShowClassBasedPrintPreview(riderSnapshot, raceStartSnapshot,
               raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle,
               additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
             break;
@@ -1537,6 +1541,9 @@ public partial class Form1 : Form
 
             // Apply imported data to any existing riders
             ApplyImportedDataToExistingRiders();
+
+            // Update class filter options
+            PopulateClassFilter();
           }
           else
           {
@@ -1644,6 +1651,7 @@ public partial class Form1 : Form
     dataGridViewRiders.Columns.Add("TagID", "Tag ID");
     dataGridViewRiders.Columns.Add("RiderName", "Rider Name");
     dataGridViewRiders.Columns.Add("Team", "Team");
+    dataGridViewRiders.Columns.Add("Category", "Class");
     dataGridViewRiders.Columns.Add("Laps", "Laps");
     dataGridViewRiders.Columns.Add("LastLap", "Last Lap");
     dataGridViewRiders.Columns.Add("BestLap", "Best Lap");
@@ -1664,6 +1672,7 @@ public partial class Form1 : Form
         case "TagID": column.Width = 200; break; // Increased to accommodate up to 32-character tag IDs
         case "RiderName": column.Width = 150; break;
         case "Team": column.Width = 120; break;
+        case "Category": column.Width = 100; break;
         case "Laps": column.Width = 50; break;
         case "LastLap": column.Width = 85; break;
         case "BestLap": column.Width = 85; break;
@@ -1774,9 +1783,10 @@ public partial class Form1 : Form
         return;
 
       // Create deep copies of rider data to avoid references to locked objects
-      // Filter out ignored riders
+      // Filter out ignored riders and filter by selected class
       riderSnapshot = riders.Values
         .Where(r => !ignoredTags.Contains(r.TagID))
+        .Where(r => selectedClassFilter == "All Classes" || r.Category == selectedClassFilter)
         .Select(r => new RiderInfo
         {
           TagID = r.TagID,
@@ -1895,6 +1905,7 @@ public partial class Form1 : Form
 
         var riderName = rider.DisplayName != rider.TagID ? rider.DisplayName : "";
         var teamName = rider.Team;
+        var categoryName = rider.Category;
 
         dataGridViewRiders.Rows.Add(
           (i + 1).ToString(),  // Position
@@ -1902,6 +1913,7 @@ public partial class Form1 : Form
           displayTagID,        // Tag ID
           riderName,          // Rider Name
           teamName,           // Team
+          categoryName,       // Category/Class
           rider.TotalLaps.ToString(),
           rider.LastLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
           rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
@@ -2479,6 +2491,64 @@ public partial class Form1 : Form
       }
 
       tagFilterEnabled = checkBoxFilterEnabled.Checked;
+    }
+  }
+
+  private void ComboBoxClassFilter_SelectedIndexChanged(object? sender, EventArgs e)
+  {
+    if (comboBoxClassFilter.SelectedItem != null)
+    {
+      selectedClassFilter = comboBoxClassFilter.SelectedItem.ToString() ?? "All Classes";
+      UpdateRidersDisplay(); // Refresh the display with the new filter
+    }
+  }
+
+  private void PopulateClassFilter()
+  {
+    if (comboBoxClassFilter == null) return;
+
+    // Always include "All Classes" as the first option
+    var classOptions = new List<string> { "All Classes" };
+
+    // Get unique categories from all riders (both active and imported)
+    lock (ridersLock)
+    {
+      var activeCategories = riders.Values
+        .Where(r => !string.IsNullOrEmpty(r.Category))
+        .Select(r => r.Category)
+        .Distinct()
+        .OrderBy(c => c)
+        .ToList();
+
+      classOptions.AddRange(activeCategories);
+    }
+
+    // Also check imported rider data for additional categories
+    var importedCategories = _riderDataImporter.GetAllRiderData().Values
+      .Where(r => !string.IsNullOrEmpty(r.Category))
+      .Select(r => r.Category)
+      .Distinct()
+      .Where(c => !classOptions.Contains(c))
+      .OrderBy(c => c)
+      .ToList();
+
+    classOptions.AddRange(importedCategories);
+
+    // Update ComboBox
+    var currentSelection = comboBoxClassFilter.SelectedItem?.ToString();
+    comboBoxClassFilter.Items.Clear();
+    comboBoxClassFilter.Items.AddRange(classOptions.ToArray());
+
+    // Restore selection or default to "All Classes"
+    if (!string.IsNullOrEmpty(currentSelection) && classOptions.Contains(currentSelection))
+    {
+      comboBoxClassFilter.SelectedItem = currentSelection;
+      selectedClassFilter = currentSelection;
+    }
+    else
+    {
+      comboBoxClassFilter.SelectedItem = "All Classes";
+      selectedClassFilter = "All Classes";
     }
   }
 
