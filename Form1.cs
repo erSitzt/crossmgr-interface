@@ -648,13 +648,13 @@ public partial class Form1 : Form
   private string GetRiderDisplayText(RiderInfo rider)
   {
     var parts = new List<string>();
-    
+
     // Add rider number if available
     if (!string.IsNullOrEmpty(rider.RiderNumber))
     {
       parts.Add($"#{rider.RiderNumber}");
     }
-    
+
     // Add rider name if available
     if (!string.IsNullOrEmpty(rider.FirstName) || !string.IsNullOrEmpty(rider.LastName))
     {
@@ -664,7 +664,7 @@ public partial class Form1 : Form
         parts.Add(name);
       }
     }
-    
+
     // If we have number or name, use them, otherwise fall back to tag ID
     if (parts.Any())
     {
