@@ -642,6 +642,52 @@ public partial class Form1 : Form
     return tagID;
   }
 
+  /// <summary>
+  /// Formats rider display text showing number and name if available, otherwise tag ID
+  /// </summary>
+  private string GetRiderDisplayText(RiderInfo rider)
+  {
+    var parts = new List<string>();
+    
+    // Add rider number if available
+    if (!string.IsNullOrEmpty(rider.RiderNumber))
+    {
+      parts.Add($"#{rider.RiderNumber}");
+    }
+    
+    // Add rider name if available
+    if (!string.IsNullOrEmpty(rider.FirstName) || !string.IsNullOrEmpty(rider.LastName))
+    {
+      var name = $"{rider.FirstName} {rider.LastName}".Trim();
+      if (!string.IsNullOrEmpty(name))
+      {
+        parts.Add(name);
+      }
+    }
+    
+    // If we have number or name, use them, otherwise fall back to tag ID
+    if (parts.Any())
+    {
+      return string.Join(" ", parts);
+    }
+    else
+    {
+      return rider.TagID;
+    }
+  }
+
+  /// <summary>
+  /// Formats rider display text by looking up rider info from tagID
+  /// </summary>
+  private string GetRiderDisplayText(string tagID)
+  {
+    if (riders.TryGetValue(tagID, out var rider))
+    {
+      return GetRiderDisplayText(rider);
+    }
+    return tagID; // Fallback if rider not found
+  }
+
   private RiderLap ProcessRiderCrossing(string tagID, DateTime crossingTime)
   {
     // Collect messages to send after lock is released
@@ -741,7 +787,8 @@ public partial class Form1 : Form
         leaderLapsAtTimeExpiry = currentLeader.TotalLaps;
         raceTimeExpired = true;
 
-        messagesToAdd.Add(($"⏰ Race time expired! Leader {leaderAtTimeExpiry} currently has {leaderLapsAtTimeExpiry} laps completed.", true));
+        var leaderDisplay = GetRiderDisplayText(currentLeader);
+        messagesToAdd.Add(($"⏰ Race time expired! Leader {leaderDisplay} currently has {leaderLapsAtTimeExpiry} laps completed.", true));
 
         if (additionalLapsAfterTimeExpiry == 0)
         {
@@ -907,11 +954,14 @@ public partial class Form1 : Form
           {
             if (tagID == originalLeader)
             {
-              messagesToAdd.Add(($"🏁 LEADER {tagID} crossed after time expiry! Race will finish when leader completes {targetLapsToFinishRace} total laps (no additional laps).", true));
+              var currentRiderDisplay = GetRiderDisplayText(tagID);
+              messagesToAdd.Add(($"🏁 LEADER {currentRiderDisplay} crossed after time expiry! Race will finish when leader completes {targetLapsToFinishRace} total laps (no additional laps).", true));
             }
             else
             {
-              messagesToAdd.Add(($"🏁 NEW LEADER {tagID} crossed after time expiry (was {originalLeader})! Race will finish when new leader completes {targetLapsToFinishRace} total laps (no additional laps).", true));
+              var currentRiderDisplay = GetRiderDisplayText(tagID);
+              var originalLeaderDisplay = string.IsNullOrEmpty(originalLeader) ? "Unknown" : GetRiderDisplayText(originalLeader);
+              messagesToAdd.Add(($"🏁 NEW LEADER {currentRiderDisplay} crossed after time expiry (was {originalLeaderDisplay})! Race will finish when new leader completes {targetLapsToFinishRace} total laps (no additional laps).", true));
             }
           }
           else
@@ -919,18 +969,23 @@ public partial class Form1 : Form
             var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
             if (tagID == originalLeader)
             {
-              messagesToAdd.Add(($"🏁 LEADER {tagID} crossed after time expiry! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when leader completes {targetLapsToFinishRace} total laps.", true));
+              var currentRiderDisplay = GetRiderDisplayText(tagID);
+              messagesToAdd.Add(($"🏁 LEADER {currentRiderDisplay} crossed after time expiry! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when leader completes {targetLapsToFinishRace} total laps.", true));
             }
             else
             {
-              messagesToAdd.Add(($"🏁 NEW LEADER {tagID} crossed after time expiry (was {originalLeader})! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when new leader completes {targetLapsToFinishRace} total laps.", true));
+              var currentRiderDisplay = GetRiderDisplayText(tagID);
+              var originalLeaderDisplay = string.IsNullOrEmpty(originalLeader) ? "Unknown" : GetRiderDisplayText(originalLeader);
+              messagesToAdd.Add(($"🏁 NEW LEADER {currentRiderDisplay} crossed after time expiry (was {originalLeaderDisplay})! Shown {additionalLapsAfterTimeExpiry} additional {lapsText} sign. Race will finish when leader completes {targetLapsToFinishRace} total laps.", true));
             }
           }
         }
         else
         {
           var currentLeaderTag = currentLeader?.TagID ?? "Unknown";
-          messagesToAdd.Add(($"⏰ {tagID} crossed after time expiry, but waiting for current LEADER {currentLeaderTag} to cross and receive additional laps sign...", true));
+          var currentRiderDisplay = GetRiderDisplayText(tagID);
+          var currentLeaderDisplay = GetRiderDisplayText(currentLeaderTag);
+          messagesToAdd.Add(($"⏰ {currentRiderDisplay} crossed after time expiry, but waiting for current LEADER {currentLeaderDisplay} to cross and receive additional laps sign...", true));
         }
       }
 
@@ -2174,17 +2229,18 @@ public partial class Form1 : Form
     {
       var nextTime = nextRider.EstimatedNextCrossing.Value;
       var timeToNext = nextTime - DateTime.Now;
+      var riderDisplay = GetRiderDisplayText(nextRider);
 
       if (timeToNext > TimeSpan.Zero)
       {
         if (timeToNext.TotalMinutes < 1)
-          nextCrossingInfo = $"Next Expected: {nextRider.TagID} in {timeToNext.TotalSeconds:F0}s";
+          nextCrossingInfo = $"Next Expected: {riderDisplay} in {timeToNext.TotalSeconds:F0}s";
         else
-          nextCrossingInfo = $"Next Expected: {nextRider.TagID} in {timeToNext:mm\\:ss}";
+          nextCrossingInfo = $"Next Expected: {riderDisplay} in {timeToNext:mm\\:ss}";
       }
       else
       {
-        nextCrossingInfo = $"Overdue: {nextRider.TagID} (expected {Math.Abs(timeToNext.TotalSeconds):F0}s ago)";
+        nextCrossingInfo = $"Overdue: {riderDisplay} (expected {Math.Abs(timeToNext.TotalSeconds):F0}s ago)";
       }
     }
 
