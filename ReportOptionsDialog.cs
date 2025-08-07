@@ -23,7 +23,9 @@ public partial class ReportOptionsDialog : Form
   private RadioButton radioPrint = null!;
   private RadioButton radioExport = null!;
   private Button buttonOK = null!;
-  private Button buttonCancel = null!;
+    private Label labelTitle;
+    private GroupBox groupAction;
+    private Button buttonCancel = null!;
 
   public ReportOptionsDialog()
   {
@@ -36,90 +38,116 @@ public partial class ReportOptionsDialog : Form
     radioPreview.Checked = true;
   }
 
-  private void InitializeComponent()
-  {
-    this.textBoxRaceTitle = new TextBox();
-    this.radioPreview = new RadioButton();
-    this.radioPrint = new RadioButton();
-    this.radioExport = new RadioButton();
-    this.buttonOK = new Button();
-    this.buttonCancel = new Button();
+    private void InitializeComponent()
+    {
+        textBoxRaceTitle = new TextBox();
+        radioPreview = new RadioButton();
+        radioPrint = new RadioButton();
+        radioExport = new RadioButton();
+        buttonOK = new Button();
+        buttonCancel = new Button();
+        labelTitle = new Label();
+        groupAction = new GroupBox();
+        groupAction.SuspendLayout();
+        SuspendLayout();
+        // 
+        // textBoxRaceTitle
+        // 
+        textBoxRaceTitle.Location = new Point(12, 35);
+        textBoxRaceTitle.Name = "textBoxRaceTitle";
+        textBoxRaceTitle.Size = new Size(470, 31);
+        textBoxRaceTitle.TabIndex = 0;
+        // 
+        // radioPreview
+        // 
+        radioPreview.Location = new Point(15, 25);
+        radioPreview.Name = "radioPreview";
+        radioPreview.Size = new Size(380, 31);
+        radioPreview.TabIndex = 1;
+        radioPreview.Text = "Preview (Print Preview)";
+        radioPreview.UseVisualStyleBackColor = true;
+        // 
+        // radioPrint
+        // 
+        radioPrint.Location = new Point(15, 62);
+        radioPrint.Name = "radioPrint";
+        radioPrint.Size = new Size(380, 31);
+        radioPrint.TabIndex = 2;
+        radioPrint.Text = "Print (Send to Printer)";
+        radioPrint.UseVisualStyleBackColor = true;
+        // 
+        // radioExport
+        // 
+        radioExport.Location = new Point(15, 99);
+        radioExport.Name = "radioExport";
+        radioExport.Size = new Size(380, 31);
+        radioExport.TabIndex = 3;
+        radioExport.Text = "Export to File (Save as Text)";
+        radioExport.UseVisualStyleBackColor = true;
+        // 
+        // buttonOK
+        // 
+        buttonOK.DialogResult = DialogResult.OK;
+        buttonOK.Location = new Point(326, 294);
+        buttonOK.Name = "buttonOK";
+        buttonOK.Size = new Size(75, 40);
+        buttonOK.TabIndex = 4;
+        buttonOK.Text = "OK";
+        buttonOK.UseVisualStyleBackColor = true;
+        buttonOK.Click += ButtonOK_Click;
+        // 
+        // buttonCancel
+        // 
+        buttonCancel.DialogResult = DialogResult.Cancel;
+        buttonCancel.Location = new Point(407, 294);
+        buttonCancel.Name = "buttonCancel";
+        buttonCancel.Size = new Size(75, 40);
+        buttonCancel.TabIndex = 5;
+        buttonCancel.Text = "Cancel";
+        buttonCancel.UseVisualStyleBackColor = true;
+        // 
+        // labelTitle
+        // 
+        labelTitle.Location = new Point(12, 9);
+        labelTitle.Name = "labelTitle";
+        labelTitle.Size = new Size(100, 23);
+        labelTitle.TabIndex = 0;
+        labelTitle.Text = "Race Title:";
+        // 
+        // groupAction
+        // 
+        groupAction.Controls.Add(radioPreview);
+        groupAction.Controls.Add(radioPrint);
+        groupAction.Controls.Add(radioExport);
+        groupAction.Location = new Point(12, 72);
+        groupAction.Name = "groupAction";
+        groupAction.Size = new Size(470, 216);
+        groupAction.TabIndex = 1;
+        groupAction.TabStop = false;
+        groupAction.Text = "Action";
+        // 
+        // ReportOptionsDialog
+        // 
+        AcceptButton = buttonOK;
+        CancelButton = buttonCancel;
+        ClientSize = new Size(494, 346);
+        Controls.Add(labelTitle);
+        Controls.Add(textBoxRaceTitle);
+        Controls.Add(groupAction);
+        Controls.Add(buttonOK);
+        Controls.Add(buttonCancel);
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        Name = "ReportOptionsDialog";
+        StartPosition = FormStartPosition.CenterParent;
+        Text = "Generate Race Report";
+        groupAction.ResumeLayout(false);
+        ResumeLayout(false);
+        PerformLayout();
+    }
 
-    this.SuspendLayout();
-
-    // Form properties
-    this.Text = "Generate Race Report";
-    this.Size = new Size(480, 320); // Increased size for better visibility
-    this.StartPosition = FormStartPosition.CenterParent;
-    this.FormBorderStyle = FormBorderStyle.FixedDialog;
-    this.MaximizeBox = false;
-    this.MinimizeBox = false;
-
-    // Race Title Label
-    var labelTitle = new Label();
-    labelTitle.Text = "Race Title:";
-    labelTitle.Location = new Point(20, 20);
-    labelTitle.Size = new Size(100, 23);
-    this.Controls.Add(labelTitle);    // Race Title TextBox
-    this.textBoxRaceTitle.Location = new Point(20, 45);
-    this.textBoxRaceTitle.Size = new Size(420, 23); // Wider text box
-    this.textBoxRaceTitle.TabIndex = 0;
-    this.Controls.Add(this.textBoxRaceTitle);
-
-    // Action Group
-    var groupAction = new GroupBox();
-    groupAction.Text = "Action";
-    groupAction.Location = new Point(20, 85);
-    groupAction.Size = new Size(420, 120); // Larger group box
-    this.Controls.Add(groupAction);
-
-    // Preview Radio Button
-    this.radioPreview.Text = "Preview (Print Preview)";
-    this.radioPreview.Location = new Point(15, 25);
-    this.radioPreview.Size = new Size(380, 20); // Wider radio buttons
-    this.radioPreview.TabIndex = 1;
-    this.radioPreview.UseVisualStyleBackColor = true;
-    groupAction.Controls.Add(this.radioPreview);    // Print Radio Button
-    this.radioPrint.Text = "Print (Send to Printer)";
-    this.radioPrint.Location = new Point(15, 50); // Moved down slightly
-    this.radioPrint.Size = new Size(380, 20); // Wider
-    this.radioPrint.TabIndex = 2;
-    this.radioPrint.UseVisualStyleBackColor = true;
-    groupAction.Controls.Add(this.radioPrint);
-
-    // Export Radio Button
-    this.radioExport.Text = "Export to File (Save as Text)";
-    this.radioExport.Location = new Point(15, 75); // Moved down slightly
-    this.radioExport.Size = new Size(380, 20); // Wider
-    this.radioExport.TabIndex = 3;
-    this.radioExport.UseVisualStyleBackColor = true;
-    groupAction.Controls.Add(this.radioExport);// OK Button
-    this.buttonOK.Text = "OK";
-    this.buttonOK.Location = new Point(280, 270); // Moved down for larger dialog
-    this.buttonOK.Size = new Size(75, 23);
-    this.buttonOK.TabIndex = 4;
-    this.buttonOK.UseVisualStyleBackColor = true;
-    this.buttonOK.DialogResult = DialogResult.OK;
-    this.buttonOK.Click += ButtonOK_Click;
-    this.Controls.Add(this.buttonOK);
-
-    // Cancel Button
-    this.buttonCancel.Text = "Cancel";
-    this.buttonCancel.Location = new Point(365, 270); // Moved down and right for larger dialog
-    this.buttonCancel.Size = new Size(75, 23);
-    this.buttonCancel.TabIndex = 5;
-    this.buttonCancel.UseVisualStyleBackColor = true;
-    this.buttonCancel.DialogResult = DialogResult.Cancel;
-    this.Controls.Add(this.buttonCancel);
-
-    // Set accept and cancel buttons
-    this.AcceptButton = this.buttonOK;
-    this.CancelButton = this.buttonCancel;
-
-    this.ResumeLayout(false);
-  }
-
-  private void ButtonOK_Click(object? sender, EventArgs e)
+    private void ButtonOK_Click(object? sender, EventArgs e)
   {
     // Validate and save values
     RaceTitle = textBoxRaceTitle.Text.Trim();

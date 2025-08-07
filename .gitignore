@@ -26,6 +26,9 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
+# Published builds
+publish/
+
 # .NET Core
 project.lock.json
 project.fragment.lock.json
