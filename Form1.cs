@@ -904,27 +904,21 @@ public partial class Form1 : Form
       rider.Laps.Add(newLap);
       rider.LastCrossing = crossingTime;
 
-      // Check for missed reads and split if necessary BEFORE saving to database
-      DetectAndSplitMissedReads(tagID, messagesToAdd);
+      // Check for missed reads and mark for potential splitting BEFORE saving to database
+      DetectAndMarkPotentialSplits(tagID, messagesToAdd);
 
       // Save to database for crash recovery - but only if the lap wasn't split
-      // If it was split, the split detection already saved the split laps
+      // If it was split, the split detection would have already saved the split laps,
+      // but now we only mark potential splits, so we always save the original lap
       if (currentRaceId.HasValue)
       {
         Task.Run(() =>
         {
           _raceDb.UpsertRider(rider);
 
-          // Check if the last lap is still the same lap we created (not split)
-          if (rider.Laps.LastOrDefault()?.CrossingTime == newLap.CrossingTime &&
-              rider.Laps.LastOrDefault()?.LapTime == newLap.LapTime &&
-              !rider.Laps.LastOrDefault()?.IsSplitLap == true)
-          {
-            // The lap wasn't split, so save it normally
-            var position = CalculateCurrentPosition(tagID);
-            _raceDb.AddLap(tagID, newLap, position);
-          }
-          // If the lap was split, the DetectAndSplitMissedReads method already saved the split laps
+          // Since we only mark potential splits now, always save the original lap
+          var position = CalculateCurrentPosition(tagID);
+          _raceDb.AddLap(tagID, newLap, position);
         });
       }
 
@@ -1026,11 +1020,11 @@ public partial class Form1 : Form
   }
 
   /// <summary>
-  /// Detect and split laps that may represent multiple missed RFID reads
+  /// Detect and mark laps that may represent multiple missed RFID reads for manual splitting
   /// If a lap is very long but close to a multiple of the rider's average lap time,
-  /// split it into multiple equal-length laps
+  /// mark it as suggested for splitting instead of automatically splitting
   /// </summary>
-  private void DetectAndSplitMissedReads(string tagID, List<(string, bool)> messagesToAdd)
+  private void DetectAndMarkPotentialSplits(string tagID, List<(string, bool)> messagesToAdd)
   {
     var rider = riders[tagID];
     if (rider.Laps.Count < 3) return; // Need at least 3 laps to analyze (skip first lap)
@@ -1073,57 +1067,136 @@ public partial class Form1 : Form
           var splitToGlobalRatio = splitLapTime.TotalMilliseconds / globalAvgLapTime.Value.TotalMilliseconds;
           if (splitToGlobalRatio < 0.5) // Split laps are less than 50% of global average
           {
-            messagesToAdd.Add(($"⚠️ MISSED READS NOT SPLIT: {tagID} - Split laps would be too short ({splitLapTime.TotalSeconds:F1}s vs global avg {globalAvgLapTime.Value.TotalSeconds:F1}s)", true));
-            return; // Don't split if it would create unrealistically short laps
+            messagesToAdd.Add(($"⚠️ POTENTIAL SPLIT REJECTED: {GetRiderDisplayText(tagID)} - Split laps would be too short ({splitLapTime.TotalSeconds:F1}s vs global avg {globalAvgLapTime.Value.TotalSeconds:F1}s)", true));
+            return; // Don't suggest split if it would create unrealistically short laps
           }
         }
 
-        // Store the original lap number before removing it
-        var originalLapNumber = lastLap.LapNumber;
+        // Mark the lap as suggested for splitting instead of actually splitting it
+        lastLap.IsSuggestedForSplit = true;
+        lastLap.SuggestedSplitCount = missedLaps;
+        lastLap.SuggestedSplitLapTime = splitLapTime;
 
-        // Remove the original long lap
-        rider.Laps.RemoveAt(rider.Laps.Count - 1);
+        var riderDisplay = GetRiderDisplayText(tagID);
+        messagesToAdd.Add(($"🔄 POTENTIAL MISSED READS: {riderDisplay} - Lap {lastLap.LapNumber} ({lastLapTime.TotalSeconds:F1}s) could be split into {missedLaps} laps of {splitLapTime.TotalSeconds:F1}s each. Use context menu to split.", true));
+      }
+    }
+  }
 
-        // Also remove the original lap from the database and any subsequent laps that might conflict
-        if (currentRaceId.HasValue)
+  /// <summary>
+  /// Actually perform the lap split for a lap that was marked as suggested for splitting
+  /// </summary>
+  private void PerformLapSplit(string tagID, int lapNumber)
+  {
+    lock (ridersLock)
+    {
+      if (!riders.TryGetValue(tagID, out var rider)) return;
+
+      var lapToSplit = rider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber && l.IsSuggestedForSplit);
+      if (lapToSplit == null) return;
+
+      var missedLaps = lapToSplit.SuggestedSplitCount;
+      var splitLapTime = lapToSplit.SuggestedSplitLapTime;
+      var originalLapTime = lapToSplit.LapTime;
+
+      if (missedLaps <= 1 || !splitLapTime.HasValue || !originalLapTime.HasValue) return;
+
+      // Store the original lap info
+      var originalLapNumber = lapToSplit.LapNumber;
+      var originalCrossingTime = lapToSplit.CrossingTime;
+
+      // Calculate base time for split laps (start of the original lap)
+      var baseCrossingTime = originalCrossingTime - originalLapTime.Value;
+
+      // Remove the original long lap from the list
+      rider.Laps.Remove(lapToSplit);
+
+      // Remove from database
+      if (currentRaceId.HasValue)
+      {
+        _raceDb.DeleteLap(tagID, originalLapNumber);
+      }
+
+      // Create the split laps with proper timing
+      var splitLaps = new List<RiderLap>();
+      for (int i = 0; i < missedLaps; i++)
+      {
+        var splitCrossingTime = baseCrossingTime + TimeSpan.FromMilliseconds(splitLapTime.Value.TotalMilliseconds * (i + 1));
+
+        var splitLap = new RiderLap
         {
-          // Delete the original lap and any laps with higher numbers (to handle edge cases)
-          for (int lapToDelete = originalLapNumber; lapToDelete <= originalLapNumber + missedLaps; lapToDelete++)
+          TagID = tagID,
+          CrossingTime = splitCrossingTime,
+          LapNumber = originalLapNumber + i, // Sequential lap numbers starting from original
+          LapTime = splitLapTime.Value,
+          IsSplitLap = true,
+          IsSuggestedForSplit = false
+        };
+
+        splitLaps.Add(splitLap);
+      }
+
+      // Add split laps to rider's laps
+      rider.Laps.AddRange(splitLaps);
+
+      // Renumber all subsequent laps to maintain sequential order
+      var lapsToRenumber = rider.Laps
+          .Where(l => l.LapNumber > originalLapNumber)
+          .OrderBy(l => l.CrossingTime)
+          .ToList();
+
+      int nextLapNumber = originalLapNumber + missedLaps;
+      foreach (var lap in lapsToRenumber)
+      {
+        if (!splitLaps.Contains(lap)) // Don't renumber the split laps we just added
+        {
+          // Update in database first (before changing lap number)
+          if (currentRaceId.HasValue)
           {
-            _raceDb.DeleteLap(tagID, lapToDelete);
+            _raceDb.DeleteLap(tagID, lap.LapNumber);
           }
-        }
 
-        // Add the split laps - they will replace the original lap with the same starting lap number
-        var baseCrossingTime = lastLap.CrossingTime - lastLapTime;
+          lap.LapNumber = nextLapNumber++;
 
-        for (int i = 1; i <= missedLaps; i++)
-        {
-          var splitCrossingTime = baseCrossingTime + TimeSpan.FromMilliseconds(splitLapTime.TotalMilliseconds * i);
-
-          var splitLap = new RiderLap
-          {
-            TagID = tagID,
-            CrossingTime = splitCrossingTime,
-            LapNumber = originalLapNumber + i - 1, // Start from original lap number
-            LapTime = splitLapTime,
-            IsSplitLap = true // Mark this as a split lap
-          };
-
-          rider.Laps.Add(splitLap);
-
-          // Update database for each split lap - do this synchronously to maintain order
+          // Re-add to database with new lap number
           if (currentRaceId.HasValue)
           {
             var position = CalculateCurrentPosition(tagID);
-            _raceDb.AddLap(tagID, splitLap, position);
+            _raceDb.AddLap(tagID, lap, position);
           }
         }
+      }
 
-        // Update rider's last crossing time
-        rider.LastCrossing = lastLap.CrossingTime;
+      // Sort laps by lap number to maintain order
+      rider.Laps = rider.Laps.OrderBy(l => l.LapNumber).ToList();
 
-        messagesToAdd.Add(($"🔄 MISSED READS DETECTED: {tagID} - Split {lastLapTime.TotalSeconds:F1}s lap into {missedLaps} laps of {splitLapTime.TotalSeconds:F1}s each", true));
+      // Add split laps to database
+      if (currentRaceId.HasValue)
+      {
+        foreach (var splitLap in splitLaps)
+        {
+          var position = CalculateCurrentPosition(tagID);
+          _raceDb.AddLap(tagID, splitLap, position);
+        }
+      }
+
+      // Update rider's last crossing time to maintain consistency
+      if (rider.Laps.Count > 0)
+      {
+        rider.LastCrossing = rider.Laps.OrderBy(l => l.CrossingTime).Last().CrossingTime;
+      }
+
+      // Update displays
+      ridersDisplayNeedsUpdate = true;
+      lapChartNeedsUpdate = true;
+
+      var riderDisplay = GetRiderDisplayText(tagID);
+      AddMessage($"✅ LAP SPLIT PERFORMED: {riderDisplay} - Split lap {originalLapNumber} ({originalLapTime.Value.TotalSeconds:F1}s) into {missedLaps} laps of {splitLapTime.Value.TotalSeconds:F1}s each");
+
+      // Refresh display if on riders tab
+      if (tabControl.SelectedIndex == 2)
+      {
+        BeginInvoke(new Action(UpdateRidersDisplay));
       }
     }
   }
@@ -1702,6 +1775,7 @@ public partial class Form1 : Form
     // Set up the DataGridView columns
     dataGridViewRiders.Columns.Clear();
     dataGridViewRiders.Columns.Add("Position", "Pos");
+    dataGridViewRiders.Columns.Add("ProjectedPosition", "Proj. Pos");
     dataGridViewRiders.Columns.Add("RiderNumber", "Number");
     dataGridViewRiders.Columns.Add("TagID", "Tag ID");
     dataGridViewRiders.Columns.Add("RiderName", "Rider Name");
@@ -1758,10 +1832,19 @@ public partial class Form1 : Form
     var clearIgnoreListItem = new ToolStripMenuItem("Clear Ignore List");
     clearIgnoreListItem.Click += (s, e) => ClearIgnoreList();
 
+    var splitLapItem = new ToolStripMenuItem("Split Suggested Lap");
+    splitLapItem.Click += (s, e) => HandleSplitSuggestedLap();
+
+    var dismissSuggestionItem = new ToolStripMenuItem("Dismiss Split Suggestion");
+    dismissSuggestionItem.Click += (s, e) => HandleDismissSplitSuggestion();
+
     contextMenu.Items.AddRange(new ToolStripItem[]
     {
       addToIgnoreItem,
       removeFromIgnoreItem,
+      new ToolStripSeparator(),
+      splitLapItem,
+      dismissSuggestionItem,
       new ToolStripSeparator(),
       showIgnoreListItem,
       clearIgnoreListItem
@@ -1952,18 +2035,56 @@ public partial class Form1 : Form
 
         // Add row to grid
         var hasSplitLaps = rider.Laps.Any(l => l.IsSplitLap);
+        var hasSuggestedSplits = rider.Laps.Any(l => l.IsSuggestedForSplit);
         var displayTagID = rider.IsDNF ? $"{rider.TagID} (DNF)" : rider.TagID;
         if (hasSplitLaps && !rider.IsDNF)
         {
           displayTagID = $"{rider.TagID} *"; // Add asterisk to indicate split laps
+        }
+        if (hasSuggestedSplits && !rider.IsDNF)
+        {
+          displayTagID = $"{rider.TagID} ?"; // Add question mark to indicate suggested splits
         }
 
         var riderName = rider.DisplayName != rider.TagID ? rider.DisplayName : "";
         var teamName = rider.Team;
         var categoryName = rider.Category;
 
+        // Calculate projected position if splits were applied
+        string projectedPositionStr = "";
+        if (hasSuggestedSplits)
+        {
+          lock (ridersLock)
+          {
+            var projectedPosition = PositionCalculator.CalculateProjectedPositionWithSplits(rider.TagID, riders);
+            var currentPosition = i + 1;
+
+            if (projectedPosition != currentPosition)
+            {
+              var change = currentPosition - projectedPosition;
+              if (change > 0)
+              {
+                projectedPositionStr = $"{projectedPosition} (+{change})"; // Would improve position
+              }
+              else
+              {
+                projectedPositionStr = $"{projectedPosition} ({change})"; // Would lose position
+              }
+            }
+            else
+            {
+              projectedPositionStr = "Same"; // No change
+            }
+          }
+        }
+        else
+        {
+          projectedPositionStr = ""; // No suggestions
+        }
+
         dataGridViewRiders.Rows.Add(
           (i + 1).ToString(),  // Position
+          projectedPositionStr, // Projected Position
           string.IsNullOrEmpty(rider.RiderNumber) ? "" : rider.RiderNumber,  // Rider Number
           displayTagID,        // Tag ID
           riderName,          // Rider Name
@@ -2003,6 +2124,30 @@ public partial class Form1 : Form
         {
           row.Cells["TagID"].Style.ForeColor = Color.Red;
           row.Cells["TagID"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+        }
+
+        // Mark riders with suggested splits
+        if (hasSuggestedSplits && !rider.IsDNF)
+        {
+          row.Cells["TagID"].Style.ForeColor = Color.Orange;
+          row.Cells["TagID"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+
+          // Color code projected position based on improvement/decline
+          if (!string.IsNullOrEmpty(projectedPositionStr) && projectedPositionStr != "Same")
+          {
+            if (projectedPositionStr.Contains("(+"))
+            {
+              // Position would improve (e.g., "3 (+2)" means moving from 5th to 3rd)
+              row.Cells["ProjectedPosition"].Style.ForeColor = Color.Green;
+              row.Cells["ProjectedPosition"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+            }
+            else if (projectedPositionStr.Contains("(-"))
+            {
+              // Position would decline (e.g., "7 (-2)" means moving from 5th to 7th)
+              row.Cells["ProjectedPosition"].Style.ForeColor = Color.Red;
+              row.Cells["ProjectedPosition"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+            }
+          }
         }
 
         // Highlight overdue riders (but not if they're already DNF)
@@ -2885,6 +3030,129 @@ public partial class Form1 : Form
 
     string tagId = eventText.Substring(tagStart, tagEnd - tagStart).Trim();
     return string.IsNullOrEmpty(tagId) ? null : tagId;
+  }
+
+  private void HandleSplitSuggestedLap()
+  {
+    if (dataGridViewRiders.SelectedRows.Count > 0)
+    {
+      var selectedRow = dataGridViewRiders.SelectedRows[0];
+      var tagID = selectedRow.Cells["TagID"].Value?.ToString();
+
+      if (!string.IsNullOrEmpty(tagID))
+      {
+        // Remove the extra markers (*, ?, (DNF)) from tagID
+        tagID = tagID.Replace(" *", "").Replace(" ?", "").Replace(" (DNF)", "");
+
+        lock (ridersLock)
+        {
+          if (riders.TryGetValue(tagID, out var rider))
+          {
+            var suggestedLap = rider.Laps.FirstOrDefault(l => l.IsSuggestedForSplit);
+            if (suggestedLap != null)
+            {
+              var riderDisplay = GetRiderDisplayText(rider);
+
+              // Calculate current and projected positions
+              var currentPosition = PositionCalculator.CalculateCurrentPosition(tagID, riders);
+              var projectedPosition = PositionCalculator.CalculateProjectedPositionWithSplits(tagID, riders);
+
+              string positionInfo = "";
+              if (projectedPosition != currentPosition)
+              {
+                var change = currentPosition - projectedPosition;
+                if (change > 0)
+                {
+                  positionInfo = $"\n\nPosition Impact: {currentPosition} → {projectedPosition} (improve by {change} position{(change > 1 ? "s" : "")})";
+                }
+                else
+                {
+                  positionInfo = $"\n\nPosition Impact: {currentPosition} → {projectedPosition} (drop by {Math.Abs(change)} position{(Math.Abs(change) > 1 ? "s" : "")})";
+                }
+              }
+              else
+              {
+                positionInfo = $"\n\nPosition Impact: No change (would remain at position {currentPosition})";
+              }
+
+              var result = MessageBox.Show(
+                $"Split lap {suggestedLap.LapNumber} for {riderDisplay}?\n\n" +
+                $"Original lap time: {suggestedLap.LapTime?.TotalSeconds:F1}s\n" +
+                $"Will be split into: {suggestedLap.SuggestedSplitCount} laps of {suggestedLap.SuggestedSplitLapTime?.TotalSeconds:F1}s each" +
+                positionInfo,
+                "Confirm Lap Split",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+              if (result == DialogResult.Yes)
+              {
+                PerformLapSplit(tagID, suggestedLap.LapNumber);
+              }
+            }
+            else
+            {
+              MessageBox.Show("No suggested splits found for this rider.", "No Suggestions",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+          }
+        }
+      }
+    }
+  }
+  private void HandleDismissSplitSuggestion()
+  {
+    if (dataGridViewRiders.SelectedRows.Count > 0)
+    {
+      var selectedRow = dataGridViewRiders.SelectedRows[0];
+      var tagID = selectedRow.Cells["TagID"].Value?.ToString();
+
+      if (!string.IsNullOrEmpty(tagID))
+      {
+        // Remove the extra markers (*, ?, (DNF)) from tagID
+        tagID = tagID.Replace(" *", "").Replace(" ?", "").Replace(" (DNF)", "");
+
+        lock (ridersLock)
+        {
+          if (riders.TryGetValue(tagID, out var rider))
+          {
+            var suggestedLap = rider.Laps.FirstOrDefault(l => l.IsSuggestedForSplit);
+            if (suggestedLap != null)
+            {
+              var riderDisplay = GetRiderDisplayText(rider);
+              var result = MessageBox.Show(
+                $"Dismiss split suggestion for lap {suggestedLap.LapNumber} for {riderDisplay}?\n\n" +
+                $"The lap will remain as a single {suggestedLap.LapTime?.TotalSeconds:F1}s lap.",
+                "Dismiss Split Suggestion",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+              if (result == DialogResult.Yes)
+              {
+                suggestedLap.IsSuggestedForSplit = false;
+                suggestedLap.SuggestedSplitCount = 0;
+                suggestedLap.SuggestedSplitLapTime = null;
+
+                // Update displays
+                ridersDisplayNeedsUpdate = true;
+
+                AddMessage($"❌ SPLIT SUGGESTION DISMISSED: {riderDisplay} - Lap {suggestedLap.LapNumber} will remain as single lap");
+
+                // Refresh display if on riders tab
+                if (tabControl.SelectedIndex == 2)
+                {
+                  BeginInvoke(new Action(UpdateRidersDisplay));
+                }
+              }
+            }
+            else
+            {
+              MessageBox.Show("No suggested splits found for this rider.", "No Suggestions",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+          }
+        }
+      }
+    }
   }
 
   #endregion

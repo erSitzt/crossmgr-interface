@@ -160,8 +160,17 @@ public class LapChartRenderer
       else if (hoveredElement.LapTime.HasValue)
       {
         // Show lap information with rider details for lap rectangles
-        var splitIndicator = hoveredElement.IsSplitLap ? " (Split)" : "";
-        var lapInfo = $"{riderInfo}\nLap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
+        string lapIndicator = "";
+        if (hoveredElement.IsSplitLap)
+        {
+          lapIndicator = " (Split)";
+        }
+        else if (hoveredElement.IsSuggestedForSplit)
+        {
+          lapIndicator = " (Suggested for Split)";
+        }
+
+        var lapInfo = $"{riderInfo}\nLap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}{lapIndicator}";
 
         // Add lap start and end times if available
         if (hoveredElement.LapStartTime.HasValue && hoveredElement.LapEndTime.HasValue)
@@ -515,6 +524,7 @@ public class LapChartRenderer
           LapTime = lapDuration,
           IsRider = false,
           IsSplitLap = lap.IsSplitLap,
+          IsSuggestedForSplit = lap.IsSuggestedForSplit,
           LapStartTime = lapStartTime,
           LapEndTime = lap.CrossingTime
         });
@@ -522,14 +532,40 @@ public class LapChartRenderer
         // Draw lap number if there's space
         if (lapRect.Width > 20)
         {
-          var lapText = lap.IsSplitLap ? $"{i + 1}*" : (i + 1).ToString(); // Add asterisk for split laps
+          var lapText = "";
+          if (lap.IsSplitLap)
+          {
+            lapText = $"{i + 1}*"; // Add asterisk for split laps
+          }
+          else if (lap.IsSuggestedForSplit)
+          {
+            lapText = $"{i + 1}?"; // Add question mark for suggested splits
+          }
+          else
+          {
+            lapText = (i + 1).ToString();
+          }
+
           var font = new Font("Arial", 8, FontStyle.Bold);
           var textSize = g.MeasureString(lapText, font);
           var textX = lapRect.X + (lapRect.Width - textSize.Width) / 2;
           var textY = lapRect.Y + (lapRect.Height - textSize.Height) / 2;
 
-          // Use red text for split laps
-          var textBrush = lap.IsSplitLap ? Brushes.Red : Brushes.Black;
+          // Use different colors for different lap types
+          Brush textBrush;
+          if (lap.IsSplitLap)
+          {
+            textBrush = Brushes.Red; // Red for split laps
+          }
+          else if (lap.IsSuggestedForSplit)
+          {
+            textBrush = Brushes.Orange; // Orange for suggested splits
+          }
+          else
+          {
+            textBrush = Brushes.Black; // Black for normal laps
+          }
+
           g.DrawString(lapText, font, textBrush, textX, textY);
           font.Dispose();
         }

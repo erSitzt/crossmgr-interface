@@ -192,4 +192,96 @@ public static class PositionCalculator
         .ThenBy(r => r.TotalTime)
         .ToList();
   }
+
+  /// <summary>
+  /// Calculate what the current position would be if all suggested splits were applied
+  /// </summary>
+  public static int CalculateProjectedPositionWithSplits(string riderId, Dictionary<string, RiderInfo> riders)
+  {
+    // Create a virtual copy of all riders with suggested splits applied
+    var virtualRiders = new List<RiderInfo>();
+
+    foreach (var rider in riders.Values)
+    {
+      var virtualRider = new RiderInfo
+      {
+        TagID = rider.TagID,
+        RiderNumber = rider.RiderNumber,
+        FirstName = rider.FirstName,
+        LastName = rider.LastName,
+        Category = rider.Category,
+        IsDNF = rider.IsDNF,
+        LastCrossing = rider.LastCrossing,
+        RaceStartTime = rider.RaceStartTime
+      };
+
+      // Copy laps and apply suggested splits
+      virtualRider.Laps = new List<RiderLap>();
+
+      foreach (var lap in rider.Laps.OrderBy(l => l.LapNumber))
+      {
+        if (lap.IsSuggestedForSplit && lap.SuggestedSplitCount > 1 && lap.SuggestedSplitLapTime.HasValue && lap.LapTime.HasValue)
+        {
+          // Replace this lap with multiple split laps
+          var baseCrossingTime = lap.CrossingTime - lap.LapTime.Value;
+
+          for (int i = 0; i < lap.SuggestedSplitCount; i++)
+          {
+            var splitCrossingTime = baseCrossingTime + TimeSpan.FromMilliseconds(lap.SuggestedSplitLapTime.Value.TotalMilliseconds * (i + 1));
+
+            var splitLap = new RiderLap
+            {
+              TagID = lap.TagID,
+              CrossingTime = splitCrossingTime,
+              LapNumber = lap.LapNumber + i,
+              LapTime = lap.SuggestedSplitLapTime.Value,
+              IsSplitLap = true
+            };
+
+            virtualRider.Laps.Add(splitLap);
+          }
+        }
+        else
+        {
+          // Keep original lap
+          var virtualLap = new RiderLap
+          {
+            TagID = lap.TagID,
+            CrossingTime = lap.CrossingTime,
+            LapNumber = lap.LapNumber,
+            LapTime = lap.LapTime,
+            IsSplitLap = lap.IsSplitLap
+          };
+
+          virtualRider.Laps.Add(virtualLap);
+        }
+      }
+
+      // Renumber laps to maintain sequential order after splits
+      virtualRider.Laps = virtualRider.Laps.OrderBy(l => l.CrossingTime).ToList();
+      for (int i = 0; i < virtualRider.Laps.Count; i++)
+      {
+        virtualRider.Laps[i].LapNumber = i + 1;
+      }
+
+      virtualRiders.Add(virtualRider);
+    }
+
+    // Calculate position using virtual riders
+    var sortedVirtualRiders = virtualRiders
+        .OrderBy(r => r.IsDNF ? 1 : 0)
+        .ThenByDescending(r => r.TotalLaps)
+        .ThenBy(r => r.TotalTime)
+        .ToList();
+
+    for (int i = 0; i < sortedVirtualRiders.Count; i++)
+    {
+      if (sortedVirtualRiders[i].TagID == riderId)
+      {
+        return i + 1; // 1-based position
+      }
+    }
+
+    return 999; // Not found
+  }
 }
