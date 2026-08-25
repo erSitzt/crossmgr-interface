@@ -4,6 +4,24 @@ using System.Data;
 namespace CrossMgrInterface;
 
 /// <summary>
+/// Outcome of an import, including the rows that were skipped and why.
+///
+/// An import previously returned only a count and logged per-row failures to
+/// Console.WriteLine - invisible in a WinExe - so a half-read roster looked like
+/// a clean success and the missing riders only surfaced mid-race.
+/// </summary>
+public class ImportResult
+{
+  public int ImportedCount { get; set; }
+
+  /// <summary>The riders that were read, so the operator can see them before committing.</summary>
+  public List<RiderDataImporter.RiderImportData> Riders { get; } = new();
+  public List<(int Row, string Reason)> Skipped { get; } = new();
+  public List<string> DetectedColumns { get; set; } = new();
+  public bool HasTagColumn { get; set; } = true;
+}
+
+/// <summary>
 /// Service for importing rider data from Excel/CSV files
 /// </summary>
 public class RiderDataImporter
@@ -44,8 +62,11 @@ public class RiderDataImporter
   /// </summary>
   /// <param name="filePath">Path to the Excel file</param>
   /// <returns>Number of riders imported</returns>
-  public int ImportFromExcel(string filePath)
+  public int ImportFromExcel(string filePath) => ImportFromExcelDetailed(filePath).ImportedCount;
+
+  public ImportResult ImportFromExcelDetailed(string filePath)
   {
+    var result = new ImportResult();
     try
     {
       _riderDataLookup.Clear();
@@ -56,7 +77,7 @@ public class RiderDataImporter
         var worksheet = workbook.Worksheets.First();
         var rows = worksheet.RowsUsed().ToList();
 
-        if (rows.Count <= 1) return 0; // No data rows
+        if (rows.Count <= 1) return result; // No data rows
 
         // Check if first row contains headers
         var firstRow = rows[0];
@@ -70,6 +91,8 @@ public class RiderDataImporter
           // Parse headers to create column mapping
           columnMap = ParseExcelHeaders(firstRow);
           startRow = 1;
+          result.DetectedColumns = columnMap.Keys.ToList();
+          result.HasTagColumn = columnMap.Keys.Any(k => k.Contains("tag"));
         }
 
         // Parse data rows
@@ -84,18 +107,23 @@ public class RiderDataImporter
             if (!string.IsNullOrEmpty(riderData.TagID))
             {
               _riderDataLookup[riderData.TagID.ToUpper()] = riderData;
+              result.Riders.Add(riderData);
               importedCount++;
+            }
+            else
+            {
+              result.Skipped.Add((rows[i].RowNumber(), "no transponder ID"));
             }
           }
           catch (Exception ex)
           {
-            // Log error but continue with other rows
-            Console.WriteLine($"Error parsing row {rows[i].RowNumber()}: {ex.Message}");
+            result.Skipped.Add((rows[i].RowNumber(), ex.Message));
           }
         }
       }
 
-      return importedCount;
+      result.ImportedCount = importedCount;
+      return result;
     }
     catch (Exception ex)
     {
@@ -108,19 +136,24 @@ public class RiderDataImporter
   /// </summary>
   /// <param name="filePath">Path to the CSV file</param>
   /// <returns>Number of riders imported</returns>
-  public int ImportFromCsv(string filePath)
+  public int ImportFromCsv(string filePath) => ImportFromCsvDetailed(filePath).ImportedCount;
+
+  public ImportResult ImportFromCsvDetailed(string filePath)
   {
+    var result = new ImportResult();
     try
     {
       _riderDataLookup.Clear();
       int importedCount = 0;
 
       var lines = File.ReadAllLines(filePath);
-      if (lines.Length <= 1) return 0; // No data rows
+      if (lines.Length <= 1) return result; // No data rows
 
       // Parse header to determine column indices
       var header = lines[0].Split(',');
       var columnMap = ParseHeader(header);
+      result.DetectedColumns = columnMap.Keys.ToList();
+      result.HasTagColumn = columnMap.Keys.Any(k => k.Contains("tag"));
 
       // Parse data rows
       for (int i = 1; i < lines.Length; i++)
@@ -133,17 +166,22 @@ public class RiderDataImporter
           if (!string.IsNullOrEmpty(riderData.TagID))
           {
             _riderDataLookup[riderData.TagID.ToUpper()] = riderData;
+            result.Riders.Add(riderData);
             importedCount++;
+          }
+          else
+          {
+            result.Skipped.Add((i + 1, "no transponder ID"));
           }
         }
         catch (Exception ex)
         {
-          // Log error but continue with other rows
-          Console.WriteLine($"Error parsing CSV line {i + 1}: {ex.Message}");
+          result.Skipped.Add((i + 1, ex.Message));
         }
       }
 
-      return importedCount;
+      result.ImportedCount = importedCount;
+      return result;
     }
     catch (Exception ex)
     {

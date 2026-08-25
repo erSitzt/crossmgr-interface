@@ -27,12 +27,19 @@ public partial class ReportOptionsDialog : Form
     private GroupBox groupAction;
     private Button buttonCancel = null!;
 
-  public ReportOptionsDialog()
+  public ReportOptionsDialog() : this(null) { }
+
+  /// <summary>
+  /// <paramref name="defaultTitle"/> is normally the race name from setup, so the
+  /// results sheet is titled correctly without the operator retyping it.
+  /// </summary>
+  public ReportOptionsDialog(string? defaultTitle)
   {
     InitializeComponent();
 
-    // Set default race title with current date/time
-    textBoxRaceTitle.Text = $"Race Results - {DateTime.Now:yyyy-MM-dd HH:mm}";
+    textBoxRaceTitle.Text = string.IsNullOrWhiteSpace(defaultTitle)
+      ? $"Race Results - {DateTime.Now:yyyy-MM-dd HH:mm}"
+      : defaultTitle;
 
     // Default to preview
     radioPreview.Checked = true;

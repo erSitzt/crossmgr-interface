@@ -17,10 +17,8 @@ public partial class Form1 : Form
   private readonly RaceDataService _raceDb;
 
   // Extracted manager classes
-  private readonly RaceEventManager _raceEventManager;
   private readonly LapChartRenderer _lapChartRenderer;
   private readonly LapProgressionManager _lapProgressionManager;
-  private readonly RaceStateManager _raceStateManager;
   private readonly RaceReportGenerator _raceReportGenerator;
   private readonly RiderDataImporter _riderDataImporter;
 
@@ -33,7 +31,6 @@ public partial class Form1 : Form
   private string lastTagID = "None";
   private DateTime lastTagTime = DateTime.MinValue;
   private int? currentRaceId = null;
-  private bool ridersDisplayNeedsUpdate = false;
   private bool manualStartMode = false;
   private bool raceStarted = false;
   private bool raceFinished = false;
@@ -54,47 +51,74 @@ public partial class Form1 : Form
   private int dnfTimeoutMinutes = 2; // Configurable DNF timeout in minutes
 
   // Lap time validation
-  private readonly TimeSpan minimumLapTime = TimeSpan.FromSeconds(10); // Ignore laps shorter than 10 seconds
+  private TimeSpan minimumLapTime = TimeSpan.FromSeconds(10); // Ignore laps shorter than this
+  private bool shortLapDetectionEnabled = true;
+
+  // Reads that were not counted, kept so they can be reviewed and reinstated.
+  private const int MaxRejectedReads = 500;
+  private readonly List<RejectedRead> rejectedReads = new();
+
+  /// <summary>TCP port the reader connects on. Persisted; edited under Reader > Connection settings.</summary>
+  private int readerPort = 53135;
 
   // Tag filtering
   private string tagFilterPrefix = "";
   private bool tagFilterEnabled = false;
   private int filteredTagCount = 0;
 
-  // Tag ignore list for excluding specific tags from processing
-  private readonly HashSet<string> ignoredTags = new();
+  // Tag ignore list for excluding specific tags from processing.
+  // Read on the network thread for every tag read, written on the UI thread.
+  private readonly ThreadSafeTagSet ignoredTags = new();
   private int ignoredTagCount = 0;
 
   // Logging
   private string logFilePath = "";
-  private readonly object logLock = new object();
+  private StreamWriter? logWriter;
+  private readonly System.Collections.Concurrent.BlockingCollection<string> logQueue =
+    new(new System.Collections.Concurrent.ConcurrentQueue<string>(), boundedCapacity: 10000);
+  private Task? logWriterTask;
+  private bool verboseProtocolLogging = false;
 
   // Position tracking for race events (now backed by database)
   private Dictionary<string, int> lastKnownPositions = new();
+  private readonly Dictionary<(string, string), DateTime> lastBattleAnnounced = new();
+  private readonly Dictionary<(string, string), int> lapDifferences = new();
+
+  /// <summary>
+  /// Serialises the read-compare-store cycle over lastKnownPositions. Position
+  /// checks run on a task per crossing, and two crossings milliseconds apart
+  /// would otherwise both compare against the same stale baseline.
+  /// </summary>
+  private readonly object positionCheckLock = new object();
+  private readonly object lapDifferencesLock = new object();
+  private static readonly TimeSpan BattleAnnouncementCooldown = TimeSpan.FromSeconds(30);
   private Dictionary<string, int> lastKnownLapCounts = new();
   private DateTime lastPositionCheck = DateTime.MinValue;
 
   // Lap chart visualization fields removed - now handled by LapChartRenderer
-  private bool lapChartNeedsUpdate = false;
   private DateTime lastProgressLineUpdate = DateTime.MinValue;
 
   // Lap progression tracking
-  private readonly List<LapProgressionEntry> lapProgressionHistory = new();
-  private bool lapProgressionNeedsUpdate = false;
 
   // Class filtering
   private string selectedClassFilter = "All Classes";
+
+  // Runtime-created tab pages. Tab order is owned solely by RebuildTabs(); never
+  // compare against tabControl.SelectedIndex - the indices shift whenever a tab
+  // is added, removed or hidden.
+  private TabPage tabPageLapProgression = null!;
+
+  /// <summary>Whether the technical tabs are shown. Off by default.</summary>
+  private bool advancedMode = false;
 
   public Form1()
   {
     InitializeComponent();
 
     // Initialize database service
-    _raceDb = new RaceDataService("races.db");
+    _raceDb = new RaceDataService(AppPaths.DatabaseFile);
 
     // Initialize extracted manager classes
-    _raceStateManager = new RaceStateManager();
-    _raceEventManager = new RaceEventManager(_raceDb, AddRaceEvent);
     _lapChartRenderer = new LapChartRenderer();
     _lapProgressionManager = new LapProgressionManager();
     _raceReportGenerator = new RaceReportGenerator();
@@ -110,57 +134,82 @@ public partial class Form1 : Form
 
   private void TabControl_SelectedIndexChanged(object? sender, EventArgs e)
   {
-    // If switching to Riders tab, always update if we have rider data (to fix empty table issue)
-    if (tabControl.SelectedIndex == 2)
-    {
-      bool shouldUpdate = false;
-      lock (ridersLock)
-      {
-        shouldUpdate = riders.Count > 0 && (ridersDisplayNeedsUpdate || dataGridViewRiders.Rows.Count == 0);
-        if (shouldUpdate)
-          ridersDisplayNeedsUpdate = false;
-      }
+    // Anything that changed while this tab was hidden kept its dirty bit, so it
+    // repaints here. A view that has never painted gets its first paint too.
+    _refresh?.OnTabChanged();
+  }
 
-      if (shouldUpdate)
-      {
-        UpdateRidersDisplay();
-      }
-    }
-    // If switching to Lap Chart tab and we need an update, do it now
-    else if (tabControl.SelectedIndex == 4 && lapChartNeedsUpdate)
-    {
-      lapChartNeedsUpdate = false;
-      panelLapChart.Invalidate(); // Trigger repaint
-    }
-    // If switching to Lap Progression tab, always update if we have data or if update is needed
-    else if (tabControl.SelectedIndex == 5)
-    {
-      bool shouldUpdate = false;
-      List<RiderInfo> riderSnapshot = new();
-      bool raceFinishedSnapshot = false;
-      bool waitingForFinalLapsSnapshot = false;
+  /// <summary>
+  /// Single authority on which tab pages are shown and in what order.
+  /// TabPages.Remove/Clear does not dispose a page or its event handlers, so
+  /// pages can be taken out and put back without losing state.
+  /// </summary>
+  private void RebuildTabs()
+  {
+    var previouslySelected = tabControl.SelectedTab;
 
-      lock (ridersLock)
-      {
-        shouldUpdate = riders.Count > 0; // Always update when switching to lap progression tab
-        if (shouldUpdate)
-        {
-          riderSnapshot = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
-          raceFinishedSnapshot = raceFinished;
-          waitingForFinalLapsSnapshot = waitingForFinalLaps;
-        }
-        lapProgressionNeedsUpdate = false; // Clear the flag since we're updating now
-      }
+    // Simple mode is Race Day plus the riders grid; the grid stays because it is
+    // where corrections are made. Everything else is for whoever wants detail.
+    var desired = new List<TabPage> { tabPageRaceDay, tabPageRiders };
 
-      if (shouldUpdate)
+    if (advancedMode)
+    {
+      desired.AddRange(new[]
       {
-        _lapProgressionManager.UpdateLapProgressionDisplay(riderSnapshot, raceFinishedSnapshot, waitingForFinalLapsSnapshot, this);
-      }
+        tabPageLive,
+        tabPageTagEvents,
+        tabPageStats,
+        tabPageLapChart,
+        tabPageLapProgression,
+        tabPageRaceSettings
+      });
     }
+
+    // With eight tabs a single row can overflow on a smaller screen, and a
+    // TabControl hides the overflow behind scroll arrows rather than saying so -
+    // a tab simply appears to be missing. Wrapping keeps every tab reachable.
+    tabControl.Multiline = true;
+
+    tabControl.SuspendLayout();
+    tabControl.TabPages.Clear();
+    foreach (var page in desired)
+    {
+      if (page != null)
+        tabControl.TabPages.Add(page);
+    }
+    tabControl.ResumeLayout();
+
+    tabControl.SelectedTab = previouslySelected != null && desired.Contains(previouslySelected)
+      ? previouslySelected
+      : desired[0];
+
+    // Records both the tab set and the geometry. If the tab control's top edge
+    // is not below the menu bar, the menu is covering the tab strip.
+    AddDiagnostic($"Tabs (advanced={advancedMode}): " +
+      string.Join(" | ", tabControl.TabPages.Cast<TabPage>().Select(t => t.Text)) +
+      $"  [shown={tabControl.TabPages.Count}, tabs.Top={tabControl.Top}, " +
+      $"menu.Bottom={_menu?.Bottom}, tabs.Height={tabControl.Height}, rows={tabControl.RowCount}]");
   }
 
   private void Form1_Load(object? sender, EventArgs e)
   {
+    // Logging first of all, so the startup sequence itself is on record.
+    InitializeLogging();
+
+    // Infrastructure next. Almost everything below - UpdateConnectionCount,
+    // UpdateUI, the settings handlers - now writes to the status bar or asks the
+    // correction service a question, so these have to exist before any of it runs.
+    tabPageLapProgression = _lapProgressionManager.CreateLapProgressionTab();
+    InitializeRaceDayView();
+    InitializeChrome();
+    InitializeRefreshCoordinator();
+    InitializeCorrections();
+    _lapProgressionManager.RefreshRequested += () => _refresh.RenderNow(RaceViewKind.LapProgression);
+    RebuildTabs();
+
+    // Volunteers land on the calm screen, not on a protocol trace.
+    tabControl.SelectedTab = tabPageRaceDay;
+
     AddMessage("Application started. Ready to listen for RFID messages.");
     UpdateConnectionCount();
 
@@ -170,16 +219,20 @@ public partial class Form1 : Form
     // Initialize additional laps setting
     additionalLapsAfterTimeExpiry = (int)numericUpDownAdditionalLaps.Value;
 
+    // Initialize short-lap rejection from its (previously inert) controls
+    minimumLapTime = TimeSpan.FromSeconds((double)numericUpDownMinimumLapTime.Value);
+    shortLapDetectionEnabled = checkBoxShortLapDetection.Checked;
+    numericUpDownDnfTimeout.Value = dnfTimeoutMinutes;
+
+    buttonSetShortLapSettings.Click += buttonSetShortLapSettings_Click;
+    buttonSetDnfTimeout.Click += buttonSetDnfTimeout_Click;
+
     // Initialize tag filter controls
     textBoxTagFilter.PlaceholderText = "e.g., RIDER, 1000, BIKE (comma-separated)";
     checkBoxFilterEnabled.Checked = false;
     tagFilterEnabled = false;
     AddMessage("🔍 Tag filter: Disabled (all tags will be processed)");
     AddMessage($"⚙️ DNF timeout: {dnfTimeoutMinutes} minutes after leader finishes");
-
-    // Add Lap Progression tab programmatically using LapProgressionManager
-    var lapProgressionTab = _lapProgressionManager.CreateLapProgressionTab();
-    tabControl.TabPages.Insert(5, lapProgressionTab);
 
     // Enable double buffering for the lap chart panel to reduce flickering
     typeof(Panel).InvokeMember("DoubleBuffered",
@@ -199,28 +252,105 @@ public partial class Form1 : Form
     radioButtonStartManual.CheckedChanged += RaceStartMode_CheckedChanged;
     UpdateRaceStartControls();
 
-    // Initialize logging
-    InitializeLogging();
+    InitializeTooltips();
 
-    // Perform crash recovery after the form is fully loaded and window handle is created
+    // Crash recovery and session restore deliberately do NOT run here. Recovery
+    // asks the operator a question, and a modal shown from Load blocks before the
+    // main window has appeared - so the app looks hung rather than like it is
+    // asking something. Both run from Shown instead; see StartupAfterShown.
+    Shown += StartupAfterShown;
+  }
+
+  private readonly ToolTip toolTipMain = new() { AutoPopDelay = 15000, InitialDelay = 400, ReshowDelay = 200 };
+
+  /// <summary>
+  /// Explains the settings that are not self-evident. The application had no
+  /// tooltips at all, and several of these controls change how a race is scored.
+  /// </summary>
+  private void InitializeTooltips()
+  {
+    toolTipMain.SetToolTip(numericUpDownRaceDuration,
+      "How long the clock runs. Riders may still finish the lap they are on when it hits zero.");
+    toolTipMain.SetToolTip(numericUpDownAdditionalLaps,
+      "After the clock reaches zero the leader still rides this many more laps before the flag.");
+    toolTipMain.SetToolTip(numericUpDownMinimumLapTime,
+      "Anything faster than this is treated as the finish line seeing the same rider twice, not as a lap.");
+    toolTipMain.SetToolTip(checkBoxShortLapDetection,
+      "Turn off only if the course is genuinely short enough for real laps to fall below the limit.");
+    toolTipMain.SetToolTip(numericUpDownDnfTimeout,
+      "Once the leader finishes, riders get this long to complete their last lap before being scored DNF.");
+    toolTipMain.SetToolTip(textBoxTagFilter,
+      "Only count transponders whose ID starts with one of these. Leave empty to count everything.");
+    toolTipMain.SetToolTip(checkBoxFilterEnabled,
+      "Turn the transponder filter on. With it off, every transponder is counted.");
+    toolTipMain.SetToolTip(radioButtonStartOnFirstTag,
+      "The clock starts by itself the moment the first rider crosses the line.");
+    toolTipMain.SetToolTip(radioButtonStartManual,
+      "You press Start Race. Use this when the gate drop and the first crossing are not the same moment.");
+    toolTipMain.SetToolTip(buttonStartRace, "Start the clock now.");
+    toolTipMain.SetToolTip(comboBoxClassFilter, "Show only one class in the list below.");
+
+    SetColumnTooltip("Status", "Anything needing attention: CHECK is a possible missed read, DNF/DNS a finish status.");
+    SetColumnTooltip("ProjectedPosition", "Where this rider would be if the flagged missed read were corrected.");
+    SetColumnTooltip("PredictedLap", "Expected next lap time, weighted towards their most recent laps.");
+    SetColumnTooltip("NextCrossing", "Race time this rider is expected to cross next.");
+    SetColumnTooltip("TimeToNext", "How long until they are due. \"Overdue\" means they have not appeared.");
+    SetColumnTooltip("Gap", "Behind the leader: seconds on the same lap, or how many laps down.");
+
+    void SetColumnTooltip(string column, string text)
+    {
+      var c = dataGridViewRiders.Columns[column];
+      if (c != null) c.ToolTipText = text;
+    }
+  }
+
+  private bool startupCompleted;
+
+  /// <summary>
+  /// Work that must happen only once the main window is on screen: reopening the
+  /// reader connection and reloading the rider list, then offering to recover an
+  /// interrupted race. The recovery prompt is a modal, so the operator needs to
+  /// be looking at the application when it appears.
+  /// </summary>
+  private void StartupAfterShown(object? sender, EventArgs e)
+  {
+    if (startupCompleted) return;
+    startupCompleted = true;
+
+    // Reader and roster first: they never prompt, so the app is usable even if
+    // the operator leaves the recovery question sitting there.
+    RestorePreviousSession();
+
+    // Say so plainly if the previous database could not be read. Silently
+    // starting with an empty one would look like the race data had vanished.
+    if (_raceDb.RecoveredFromUnreadableDatabase)
+    {
+      AddMessage("⚠️ The previous race database could not be read. A new one has been started.");
+      ErrorDialog.Show(this,
+        "The saved race data could not be opened.",
+        "A new, empty database has been started so you can carry on timing.\n\n" +
+        $"The old file has been kept as:\n{_raceDb.QuarantinedDatabasePath}");
+
+      // Nothing to recover from a database that was created moments ago.
+      return;
+    }
+
     AttemptCrashRecovery();
   }
 
   private void buttonStart_Click(object? sender, EventArgs e)
   {
-    if (!int.TryParse(textBoxPort.Text, out int port) || port < 1 || port > 65535)
-    {
-      MessageBox.Show("Please enter a valid port number (1-65535).", "Invalid Port",
-          MessageBoxButtons.OK, MessageBoxIcon.Warning);
-      return;
-    }
-
-    StartTcpListener(port);
+    StartTcpListener(readerPort);
   }
 
   private void buttonStop_Click(object? sender, EventArgs e)
   {
     StopTcpListener();
+
+    // Deliberate disconnection by the operator: remember it, so the next start
+    // does not reopen the port behind their back. Shutdown deliberately does not
+    // do this - closing the application is not a decision to stop timing.
+    RememberReaderState(false);
   }
 
   private void buttonClear_Click(object? sender, EventArgs e)
@@ -233,12 +363,28 @@ public partial class Form1 : Form
     listBoxTagEvents.Items.Clear();
   }
 
+  /// <summary>
+  /// Ctrl+Z undoes the last correction from anywhere in the application, so an
+  /// operator who has just made a mistake does not have to hunt for a menu.
+  /// </summary>
+  protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+  {
+    if (keyData == (Keys.Control | Keys.Z))
+    {
+      UndoLastCorrection();
+      return true;
+    }
+    return base.ProcessCmdKey(ref msg, keyData);
+  }
+
   private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
   {
     StopTcpListener();
 
     // Write final log entry
     WriteToLogFile("SYSTEM", $"=== CrossMgr Interface Log Ended at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+    ShutdownLogging();
+    _refresh?.Dispose();
   }
 
   private void StartTcpListener(int port)
@@ -250,15 +396,18 @@ public partial class Form1 : Form
       isListening = true;
 
       UpdateUI();
-      AddMessage($"TCP server started on port {port}. Waiting for connections...");
+      RememberReaderState(true);
+      AddDiagnostic($"TCP server started on port {port}. Waiting for connections...");
 
       // Start accepting connections
       _ = Task.Run(AcceptConnectionsAsync);
     }
     catch (Exception ex)
     {
-      MessageBox.Show($"Failed to start TCP server: {ex.Message}", "Error",
-          MessageBoxButtons.OK, MessageBoxIcon.Error);
+      ErrorDialog.Show(this,
+        "The reader connection could not be started.",
+        $"Another program may already be using port {port}. Close it, or choose a " +
+        "different port and try again.", ex);
       UpdateUI();
     }
   }
@@ -280,11 +429,11 @@ public partial class Form1 : Form
         connectedClients.Clear();
       }
 
-      AddMessage("TCP server stopped.");
+      AddDiagnostic("TCP server stopped.");
     }
     catch (Exception ex)
     {
-      AddMessage($"Error stopping server: {ex.Message}");
+      AddDiagnostic($"Error stopping the reader connection: {ex.Message}");
     }
 
     UpdateUI();
@@ -341,10 +490,12 @@ public partial class Form1 : Form
         // Process complete messages (assuming messages end with CR or LF)
         string allData = stringBuilder.ToString();
 
-        // Debug: Log raw received data (only if not too verbose)
-        if (allData.Length > 0 && allData.Length < 200)
+        // Raw byte-level trace. Off by default: building the hex string costs a
+        // byte array, a LINQ projection, one string per byte and a join, on every
+        // single socket read.
+        if (verboseProtocolLogging && allData.Length > 0 && allData.Length < 200)
         {
-          AddTagEvent($"[{clientEndpoint}] RAW: '{allData}' (hex: {string.Join("", Encoding.ASCII.GetBytes(allData).Select(b => b.ToString("X2")))})");
+          AddTagEvent($"[{clientEndpoint}] RAW: '{allData}' (hex: {Convert.ToHexString(Encoding.ASCII.GetBytes(allData))})");
         }
 
         string[] lines = allData.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -450,7 +601,7 @@ public partial class Form1 : Form
         // Use Task.Delay to avoid blocking the UI thread
         _ = Task.Run(async () =>
         {
-          AddMessage($"[{clientEndpoint}] ⏳ Starting 500ms delay timer...");
+          AddDiagnostic($"[{clientEndpoint}] ⏳ Starting 500ms delay timer...");
           await Task.Delay(500); // 500ms delay - well under the 2-second client timeout
           AddTagEvent($"[{clientEndpoint}] ⏰ Delay complete, sending GT command now...");
 
@@ -487,7 +638,7 @@ public partial class Form1 : Form
       else
       {
         // Unknown message type
-        AddMessage($"[{clientEndpoint}] Unknown message: {message}");
+        AddDiagnostic($"[{clientEndpoint}] Unknown message: {message}");
       }
     }
     catch (Exception ex)
@@ -505,7 +656,7 @@ public partial class Form1 : Form
 
       if (message.Length < 10)
       {
-        AddMessage($"[{clientEndpoint}] Invalid DA message (too short): {message}");
+        AddDiagnostic($"[{clientEndpoint}] Invalid DA message (too short): {message}");
         return;
       }
 
@@ -516,7 +667,7 @@ public partial class Form1 : Form
       int firstSpace = content.IndexOf(' ');
       if (firstSpace == -1)
       {
-        AddMessage($"[{clientEndpoint}] Invalid DA message format: {message}");
+        AddDiagnostic($"[{clientEndpoint}] Invalid DA message format: {message}");
         return;
       }
 
@@ -527,7 +678,7 @@ public partial class Form1 : Form
       int nextSpace = remainder.IndexOf(' ');
       if (nextSpace == -1)
       {
-        AddMessage($"[{clientEndpoint}] Invalid DA message format: {message}");
+        AddDiagnostic($"[{clientEndpoint}] Invalid DA message format: {message}");
         return;
       }
 
@@ -609,7 +760,7 @@ public partial class Form1 : Form
           // Log filtered tag but don't process lap tracking
           filteredTagCount++;
           string filteredMessage = $"🚫 Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} [FILTERED #{filteredTagCount} - doesn't match prefix '{tagFilterPrefix}'] [{displayTime}]";
-          AddTagEvent($"[{clientEndpoint}] {filteredMessage}");
+          AddTagEvent($"[{clientEndpoint}] {filteredMessage}", tagID);
         }
         return; // Skip lap processing for filtered/ignored tags
       }
@@ -625,14 +776,14 @@ public partial class Form1 : Form
 
       string formattedMessage = $"🏷️  Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} {lapInfoStr} [Parsed: {crossingTime:HH:mm:ss.fff}]";
 
-      AddTagEvent($"[{clientEndpoint}] {formattedMessage}");
+      AddTagEvent($"[{clientEndpoint}] {formattedMessage}", tagID);
 
       // Display rider summary after each crossing - simplified since we have the GUI
       // DisplayRiderSummary(tagID); // Commented out to reduce log noise
     }
     catch (Exception ex)
     {
-      AddMessage($"[{clientEndpoint}] Error parsing DA message '{message}': {ex.Message}");
+      AddDiagnostic($"[{clientEndpoint}] Error parsing DA message '{message}': {ex.Message}");
     }
   }
 
@@ -643,49 +794,21 @@ public partial class Form1 : Form
   }
 
   /// <summary>
-  /// Formats rider display text showing number and name if available, otherwise tag ID
+  /// Formats rider display text showing number and name if available, otherwise tag ID.
   /// </summary>
-  private string GetRiderDisplayText(RiderInfo rider)
-  {
-    var parts = new List<string>();
-
-    // Add rider number if available
-    if (!string.IsNullOrEmpty(rider.RiderNumber))
-    {
-      parts.Add($"#{rider.RiderNumber}");
-    }
-
-    // Add rider name if available
-    if (!string.IsNullOrEmpty(rider.FirstName) || !string.IsNullOrEmpty(rider.LastName))
-    {
-      var name = $"{rider.FirstName} {rider.LastName}".Trim();
-      if (!string.IsNullOrEmpty(name))
-      {
-        parts.Add(name);
-      }
-    }
-
-    // If we have number or name, use them, otherwise fall back to tag ID
-    if (parts.Any())
-    {
-      return string.Join(" ", parts);
-    }
-    else
-    {
-      return rider.TagID;
-    }
-  }
+  private string GetRiderDisplayText(RiderInfo rider) => rider.Label;
 
   /// <summary>
   /// Formats rider display text by looking up rider info from tagID
   /// </summary>
   private string GetRiderDisplayText(string tagID)
   {
-    if (riders.TryGetValue(tagID, out var rider))
+    // Called from both the network and UI threads, and sometimes from inside
+    // ridersLock already - Monitor is reentrant, so taking it is safe either way.
+    lock (ridersLock)
     {
-      return GetRiderDisplayText(rider);
+      return riders.TryGetValue(tagID, out var rider) ? rider.Label : tagID;
     }
-    return tagID; // Fallback if rider not found
   }
 
   private RiderLap ProcessRiderCrossing(string tagID, DateTime crossingTime)
@@ -696,18 +819,23 @@ public partial class Form1 : Form
 
     lock (ridersLock)
     {
+      // A transponder the operator has merged onto a rider counts as that rider
+      // from here on, rather than spawning a fresh unknown entry every lap.
+      if (tagAliases.TryGetValue(tagID, out var canonicalTag))
+        tagID = canonicalTag;
+
       // If race is finished, still record crossings but note they are post-race
       if (raceFinished)
       {
-        messagesToAdd.Add(($"🏁 Post-race crossing: {tagID} at {crossingTime:HH:mm:ss.fff} (recorded but not counted in final results)", true));
-        messagesToAdd.Add(($"Post-race crossing: {tagID}", false));
+        messagesToAdd.Add(($"🏁 Post-race crossing: {GetRiderDisplayText(tagID)} at {crossingTime:HH:mm:ss.fff} (recorded but not counted in final results)", true));
+        messagesToAdd.Add(($"Post-race crossing: {GetRiderDisplayText(tagID)}", false));
         resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
       // Check if this rider is already marked as DNF
       else if (riders.ContainsKey(tagID) && riders[tagID].IsDNF)
       {
-        messagesToAdd.Add(($"🚫 Tag read ignored: {tagID} is marked as DNF (Did Not Finish) - crossing at {crossingTime:HH:mm:ss.fff}", true));
-        messagesToAdd.Add(($"DNF rider crossing ignored: {tagID}", false));
+        messagesToAdd.Add(($"🚫 Tag read ignored: {GetRiderDisplayText(tagID)} is marked as DNF (Did Not Finish) - crossing at {crossingTime:HH:mm:ss.fff}", true));
+        messagesToAdd.Add(($"DNF rider crossing ignored: {GetRiderDisplayText(tagID)}", false));
         resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
       // Check if we're in final laps phase and this rider has exceeded their allowed laps
@@ -718,8 +846,8 @@ public partial class Form1 : Form
 
         if (nextLapNumber > existingRider.FinalAllowedLap)
         {
-          messagesToAdd.Add(($"🚫 Tag read ignored: {tagID} has already completed their final allowed lap (lap {existingRider.FinalAllowedLap})", true));
-          messagesToAdd.Add(($"Final lap exceeded: {tagID}", false));
+          messagesToAdd.Add(($"🚫 Tag read ignored: {GetRiderDisplayText(tagID)} has already completed their final allowed lap (lap {existingRider.FinalAllowedLap})", true));
+          messagesToAdd.Add(($"Final lap exceeded: {GetRiderDisplayText(tagID)}", false));
           resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
         }
         else
@@ -762,7 +890,7 @@ public partial class Form1 : Form
       raceStarted = true;
 
       // Create new race in database
-      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration);
+      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName);
 
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
@@ -862,17 +990,10 @@ public partial class Form1 : Form
         });
       }
 
-      // These operations will be called later after the lock is released
-      Task.Run(() => RecordLapProgressionAfterLapCompletion(tagID, 1));
+      _refresh.Invalidate(RaceViewKind.LapProgression);
+      _refresh.Invalidate(RaceViewKind.Riders);
+      _refresh.Invalidate(RaceViewKind.LapChart);
 
-      ridersDisplayNeedsUpdate = true;
-      lapChartNeedsUpdate = true;
-
-      // If user is currently on riders tab, update immediately
-      if (tabControl.SelectedIndex == 2)
-      {
-        BeginInvoke(new Action(UpdateRidersDisplay));
-      }
       return firstLap;
     }
     else
@@ -883,10 +1004,22 @@ public partial class Form1 : Form
       var lapTime = crossingTime - previousCrossing;
 
       // Check for minimum lap time - ignore unrealistically short laps (likely RFID errors)
-      if (lapTime < minimumLapTime)
+      if (shortLapDetectionEnabled && lapTime < minimumLapTime)
       {
-        // Log the ignored short lap for debugging
-        var logMessage = $"IGNORED SHORT LAP: {tagID} - {lapTime.TotalSeconds:F3}s (minimum: {minimumLapTime.TotalSeconds}s)";
+        // Keep the read so the operator can review it and put it back - on a
+        // short course a "too soon" read is sometimes a real lap.
+        rejectedReads.Add(new RejectedRead
+        {
+          TagID = tagID,
+          CrossingTime = crossingTime,
+          GapToPrevious = lapTime,
+          Reason = $"Only {lapTime.TotalSeconds:F1}s after the previous read"
+        });
+        if (rejectedReads.Count > MaxRejectedReads)
+          rejectedReads.RemoveAt(0);
+
+        var logMessage = $"IGNORED SHORT LAP: {GetRiderDisplayText(tagID)} - {lapTime.TotalSeconds:F3}s " +
+          $"(minimum {minimumLapTime.TotalSeconds:F0}s) - review it under \"Fix laps\"";
         messagesToAdd.Add((logMessage, false));
 
         // Return null to indicate no lap was processed
@@ -922,8 +1055,7 @@ public partial class Form1 : Form
         });
       }
 
-      // These operations will be called later after the lock is released
-      Task.Run(() => RecordLapProgressionAfterLapCompletion(tagID, rider.TotalLaps));
+      _refresh.Invalidate(RaceViewKind.LapProgression);
 
       // Handle transition from time expired to additional laps phase
       if (raceTimeExpired && !waitingForLeaderFinish && !waitingForFinalLaps && !raceFinished)
@@ -993,7 +1125,7 @@ public partial class Form1 : Form
         }
         else if (rider.TotalLaps >= targetLapsToFinishRace)
         {
-          messagesToAdd.Add(($"🏁 {tagID} completed {targetLapsToFinishRace} laps, but race will finish when LEADER {leaderAtTimeExpiry} reaches this target.", true));
+          messagesToAdd.Add(($"🏁 {GetRiderDisplayText(tagID)} completed {targetLapsToFinishRace} laps, but race will finish when LEADER {GetRiderDisplayText(leaderAtTimeExpiry ?? "")} reaches this target.", true));
         }
       }
 
@@ -1006,199 +1138,45 @@ public partial class Form1 : Form
       // Check for position changes and lapping events
       Task.Run(() => CheckForPositionChangesAndLapping(tagID));
 
-      ridersDisplayNeedsUpdate = true;
-      lapChartNeedsUpdate = true;
+      _refresh.Invalidate(RaceViewKind.Riders);
+      _refresh.Invalidate(RaceViewKind.LapChart);
 
-      // If user is currently on riders tab, update immediately
-      if (tabControl.SelectedIndex == 2)
-      {
-        BeginInvoke(new Action(UpdateRidersDisplay));
-      }
 
       return newLap;
     }
   }
 
   /// <summary>
-  /// Detect and mark laps that may represent multiple missed RFID reads for manual splitting
-  /// If a lap is very long but close to a multiple of the rider's average lap time,
-  /// mark it as suggested for splitting instead of automatically splitting
+  /// Re-derives the missed-read warnings for a rider after they complete a lap.
+  /// Delegates to the shared detector so the live path and the re-scan that runs
+  /// after a correction can never disagree.
   /// </summary>
   private void DetectAndMarkPotentialSplits(string tagID, List<(string, bool)> messagesToAdd)
   {
-    var rider = riders[tagID];
-    if (rider.Laps.Count < 3) return; // Need at least 3 laps to analyze (skip first lap)
+    if (!riders.TryGetValue(tagID, out var rider)) return;
 
-    var lastLap = rider.Laps.Last();
-    if (!lastLap.LapTime.HasValue) return;
+    var before = rider.Laps
+      .Where(l => l.IsSuggestedForSplit)
+      .Select(l => l.LapNumber)
+      .ToHashSet();
 
-    var lastLapTime = lastLap.LapTime.Value;
+    LapAnomalyDetector.Analyze(rider, CalculateGlobalAverageLapTime());
 
-    // Calculate recent average lap time (excluding the last lap and the first lap)
-    var recentLaps = rider.Laps.Skip(1) // Skip the first lap
-        .Take(rider.Laps.Count - 2) // Exclude the last lap as well
-        .Where(l => l.LapTime.HasValue)
-        .TakeLast(5) // Use last 5 laps for average
-        .ToList();
+    var newlyFlagged = rider.Laps
+      .Where(l => l.IsSuggestedForSplit && !before.Contains(l.LapNumber))
+      .ToList();
 
-    if (recentLaps.Count < 2) return; // Need at least 2 previous laps (excluding first)
-
-    var avgLapTime = TimeSpan.FromMilliseconds(
-        recentLaps.Average(l => l.LapTime!.Value.TotalMilliseconds));
-
-    // Check if the last lap is 2-5 times the average lap time
-    var ratio = lastLapTime.TotalMilliseconds / avgLapTime.TotalMilliseconds;
-
-    if (ratio >= 1.8 && ratio <= 5.5) // Allow some tolerance
+    foreach (var lap in newlyFlagged)
     {
-      // Determine how many laps this represents
-      int missedLaps = (int)Math.Round(ratio);
-
-      if (missedLaps >= 2 && missedLaps <= 5)
-      {
-        // Calculate equal split lap time
-        var splitLapTime = TimeSpan.FromMilliseconds(lastLapTime.TotalMilliseconds / missedLaps);
-
-        // Calculate global average lap time from all riders to validate split lap time
-        var globalAvgLapTime = CalculateGlobalAverageLapTime();
-        if (globalAvgLapTime.HasValue)
-        {
-          // Check if split laps would be too short compared to global average
-          var splitToGlobalRatio = splitLapTime.TotalMilliseconds / globalAvgLapTime.Value.TotalMilliseconds;
-          if (splitToGlobalRatio < 0.5) // Split laps are less than 50% of global average
-          {
-            messagesToAdd.Add(($"⚠️ POTENTIAL SPLIT REJECTED: {GetRiderDisplayText(tagID)} - Split laps would be too short ({splitLapTime.TotalSeconds:F1}s vs global avg {globalAvgLapTime.Value.TotalSeconds:F1}s)", true));
-            return; // Don't suggest split if it would create unrealistically short laps
-          }
-        }
-
-        // Mark the lap as suggested for splitting instead of actually splitting it
-        lastLap.IsSuggestedForSplit = true;
-        lastLap.SuggestedSplitCount = missedLaps;
-        lastLap.SuggestedSplitLapTime = splitLapTime;
-
-        var riderDisplay = GetRiderDisplayText(tagID);
-        messagesToAdd.Add(($"🔄 POTENTIAL MISSED READS: {riderDisplay} - Lap {lastLap.LapNumber} ({lastLapTime.TotalSeconds:F1}s) could be split into {missedLaps} laps of {splitLapTime.TotalSeconds:F1}s each. Use context menu to split.", true));
-      }
+      messagesToAdd.Add((
+        $"🔄 POSSIBLE MISSED READ: {GetRiderDisplayText(tagID)} - lap {lap.LapNumber} took " +
+        $"{lap.LapTime?.TotalSeconds:F1}s, which looks like {lap.SuggestedSplitCount} laps of " +
+        $"about {lap.SuggestedSplitLapTime?.TotalSeconds:F1}s. Right-click the rider to fix it.",
+        true));
     }
-  }
 
-  /// <summary>
-  /// Actually perform the lap split for a lap that was marked as suggested for splitting
-  /// </summary>
-  private void PerformLapSplit(string tagID, int lapNumber)
-  {
-    lock (ridersLock)
-    {
-      if (!riders.TryGetValue(tagID, out var rider)) return;
-
-      var lapToSplit = rider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber && l.IsSuggestedForSplit);
-      if (lapToSplit == null) return;
-
-      var missedLaps = lapToSplit.SuggestedSplitCount;
-      var splitLapTime = lapToSplit.SuggestedSplitLapTime;
-      var originalLapTime = lapToSplit.LapTime;
-
-      if (missedLaps <= 1 || !splitLapTime.HasValue || !originalLapTime.HasValue) return;
-
-      // Store the original lap info
-      var originalLapNumber = lapToSplit.LapNumber;
-      var originalCrossingTime = lapToSplit.CrossingTime;
-
-      // Calculate base time for split laps (start of the original lap)
-      var baseCrossingTime = originalCrossingTime - originalLapTime.Value;
-
-      // Remove the original long lap from the list
-      rider.Laps.Remove(lapToSplit);
-
-      // Remove from database
-      if (currentRaceId.HasValue)
-      {
-        _raceDb.DeleteLap(tagID, originalLapNumber);
-      }
-
-      // Create the split laps with proper timing
-      var splitLaps = new List<RiderLap>();
-      for (int i = 0; i < missedLaps; i++)
-      {
-        var splitCrossingTime = baseCrossingTime + TimeSpan.FromMilliseconds(splitLapTime.Value.TotalMilliseconds * (i + 1));
-
-        var splitLap = new RiderLap
-        {
-          TagID = tagID,
-          CrossingTime = splitCrossingTime,
-          LapNumber = originalLapNumber + i, // Sequential lap numbers starting from original
-          LapTime = splitLapTime.Value,
-          IsSplitLap = true,
-          IsSuggestedForSplit = false
-        };
-
-        splitLaps.Add(splitLap);
-      }
-
-      // Add split laps to rider's laps
-      rider.Laps.AddRange(splitLaps);
-
-      // Renumber all subsequent laps to maintain sequential order
-      var lapsToRenumber = rider.Laps
-          .Where(l => l.LapNumber > originalLapNumber)
-          .OrderBy(l => l.CrossingTime)
-          .ToList();
-
-      int nextLapNumber = originalLapNumber + missedLaps;
-      foreach (var lap in lapsToRenumber)
-      {
-        if (!splitLaps.Contains(lap)) // Don't renumber the split laps we just added
-        {
-          // Update in database first (before changing lap number)
-          if (currentRaceId.HasValue)
-          {
-            _raceDb.DeleteLap(tagID, lap.LapNumber);
-          }
-
-          lap.LapNumber = nextLapNumber++;
-
-          // Re-add to database with new lap number
-          if (currentRaceId.HasValue)
-          {
-            var position = CalculateCurrentPosition(tagID);
-            _raceDb.AddLap(tagID, lap, position);
-          }
-        }
-      }
-
-      // Sort laps by lap number to maintain order
-      rider.Laps = rider.Laps.OrderBy(l => l.LapNumber).ToList();
-
-      // Add split laps to database
-      if (currentRaceId.HasValue)
-      {
-        foreach (var splitLap in splitLaps)
-        {
-          var position = CalculateCurrentPosition(tagID);
-          _raceDb.AddLap(tagID, splitLap, position);
-        }
-      }
-
-      // Update rider's last crossing time to maintain consistency
-      if (rider.Laps.Count > 0)
-      {
-        rider.LastCrossing = rider.Laps.OrderBy(l => l.CrossingTime).Last().CrossingTime;
-      }
-
-      // Update displays
-      ridersDisplayNeedsUpdate = true;
-      lapChartNeedsUpdate = true;
-
-      var riderDisplay = GetRiderDisplayText(tagID);
-      AddMessage($"✅ LAP SPLIT PERFORMED: {riderDisplay} - Split lap {originalLapNumber} ({originalLapTime.Value.TotalSeconds:F1}s) into {missedLaps} laps of {splitLapTime.Value.TotalSeconds:F1}s each");
-
-      // Refresh display if on riders tab
-      if (tabControl.SelectedIndex == 2)
-      {
-        BeginInvoke(new Action(UpdateRidersDisplay));
-      }
-    }
+    if (newlyFlagged.Count > 0)
+      RaiseNotice(NoticeLevel.Warning, $"Possible missed read - {GetRiderDisplayText(tagID)}");
   }
 
   /// <summary>
@@ -1252,17 +1230,10 @@ public partial class Form1 : Form
           var bestLap = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
           var totalTime = rider.TotalTime.ToString(@"mm\:ss\.fff");
 
-          // Calculate average lap time, but only if there are lap times available
-          var lapTimesWithValues = rider.Laps.Where(l => l.LapTime.HasValue).ToList();
-          var avgLapStr = "N/A";
-          if (lapTimesWithValues.Any())
-          {
-            var avgLapTime = lapTimesWithValues.Average(l => l.LapTime!.Value.TotalMilliseconds);
-            avgLapStr = TimeSpan.FromMilliseconds(avgLapTime).ToString(@"mm\:ss\.fff");
-          }
+          var avgLapStr = rider.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
 
           var statusStr = rider.IsDNF ? " (DNF)" : "";
-          messages.Add($"📊 #{position}: Tag {rider.TagID} | {rider.TotalLaps} laps | Best: {bestLap} | Avg: {avgLapStr} | Total: {totalTime}{statusStr}");
+          messages.Add($"📊 P{position}: {rider.Label} | {rider.TotalLaps} laps | Best: {bestLap} | Avg: {avgLapStr} | Total: {totalTime}{statusStr}");
           position++;
         }
 
@@ -1295,13 +1266,15 @@ public partial class Form1 : Form
       targetLapsToFinishRace = 0;
       lastTagID = "None";
       lastTagTime = DateTime.MinValue;
-      ridersDisplayNeedsUpdate = true;
-      lapChartNeedsUpdate = true;
+      _refresh.Invalidate(RaceViewKind.Riders);
+      _refresh.Invalidate(RaceViewKind.LapChart);
       currentRaceId = null;
 
       // Reset position tracking
       lastKnownPositions.Clear();
       lastKnownLapCounts.Clear();
+      lock (lapDifferencesLock) lapDifferences.Clear();
+      lastBattleAnnounced.Clear();
       lastPositionCheck = DateTime.MinValue;
 
       // Clear race data from database if we have a current race
@@ -1334,7 +1307,7 @@ public partial class Form1 : Form
 
       if (message.Length < 10)
       {
-        AddMessage($"[{clientEndpoint}] Invalid GT response (too short): {message}");
+        AddDiagnostic($"[{clientEndpoint}] Invalid GT response (too short): {message}");
         return;
       }
 
@@ -1342,7 +1315,7 @@ public partial class Form1 : Form
       int dateIndex = message.IndexOf(" date=");
       if (dateIndex == -1)
       {
-        AddMessage($"[{clientEndpoint}] Invalid GT response format (no date): {message}");
+        AddDiagnostic($"[{clientEndpoint}] Invalid GT response format (no date): {message}");
         return;
       }
 
@@ -1368,7 +1341,7 @@ public partial class Form1 : Form
 
           string formattedDate = $"{year}-{month}-{day}";
 
-          AddMessage($"[{clientEndpoint}] ⏰ Reader Time Sync: {formattedTime} on {formattedDate}");
+          AddDiagnostic($"[{clientEndpoint}] ⏰ Reader Time Sync: {formattedTime} on {formattedDate}");
 
           // Show time difference if significant
           try
@@ -1379,7 +1352,7 @@ public partial class Form1 : Form
 
             if (Math.Abs(timeDiff.TotalSeconds) > 1)
             {
-              AddMessage($"[{clientEndpoint}] ⚠️  Time difference: {timeDiff.TotalSeconds:F2} seconds");
+              AddDiagnostic($"[{clientEndpoint}] ⚠️  Time difference: {timeDiff.TotalSeconds:F2} seconds");
             }
           }
           catch
@@ -1389,12 +1362,12 @@ public partial class Form1 : Form
         }
         else
         {
-          AddMessage($"[{clientEndpoint}] ⏰ Reader Time Sync: {formattedTime} (invalid date format)");
+          AddDiagnostic($"[{clientEndpoint}] ⏰ Reader Time Sync: {formattedTime} (invalid date format)");
         }
       }
       else
       {
-        AddMessage($"[{clientEndpoint}] ⏰ Reader Time Sync: {timeStr} date={dateStr} (raw format)");
+        AddDiagnostic($"[{clientEndpoint}] ⏰ Reader Time Sync: {timeStr} date={dateStr} (raw format)");
       }
 
       // After successful time sync, send S0000 to start tag reading
@@ -1402,7 +1375,7 @@ public partial class Form1 : Form
     }
     catch (Exception ex)
     {
-      AddMessage($"[{clientEndpoint}] Error parsing GT response '{message}': {ex.Message}");
+      AddDiagnostic($"[{clientEndpoint}] Error parsing GT response '{message}': {ex.Message}");
     }
   }
 
@@ -1427,16 +1400,16 @@ public partial class Form1 : Form
         byte[] s0000Bytes = Encoding.ASCII.GetBytes(s0000Command);
         await stream.WriteAsync(s0000Bytes, 0, s0000Bytes.Length);
 
-        AddMessage($"[{clientEndpoint}] 📡 Sent S0000 command to start tag reading");
+        AddDiagnostic($"[{clientEndpoint}] 📡 Sent S0000 command to start tag reading");
       }
       else
       {
-        AddMessage($"[{clientEndpoint}] ❌ Cannot send S0000 - client not found or disconnected");
+        AddDiagnostic($"[{clientEndpoint}] ❌ Cannot send S0000 - client not found or disconnected");
       }
     }
     catch (Exception ex)
     {
-      AddMessage($"[{clientEndpoint}] Error sending S0000 command: {ex.Message}");
+      AddDiagnostic($"[{clientEndpoint}] Error sending S0000 command: {ex.Message}");
     }
   }
 
@@ -1446,11 +1419,24 @@ public partial class Form1 : Form
     AddRaceEvent(message);
   }
 
-  private void AddTagEvent(string message)
+  /// <summary>
+  /// Internal/plumbing messages. These go to the Tag Events feed so the Race
+  /// Events feed stays readable as race commentary.
+  /// </summary>
+  private void AddDiagnostic(string message) => AddTagEvent(message);
+
+  private void AddTagEvent(string message) => AddTagEvent(message, null);
+
+  /// <summary>
+  /// Appends to the Tag Events feed. Pass <paramref name="tagId"/> when the line
+  /// refers to a specific transponder, so the context menu can act on it without
+  /// parsing the rendered text back apart.
+  /// </summary>
+  private void AddTagEvent(string message, string? tagId)
   {
     if (InvokeRequired)
     {
-      BeginInvoke(new Action<string>(AddTagEvent), message);
+      BeginInvoke(new Action<string, string?>(AddTagEvent), message, tagId);
       return;
     }
 
@@ -1458,18 +1444,38 @@ public partial class Form1 : Form
     var formattedMessage = $"[{timestamp}] {message}";
 
     // Add to UI
-    listBoxTagEvents.Items.Add(formattedMessage);
+    listBoxTagEvents.Items.Add(new TagEventItem(formattedMessage, tagId));
 
     // Write to log file
     WriteToLogFile("TAG", message);
 
+    TrimEventList(listBoxTagEvents);
+
     // Auto-scroll to bottom
     listBoxTagEvents.TopIndex = listBoxTagEvents.Items.Count - 1;
+  }
 
-    // Limit items to prevent memory issues
-    while (listBoxTagEvents.Items.Count > 10000)
+  private const int MaxEventListItems = 5000;
+  private const int EventListTrimBlock = 1000;
+
+  /// <summary>
+  /// Drops the oldest block of messages once the cap is reached. Removing one
+  /// item at a time shifted the entire backing array and forced a repaint for
+  /// every subsequent message.
+  /// </summary>
+  private static void TrimEventList(ListBox list)
+  {
+    if (list.Items.Count <= MaxEventListItems) return;
+
+    list.BeginUpdate();
+    try
     {
-      listBoxTagEvents.Items.RemoveAt(0);
+      for (var i = 0; i < EventListTrimBlock; i++)
+        list.Items.RemoveAt(0);
+    }
+    finally
+    {
+      list.EndUpdate();
     }
   }
 
@@ -1490,20 +1496,22 @@ public partial class Form1 : Form
     // Write to log file
     WriteToLogFile("RACE", message);
 
-    // Store in database
+    // Persist off the UI thread; a 45 MB LiteDB file plus engine-lock contention
+    // made this a visible stall at tag-read rate.
     if (currentRaceId != null)
     {
-      _raceDb.AddRaceEvent("SYSTEM", "", message);
+      var toPersist = message;
+      Task.Run(() =>
+      {
+        try { _raceDb.AddRaceEvent("SYSTEM", "", toPersist); }
+        catch (Exception) { /* logging must never take the race down */ }
+      });
     }
+
+    TrimEventList(listBoxMessages);
 
     // Auto-scroll to bottom
     listBoxMessages.TopIndex = listBoxMessages.Items.Count - 1;
-
-    // Limit items to prevent memory issues
-    while (listBoxMessages.Items.Count > 10000)
-    {
-      listBoxMessages.Items.RemoveAt(0);
-    }
   }
 
   private void UpdateConnectionCount()
@@ -1516,7 +1524,7 @@ public partial class Form1 : Form
 
     lock (clientsLock)
     {
-      labelConnections.Text = $"Connections: {connectedClients.Count}";
+      UpdateStatusBar();
     }
   }
 
@@ -1528,12 +1536,8 @@ public partial class Form1 : Form
       return;
     }
 
-    buttonStart.Enabled = !isListening;
-    buttonStop.Enabled = isListening;
-    textBoxPort.Enabled = !isListening;
-
-    labelStatus.Text = isListening ? "Listening" : "Stopped";
-    labelStatus.ForeColor = isListening ? Color.Green : Color.Red;
+    UpdateStatusBar();
+    UpdateCommandStates();
   }
 
   private void buttonShowSummary_Click(object? sender, EventArgs e)
@@ -1543,6 +1547,27 @@ public partial class Form1 : Form
 
   private void buttonClearRiders_Click(object? sender, EventArgs e)
   {
+    int riderCount;
+    int lapCount;
+    lock (ridersLock)
+    {
+      riderCount = riders.Count;
+      lapCount = riders.Values.Sum(r => r.TotalLaps);
+    }
+
+    if (riderCount > 0)
+    {
+      var answer = MessageBox.Show(
+        $"Delete this race?\n\n{riderCount} rider(s) and {lapCount} recorded lap(s) " +
+        "will be permanently deleted. This cannot be undone.",
+        "Delete race",
+        MessageBoxButtons.YesNo,
+        MessageBoxIcon.Warning,
+        MessageBoxDefaultButton.Button2);
+
+      if (answer != DialogResult.Yes) return;
+    }
+
     ClearRiderData();
   }
 
@@ -1564,15 +1589,17 @@ public partial class Form1 : Form
       {
         riderSnapshot = riders
           .Where(kvp => !ignoredTags.Contains(kvp.Key))
-          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+          .ToDictionary(kvp => kvp.Key, kvp => CloneRiderForDisplay(kvp.Value));
         raceStartSnapshot = raceStartTime;
         raceDurationSnapshot = raceDuration;
         raceFinishedSnapshot = raceFinished;
 
-        // Get additional timing information from race state manager
-        additionalLapsSignShown = _raceStateManager.FinalLapsStartTime;
-        raceActuallyEnded = _raceStateManager.RaceEndTime;
-        additionalLapsCount = _raceStateManager.AdditionalLapsAfterTimeExpiry;
+        // Additional timing information. These come straight from Form1's own
+        // fields: raceEndTime is overwritten with the true finish time in
+        // CompletelyFinishRace, and finalLapsStartTime is set in FinishRace.
+        additionalLapsSignShown = finalLapsStartTime;
+        raceActuallyEnded = raceFinished ? raceEndTime : null;
+        additionalLapsCount = additionalLapsAfterTimeExpiry;
 
         // Use actual race end time if available, otherwise use calculated end time
         if (raceActuallyEnded.HasValue)
@@ -1587,13 +1614,14 @@ public partial class Form1 : Form
 
       if (riderSnapshot.Count == 0)
       {
-        MessageBox.Show("No race data available to generate a report.", "No Data",
-          MessageBoxButtons.OK, MessageBoxIcon.Information);
+        MessageBox.Show(this,
+          "There are no laps recorded yet, so there is nothing to report.",
+          "No results yet", MessageBoxButtons.OK, MessageBoxIcon.Information);
         return;
       }
 
       // Show report options dialog
-      using var reportDialog = new ReportOptionsDialog();
+      using var reportDialog = new ReportOptionsDialog(raceName);
       if (reportDialog.ShowDialog() == DialogResult.OK)
       {
         var raceTitle = reportDialog.RaceTitle;
@@ -1622,8 +1650,10 @@ public partial class Form1 : Form
     }
     catch (Exception ex)
     {
-      MessageBox.Show($"Error generating race report: {ex.Message}", "Error",
-        MessageBoxButtons.OK, MessageBoxIcon.Error);
+      ErrorDialog.Show(this,
+        "The results could not be produced.",
+        "Nothing has been lost - the race data is still recorded. Try again, or " +
+        "export to a file instead of printing.", ex);
     }
   }
 
@@ -1639,56 +1669,85 @@ public partial class Form1 : Form
 
         if (openFileDialog.ShowDialog() == DialogResult.OK)
         {
-          int importedCount = 0;
+          ImportResult importResult;
           string fileName = openFileDialog.FileName;
           string extension = Path.GetExtension(fileName).ToLower();
 
           // Import based on file type
           if (extension == ".xlsx" || extension == ".xls")
           {
-            importedCount = _riderDataImporter.ImportFromExcel(fileName);
+            importResult = _riderDataImporter.ImportFromExcelDetailed(fileName);
           }
           else if (extension == ".csv")
           {
-            importedCount = _riderDataImporter.ImportFromCsv(fileName);
+            importResult = _riderDataImporter.ImportFromCsvDetailed(fileName);
           }
           else
           {
-            MessageBox.Show("Unsupported file format. Please select an Excel (.xlsx) or CSV (.csv) file.",
-              "Invalid File Type", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ErrorDialog.Show(this,
+              "That file type can't be read.",
+              "Choose an Excel file (.xlsx) or a CSV file (.csv).");
             return;
           }
+
+          var importedCount = importResult.ImportedCount;
 
           // Update UI to show import status
           if (importedCount > 0)
           {
-            labelImportStatus.Text = $"✓ {importedCount} riders imported";
-            labelImportStatus.ForeColor = Color.DarkGreen;
+            SetStatusNotice(
+              importResult.Skipped.Count > 0 ? NoticeLevel.Warning : NoticeLevel.Info,
+              importResult.Skipped.Count > 0
+                ? $"{importedCount} riders imported, {importResult.Skipped.Count} row(s) skipped"
+                : $"{importedCount} riders imported");
 
             AddMessage($"📋 Imported rider data for {importedCount} riders from {Path.GetFileName(fileName)}");
+
+            // Rows that failed to parse used to disappear into Console.WriteLine,
+            // so a partly-broken roster reported a clean success.
+            if (importResult.Skipped.Count > 0)
+            {
+              foreach (var (row, reason) in importResult.Skipped.Take(20))
+                AddMessage($"⚠️ Row {row} skipped: {reason}");
+
+              ErrorDialog.Show(this,
+                $"{importedCount} riders imported, {importResult.Skipped.Count} row(s) skipped.",
+                "The skipped rows are listed in the Race Events tab. Riders on those " +
+                "rows will show as UNKNOWN when they cross the line.",
+                null);
+            }
 
             // Apply imported data to any existing riders
             ApplyImportedDataToExistingRiders();
 
             // Update class filter options
             PopulateClassFilter();
+
+            RememberRiderList(fileName);
           }
           else
           {
-            labelImportStatus.Text = "⚠ No riders imported";
-            labelImportStatus.ForeColor = Color.Orange;
-            MessageBox.Show("No rider data was imported. Please check the file format and content.",
-              "Import Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            SetStatusNotice(NoticeLevel.Warning, "No riders imported");
+
+            var columns = importResult.DetectedColumns.Count > 0
+              ? string.Join(", ", importResult.DetectedColumns)
+              : "none";
+
+            ErrorDialog.Show(this,
+              "No riders were found in that file.",
+              importResult.HasTagColumn
+                ? $"The file has a transponder column but no usable rows. Columns found: {columns}."
+                : $"The file needs a column called 'tagid'. Columns found: {columns}.");
           }
         }
       }
     }
     catch (Exception ex)
     {
-      labelImportStatus.Text = "✗ Import failed";
-      labelImportStatus.ForeColor = Color.Red;
-      MessageBox.Show($"Error importing rider data: {ex.Message}", "Import Error",
-        MessageBoxButtons.OK, MessageBoxIcon.Error);
+      SetStatusNotice(NoticeLevel.Critical, "Import failed");
+      ErrorDialog.Show(this,
+        "The rider list could not be read.",
+        "Check that the file is not open in another program, then try again.", ex);
     }
   }
 
@@ -1740,8 +1799,8 @@ public partial class Form1 : Form
         AddMessage($"📋 Updated {updatedCount} existing riders with imported data");
 
         // Refresh displays to show updated rider information
-        ridersDisplayNeedsUpdate = true;
-        lapChartNeedsUpdate = true;
+        _refresh.Invalidate(RaceViewKind.Riders);
+        _refresh.Invalidate(RaceViewKind.LapChart);
       }
     }
   }
@@ -1768,16 +1827,31 @@ public partial class Form1 : Form
     {
       AddMessage($"⏰ Race duration set to {minutes} minutes. Will be applied when race starts.");
     }
+  
+    RememberRaceSetup();
   }
 
   private void InitializeRidersDataGrid()
   {
+    // Same trick already used for the lap chart panel: DataGridView exposes
+    // DoubleBuffered only as a protected property.
+    typeof(DataGridView).InvokeMember("DoubleBuffered",
+      BindingFlags.SetProperty | BindingFlags.Instance | BindingFlags.NonPublic,
+      null, dataGridViewRiders, new object[] { true });
+
+    // Virtual mode: the control holds no row data, it asks for what it paints.
+    dataGridViewRiders.VirtualMode = true;
+    dataGridViewRiders.CellValueNeeded += DataGridViewRiders_CellValueNeeded;
+    dataGridViewRiders.CellFormatting += DataGridViewRiders_CellFormatting;
+    dataGridViewRiders.CellToolTipTextNeeded += DataGridViewRiders_CellToolTipTextNeeded;
+
     // Set up the DataGridView columns
     dataGridViewRiders.Columns.Clear();
     dataGridViewRiders.Columns.Add("Position", "Pos");
-    dataGridViewRiders.Columns.Add("ProjectedPosition", "Proj. Pos");
+    dataGridViewRiders.Columns.Add("Status", "Status");
+    dataGridViewRiders.Columns.Add("ProjectedPosition", "If fixed");
     dataGridViewRiders.Columns.Add("RiderNumber", "Number");
-    dataGridViewRiders.Columns.Add("TagID", "Tag ID");
+    dataGridViewRiders.Columns.Add("TagID", "Transponder");
     dataGridViewRiders.Columns.Add("RiderName", "Rider Name");
     dataGridViewRiders.Columns.Add("Team", "Team");
     dataGridViewRiders.Columns.Add("Category", "Class");
@@ -1785,9 +1859,9 @@ public partial class Form1 : Form
     dataGridViewRiders.Columns.Add("LastLap", "Last Lap");
     dataGridViewRiders.Columns.Add("BestLap", "Best Lap");
     dataGridViewRiders.Columns.Add("AvgLap", "Avg Lap");
-    dataGridViewRiders.Columns.Add("PredictedLap", "Predicted");
-    dataGridViewRiders.Columns.Add("NextCrossing", "Next Est.");
-    dataGridViewRiders.Columns.Add("TimeToNext", "Time To Next");
+    dataGridViewRiders.Columns.Add("PredictedLap", "Typical lap");
+    dataGridViewRiders.Columns.Add("NextCrossing", "Next lap at");
+    dataGridViewRiders.Columns.Add("TimeToNext", "Due in");
     dataGridViewRiders.Columns.Add("TotalTime", "Total Time");
     dataGridViewRiders.Columns.Add("Gap", "Gap");
 
@@ -1797,7 +1871,8 @@ public partial class Form1 : Form
       switch (column.Name)
       {
         case "Position": column.Width = 40; break;
-        case "RiderNumber": column.Width = 60; break;
+        case "Status": column.Width = 90; break;
+      case "RiderNumber": column.Width = 60; break;
         case "TagID": column.Width = 200; break; // Increased to accommodate up to 32-character tag IDs
         case "RiderName": column.Width = 150; break;
         case "Team": column.Width = 120; break;
@@ -1817,40 +1892,98 @@ public partial class Form1 : Form
     // Add context menu for tag operations
     var contextMenu = new ContextMenuStrip();
 
-    var addToIgnoreItem = new ToolStripMenuItem("Add Tag to Ignore List")
+    // Deliberately no keyboard shortcut: this was bound to Delete, so resting a
+    // hand on the keyboard with a row selected wiped that rider's race.
+    var fixLapsItem = new ToolStripMenuItem("Fix laps...")
     {
-      ShortcutKeys = Keys.Delete
+      Font = new Font(dataGridViewRiders.Font, FontStyle.Bold)
     };
+    fixLapsItem.Click += (s, e) => OpenLapCorrection(SelectedRiderTag());
+
+    var assignTagItem = new ToolStripMenuItem("Identify this transponder...");
+    assignTagItem.Click += (s, e) => OpenAssignTag(SelectedRiderTag());
+
+    var addToIgnoreItem = new ToolStripMenuItem("Stop counting this rider...");
     addToIgnoreItem.Click += (s, e) => HandleAddTagToIgnoreList();
 
-    var removeFromIgnoreItem = new ToolStripMenuItem("Remove Tag from Ignore List");
+    var removeFromIgnoreItem = new ToolStripMenuItem("Count this rider again");
     removeFromIgnoreItem.Click += (s, e) => HandleRemoveTagFromIgnoreList();
 
-    var showIgnoreListItem = new ToolStripMenuItem("Show Ignore List");
+    var showIgnoreListItem = new ToolStripMenuItem("Show ignored transponders...");
     showIgnoreListItem.Click += (s, e) => ShowIgnoreList();
 
-    var clearIgnoreListItem = new ToolStripMenuItem("Clear Ignore List");
+    var clearIgnoreListItem = new ToolStripMenuItem("Count all ignored transponders again");
     clearIgnoreListItem.Click += (s, e) => ClearIgnoreList();
 
-    var splitLapItem = new ToolStripMenuItem("Split Suggested Lap");
-    splitLapItem.Click += (s, e) => HandleSplitSuggestedLap();
-
-    var dismissSuggestionItem = new ToolStripMenuItem("Dismiss Split Suggestion");
-    dismissSuggestionItem.Click += (s, e) => HandleDismissSplitSuggestion();
+    var undoItem = new ToolStripMenuItem("Undo last change");
+    undoItem.Click += (s, e) => UndoLastCorrection();
 
     contextMenu.Items.AddRange(new ToolStripItem[]
     {
+      fixLapsItem,
+      assignTagItem,
+      undoItem,
+      new ToolStripSeparator(),
       addToIgnoreItem,
       removeFromIgnoreItem,
-      new ToolStripSeparator(),
-      splitLapItem,
-      dismissSuggestionItem,
       new ToolStripSeparator(),
       showIgnoreListItem,
       clearIgnoreListItem
     });
 
+    // Label the items with the rider they will act on, and only enable what
+    // actually applies to the current selection.
+    contextMenu.Opening += (s, e) =>
+    {
+      var tagId = SelectedRiderTag();
+      var hasSelection = !string.IsNullOrEmpty(tagId);
+      var isIgnored = hasSelection && ignoredTags.Contains(tagId!);
+      var who = hasSelection ? GetRiderDisplayText(tagId!) : null;
+
+      fixLapsItem.Enabled = hasSelection;
+      fixLapsItem.Text = who != null ? $"Fix laps for {who}..." : "Fix laps...";
+
+      // Only meaningful while the transponder has no rider attached; when it is
+      // the likely thing to do, make it the default item.
+      var unidentified = hasSelection && who == tagId;
+      assignTagItem.Enabled = unidentified;
+      assignTagItem.Visible = unidentified;
+      if (unidentified)
+        assignTagItem.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+
+      undoItem.Enabled = _corrections.History.CanUndo;
+      undoItem.Text = _corrections.History.CanUndo
+        ? $"Undo: {_corrections.History.NextUndoDescription}"
+        : "Nothing to undo";
+
+      addToIgnoreItem.Enabled = hasSelection && !isIgnored;
+      addToIgnoreItem.Text = who != null ? $"Stop counting {who}..." : "Stop counting this rider...";
+
+      removeFromIgnoreItem.Enabled = hasSelection && isIgnored;
+      removeFromIgnoreItem.Text = who != null ? $"Count {who} again" : "Count this rider again";
+
+      clearIgnoreListItem.Enabled = ignoredTags.Count > 0;
+    };
+
     dataGridViewRiders.ContextMenuStrip = contextMenu;
+
+    // Double-click a rider to fix their laps - the same gesture that used to
+    // pop up an unreadable text dump.
+    dataGridViewRiders.CellDoubleClick += (s, e) =>
+    {
+      if (e.RowIndex >= 0) OpenLapCorrection(SelectedRiderTag());
+    };
+  }
+
+  /// <summary>Reverses the most recent correction. Also bound to Ctrl+Z.</summary>
+  private void UndoLastCorrection()
+  {
+    var result = _corrections.Undo();
+    if (!result.Ok)
+    {
+      MessageBox.Show(this, result.Error, "Nothing to undo",
+        MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
   }
 
   private void InitializeTagEventsContextMenu()
@@ -1886,16 +2019,37 @@ public partial class Form1 : Form
       bool hasSelection = !string.IsNullOrEmpty(tagId);
       bool isIgnored = hasSelection && tagId != null && ignoredTags.Contains(tagId);
 
+      var who = hasSelection ? GetRiderDisplayText(tagId!) : null;
+
       addToIgnoreItem.Enabled = hasSelection && !isIgnored;
-      addToIgnoreItem.Text = hasSelection ? $"Add {tagId} to Ignore List" : "Add Tag to Ignore List";
+      addToIgnoreItem.Text = who != null ? $"Stop counting {who}..." : "Stop counting this rider...";
 
       removeFromIgnoreItem.Enabled = hasSelection && isIgnored;
-      removeFromIgnoreItem.Text = hasSelection ? $"Remove {tagId} from Ignore List" : "Remove Tag from Ignore List";
+      removeFromIgnoreItem.Text = who != null ? $"Count {who} again" : "Count this rider again";
 
       clearIgnoreListItem.Enabled = ignoredTags.Count > 0;
     };
 
     listBoxTagEvents.ContextMenuStrip = contextMenu;
+  }
+
+  private Font? _ridersGridBoldFont;
+
+  /// <summary>
+  /// One bold font shared by every cell that needs it. These used to be
+  /// allocated per cell per refresh and never disposed, so a long race steadily
+  /// consumed the process GDI handle quota.
+  /// </summary>
+  private Font GetRidersGridBoldFont()
+  {
+    var baseFont = dataGridViewRiders.Font;
+    if (_ridersGridBoldFont == null || _ridersGridBoldFont.FontFamily != baseFont.FontFamily ||
+        Math.Abs(_ridersGridBoldFont.Size - baseFont.Size) > 0.01f)
+    {
+      _ridersGridBoldFont?.Dispose();
+      _ridersGridBoldFont = new Font(baseFont, FontStyle.Bold);
+    }
+    return _ridersGridBoldFont;
   }
 
   private void UpdateRidersDisplay()
@@ -1906,19 +2060,20 @@ public partial class Form1 : Form
       return;
     }
 
-    // Only update if we're on the Riders tab to improve performance
-    if (tabControl.SelectedIndex != 2) // Riders tab is index 2
-      return;
-
     // Create snapshot of rider data to avoid holding lock during UI operations
     List<RiderInfo> riderSnapshot;
     DateTime? raceStartSnapshot;
     bool raceFinishedSnapshot;
+    Dictionary<string, int>? projectedPositions;
 
     lock (ridersLock)
     {
       if (riders.Count == 0)
+      {
+        _riderRows = new List<RiderRowData>();
+        dataGridViewRiders.RowCount = 0;
         return;
+      }
 
       // Create deep copies of rider data to avoid references to locked objects
       // Filter out ignored riders and filter by selected class
@@ -1946,18 +2101,30 @@ public partial class Form1 : Form
 
       raceStartSnapshot = raceStartTime;
       raceFinishedSnapshot = raceFinished;
+
+      // Projected standings are only meaningful when something is flagged for a
+      // split, and building them costs a copy of the whole field - so do it once
+      // here rather than once per row.
+      projectedPositions = riders.Values.Any(r => r.Laps.Any(l => l.IsSuggestedForSplit))
+        ? PositionCalculator.CalculateProjectedPositionsWithSplits(riders)
+        : null;
     }
+
+    // Remember the rider the operator had selected, not the row index - the
+    // leaderboard reorders constantly, and following the index would make the
+    // selection jump to whoever happens to be in that position next.
+    var selectedTag = SelectedRiderTag();
+    var firstVisibleRow = dataGridViewRiders.FirstDisplayedScrollingRowIndex;
 
     try
     {
       // Suspend layout to improve performance during bulk updates
       dataGridViewRiders.SuspendLayout();
 
-      // Clear existing rows
-      dataGridViewRiders.Rows.Clear();
-
       // Sort riders: Finishing riders first (by laps desc, then time asc), then DNF riders (by laps desc, then time asc)
       var sortedRiders = PositionCalculator.GetSortedRidersFromSnapshot(riderSnapshot);
+
+      var rows = new List<RiderRowData>(sortedRiders.Count);
 
       // Get leader info for gap calculations
       var leader = sortedRiders.FirstOrDefault();
@@ -1985,14 +2152,9 @@ public partial class Form1 : Form
           gap = "Leader";
         }
 
-        // Calculate average lap time
-        var lapsWithTimes = rider.Laps.Where(l => l.LapTime.HasValue).ToList();
-        var avgLapStr = "N/A";
-        if (lapsWithTimes.Any())
-        {
-          var avgLapTime = lapsWithTimes.Average(l => l.LapTime!.Value.TotalMilliseconds);
-          avgLapStr = TimeSpan.FromMilliseconds(avgLapTime).ToString(@"mm\:ss\.fff");
-        }
+        // Average of the completed laps. RiderInfo.AverageLapTime excludes the
+        // first, which is the run from the race start rather than a lap.
+        var avgLapStr = rider.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
 
         // Predicted lap time
         var predictedLapStr = rider.PredictedLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
@@ -2036,15 +2198,33 @@ public partial class Form1 : Form
         // Add row to grid
         var hasSplitLaps = rider.Laps.Any(l => l.IsSplitLap);
         var hasSuggestedSplits = rider.Laps.Any(l => l.IsSuggestedForSplit);
-        var displayTagID = rider.IsDNF ? $"{rider.TagID} (DNF)" : rider.TagID;
-        if (hasSplitLaps && !rider.IsDNF)
+
+        // Status lives in its own column. It used to be appended to the
+        // transponder cell as " (DNF)" / " *" / " ?" and parsed back off again.
+        var statusText = "";
+        var statusTooltip = "";
+        if (rider.IsDNF)
         {
-          displayTagID = $"{rider.TagID} *"; // Add asterisk to indicate split laps
+          statusText = "DNF";
+          statusTooltip = "Did not finish - timed out after the leader finished";
         }
-        if (hasSuggestedSplits && !rider.IsDNF)
+        else if (hasSuggestedSplits)
         {
-          displayTagID = $"{rider.TagID} ?"; // Add question mark to indicate suggested splits
+          statusText = "CHECK";
+          statusTooltip = "A lap looks long enough to be a missed read. Right-click to review it.";
         }
+        else if (hasSplitLaps)
+        {
+          statusText = "FIXED";
+          statusTooltip = "A missed read was corrected by splitting a lap";
+        }
+        else if (string.IsNullOrEmpty(rider.RiderNumber) && rider.DisplayName == rider.TagID)
+        {
+          statusText = "UNKNOWN";
+          statusTooltip = "This transponder is not in the imported rider list";
+        }
+
+        var displayTagID = rider.TagID;
 
         var riderName = rider.DisplayName != rider.TagID ? rider.DisplayName : "";
         var teamName = rider.Team;
@@ -2052,11 +2232,10 @@ public partial class Form1 : Form
 
         // Calculate projected position if splits were applied
         string projectedPositionStr = "";
-        if (hasSuggestedSplits)
+        if (hasSuggestedSplits && projectedPositions != null)
         {
-          lock (ridersLock)
           {
-            var projectedPosition = PositionCalculator.CalculateProjectedPositionWithSplits(rider.TagID, riders);
+            var projectedPosition = projectedPositions.TryGetValue(rider.TagID, out var p) ? p : i + 1;
             var currentPosition = i + 1;
 
             if (projectedPosition != currentPosition)
@@ -2082,81 +2261,60 @@ public partial class Form1 : Form
           projectedPositionStr = ""; // No suggestions
         }
 
-        dataGridViewRiders.Rows.Add(
-          (i + 1).ToString(),  // Position
-          projectedPositionStr, // Projected Position
-          string.IsNullOrEmpty(rider.RiderNumber) ? "" : rider.RiderNumber,  // Rider Number
-          displayTagID,        // Tag ID
-          riderName,          // Rider Name
-          teamName,           // Team
-          categoryName,       // Category/Class
-          rider.TotalLaps.ToString(),
-          rider.LastLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
-          rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
-          avgLapStr,
-          predictedLapStr,
-          nextCrossingStr,
-          timeToNextStr,
-          rider.TotalTime.ToString(@"mm\:ss\.fff"),
-          gap
-        );
+        // Build the row rather than writing it into the grid. The control is
+        // in virtual mode and will ask for whatever it needs to paint.
+        var cells = new string[RiderRowData.ColumnCount];
+        cells[RiderRowData.ColPosition] = (i + 1).ToString();
+        cells[RiderRowData.ColStatus] = statusText;
+        cells[RiderRowData.ColProjectedPosition] = projectedPositionStr;
+        cells[RiderRowData.ColRiderNumber] = rider.RiderNumber;
+        cells[RiderRowData.ColTagID] = displayTagID;
+        cells[RiderRowData.ColRiderName] = riderName;
+        cells[RiderRowData.ColTeam] = teamName;
+        cells[RiderRowData.ColCategory] = categoryName;
+        cells[RiderRowData.ColLaps] = rider.TotalLaps.ToString();
+        cells[RiderRowData.ColLastLap] = rider.LastLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+        cells[RiderRowData.ColBestLap] = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+        cells[RiderRowData.ColAvgLap] = avgLapStr;
+        cells[RiderRowData.ColPredictedLap] = predictedLapStr;
+        cells[RiderRowData.ColNextCrossing] = nextCrossingStr;
+        cells[RiderRowData.ColTimeToNext] = timeToNextStr;
+        cells[RiderRowData.ColTotalTime] = rider.TotalTime.ToString(@"mm\:ss\.fff");
+        cells[RiderRowData.ColGap] = gap;
 
-        // Color coding for positions and status
-        var row = dataGridViewRiders.Rows[dataGridViewRiders.Rows.Count - 1];
-
+        var rowBack = Color.Empty;
+        var rowFore = Color.Empty;
         if (rider.IsDNF)
         {
-          // DNF riders get a gray background
-          row.DefaultCellStyle.BackColor = Color.LightGray;
-          row.DefaultCellStyle.ForeColor = Color.DarkRed;
-          row.Cells["NextCrossing"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
-          row.Cells["TimeToNext"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
+          rowBack = Color.LightGray;
+          rowFore = Color.DarkRed;
         }
-        else if (i == 0)
-          row.DefaultCellStyle.BackColor = Color.Gold;  // 1st place
-        else if (i == 1)
-          row.DefaultCellStyle.BackColor = Color.Silver;  // 2nd place
-        else if (i == 2)
-          row.DefaultCellStyle.BackColor = Color.FromArgb(205, 127, 50);  // 3rd place (bronze)
+        else if (i == 0) rowBack = Color.Gold;
+        else if (i == 1) rowBack = Color.Silver;
+        else if (i == 2) rowBack = Color.FromArgb(205, 127, 50);
 
-        // Mark riders with split laps
-        if (hasSplitLaps && !rider.IsDNF)
+        rows.Add(new RiderRowData
         {
-          row.Cells["TagID"].Style.ForeColor = Color.Red;
-          row.Cells["TagID"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
-        }
-
-        // Mark riders with suggested splits
-        if (hasSuggestedSplits && !rider.IsDNF)
-        {
-          row.Cells["TagID"].Style.ForeColor = Color.Orange;
-          row.Cells["TagID"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
-
-          // Color code projected position based on improvement/decline
-          if (!string.IsNullOrEmpty(projectedPositionStr) && projectedPositionStr != "Same")
-          {
-            if (projectedPositionStr.Contains("(+"))
-            {
-              // Position would improve (e.g., "3 (+2)" means moving from 5th to 3rd)
-              row.Cells["ProjectedPosition"].Style.ForeColor = Color.Green;
-              row.Cells["ProjectedPosition"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
-            }
-            else if (projectedPositionStr.Contains("(-"))
-            {
-              // Position would decline (e.g., "7 (-2)" means moving from 5th to 7th)
-              row.Cells["ProjectedPosition"].Style.ForeColor = Color.Red;
-              row.Cells["ProjectedPosition"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
-            }
-          }
-        }
-
-        // Highlight overdue riders (but not if they're already DNF)
-        if (timeToNextStr == "Overdue" && !rider.IsDNF)
-        {
-          row.Cells["TimeToNext"].Style.ForeColor = Color.Red;
-          row.Cells["TimeToNext"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
-        }
+          TagID = rider.TagID,
+          Cells = cells,
+          StatusText = statusText,
+          StatusTooltip = statusTooltip,
+          RowBackColor = rowBack,
+          RowForeColor = rowFore,
+          IsDnf = rider.IsDNF,
+          IsOverdue = timeToNextStr == "Overdue" && !rider.IsDNF,
+          ProjectedImproves = hasSuggestedSplits && !rider.IsDNF && projectedPositionStr.Contains("(+"),
+          ProjectedDeclines = hasSuggestedSplits && !rider.IsDNF && projectedPositionStr.Contains("(-")
+        });
       }
+      _riderRows = rows;
+
+      // Virtual mode: setting RowCount is all the control needs. It will ask for
+      // the fifteen or so rows actually on screen, whatever the field size.
+      if (dataGridViewRiders.RowCount != rows.Count)
+        dataGridViewRiders.RowCount = rows.Count;
+
+      dataGridViewRiders.Invalidate();
     }
     catch (Exception ex)
     {
@@ -2168,6 +2326,97 @@ public partial class Form1 : Form
       // Always resume layout
       dataGridViewRiders.ResumeLayout();
     }
+
+    RestoreRidersGridView(selectedTag, firstVisibleRow);
+  }
+
+  private List<RiderRowData> _riderRows = new();
+
+  /// <summary>
+  /// Supplies cell text on demand. In virtual mode the grid only asks about the
+  /// rows it is actually painting, so a 250-rider field costs the same as a
+  /// 20-rider one - writing every row into the control took close to a second at
+  /// that size, which made the grid feel sluggish and jump under the operator.
+  /// </summary>
+  private void DataGridViewRiders_CellValueNeeded(object? sender, DataGridViewCellValueEventArgs e)
+  {
+    if (e.RowIndex < 0 || e.RowIndex >= _riderRows.Count) return;
+
+    var row = _riderRows[e.RowIndex];
+    e.Value = e.ColumnIndex >= 0 && e.ColumnIndex < row.Cells.Length
+      ? row.Cells[e.ColumnIndex] ?? ""
+      : "";
+  }
+
+  /// <summary>Colours the visible cells. Same rules as before, applied at paint time.</summary>
+  private void DataGridViewRiders_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+  {
+    if (e.RowIndex < 0 || e.RowIndex >= _riderRows.Count) return;
+
+    var row = _riderRows[e.RowIndex];
+
+    if (!row.RowBackColor.IsEmpty) e.CellStyle.BackColor = row.RowBackColor;
+    if (!row.RowForeColor.IsEmpty) e.CellStyle.ForeColor = row.RowForeColor;
+
+    switch (e.ColumnIndex)
+    {
+      case RiderRowData.ColStatus when row.StatusText.Length > 0:
+        e.CellStyle.ForeColor = row.StatusText switch
+        {
+          "CHECK" => Color.DarkOrange,
+          "FIXED" => Color.Red,
+          "UNKNOWN" => Color.DarkOrange,
+          _ => Color.DarkRed
+        };
+        e.CellStyle.Font = GetRidersGridBoldFont();
+        break;
+
+      case RiderRowData.ColProjectedPosition when row.ProjectedImproves:
+        e.CellStyle.ForeColor = Color.Green;
+        e.CellStyle.Font = GetRidersGridBoldFont();
+        break;
+
+      case RiderRowData.ColProjectedPosition when row.ProjectedDeclines:
+        e.CellStyle.ForeColor = Color.Red;
+        e.CellStyle.Font = GetRidersGridBoldFont();
+        break;
+
+      case RiderRowData.ColTimeToNext when row.IsOverdue:
+        e.CellStyle.ForeColor = Color.Red;
+        e.CellStyle.Font = GetRidersGridBoldFont();
+        break;
+
+      case RiderRowData.ColNextCrossing when row.IsDnf:
+      case RiderRowData.ColTimeToNext when row.IsDnf:
+        e.CellStyle.Font = GetRidersGridBoldFont();
+        break;
+    }
+  }
+
+  /// <summary>Explains the Status column on hover, for the visible cell only.</summary>
+  private void DataGridViewRiders_CellToolTipTextNeeded(object? sender, DataGridViewCellToolTipTextNeededEventArgs e)
+  {
+    if (e.RowIndex < 0 || e.RowIndex >= _riderRows.Count) return;
+    if (e.ColumnIndex == RiderRowData.ColStatus)
+      e.ToolTipText = _riderRows[e.RowIndex].StatusTooltip;
+  }
+
+  /// <summary>
+  /// Puts the operator back where they were: on the same rider, at the same
+  /// scroll offset - even though that rider may have changed position.
+  /// </summary>
+  private void RestoreRidersGridView(string? selectedTag, int firstVisibleRow)
+  {
+    if (selectedTag != null)
+    {
+      var index = _riderRows.FindIndex(r => r.TagID == selectedTag);
+      if (index >= 0 && index < dataGridViewRiders.RowCount)
+        dataGridViewRiders.CurrentCell = dataGridViewRiders.Rows[index].Cells[0];
+    }
+
+    // After CurrentCell, which scrolls the selection into view on its own.
+    if (firstVisibleRow >= 0 && firstVisibleRow < dataGridViewRiders.RowCount)
+      dataGridViewRiders.FirstDisplayedScrollingRowIndex = firstVisibleRow;
   }
 
   private void UpdateStatisticsDisplay()
@@ -2205,10 +2454,12 @@ public partial class Form1 : Form
       lastTagTimeSnapshot = lastTagTime;
       raceFinishedSnapshot = raceFinished;
 
-      // Get additional timing information from race state manager
-      additionalLapsSignShown = _raceStateManager.FinalLapsStartTime;
-      raceActuallyEnded = _raceStateManager.RaceEndTime;
-      additionalLapsCount = _raceStateManager.AdditionalLapsAfterTimeExpiry;
+      // Additional timing information. These come straight from Form1's own
+      // fields: raceEndTime is overwritten with the true finish time in
+      // CompletelyFinishRace, and finalLapsStartTime is set in FinishRace.
+      additionalLapsSignShown = finalLapsStartTime;
+      raceActuallyEnded = raceFinished ? raceEndTime : null;
+      additionalLapsCount = additionalLapsAfterTimeExpiry;
     }
 
     // Update race time - stop updating when race is finished
@@ -2249,16 +2500,15 @@ public partial class Form1 : Form
     if (lastTagSnapshot != "None" && lastTagTimeSnapshot != DateTime.MinValue)
     {
       var timeSince = DateTime.Now - lastTagTimeSnapshot;
-      labelLastTag.Text = $"Last Tag: {lastTagSnapshot} ({timeSince.TotalSeconds:F0}s ago)";
+      labelLastTag.Text = $"Last read: {GetRiderDisplayText(lastTagSnapshot)}, {timeSince.TotalSeconds:F0}s ago";
     }
     else
     {
-      labelLastTag.Text = "Last Tag: None";
+      labelLastTag.Text = "Last read: none yet";
     }
 
-    // Show next expected crossing (only if on Race Statistics tab)
-    if (tabControl.SelectedIndex == 3) // Race Statistics tab
-    {      // Show additional timing information for race progression or next expected crossing
+    {
+      // Show additional timing information for race progression or next expected crossing
       if (additionalLapsSignShown.HasValue && raceStartSnapshot.HasValue)
       {
         var raceTimeWhenSignShown = additionalLapsSignShown.Value - raceStartSnapshot.Value;
@@ -2293,17 +2543,6 @@ public partial class Form1 : Form
             labelTimeRemaining.Text = $"Time Remaining: {timeRemaining:mm\\:ss}";
             labelTimeRemaining.ForeColor = timeRemaining.TotalMinutes <= 5 ? Color.Red : Color.DarkRed;
 
-            // Show warnings as race nears end
-            if (timeRemaining.TotalMinutes <= 5 && timeRemaining.TotalMinutes > 1 && !fiveMinuteWarningShown)
-            {
-              AddMessage("⚠️ 5 MINUTES REMAINING!");
-              fiveMinuteWarningShown = true;
-            }
-            else if (timeRemaining.TotalMinutes <= 1 && !oneMinuteWarningShown)
-            {
-              AddMessage("⚠️ 1 MINUTE REMAINING!");
-              oneMinuteWarningShown = true;
-            }
           }
           else
           {
@@ -2354,6 +2593,40 @@ public partial class Form1 : Form
       }
     }
   }
+  /// <summary>
+  /// Fires the countdown warnings. Driven purely by the clock and deliberately
+  /// independent of which tab is on screen: these used to live inside the
+  /// Race Statistics paint path, so a warning was missed entirely unless the
+  /// operator happened to be looking at that tab as the clock crossed.
+  /// </summary>
+  private static readonly TimeSpan OneMinute = TimeSpan.FromMinutes(1);
+  private static readonly TimeSpan FiveMinutes = TimeSpan.FromMinutes(5);
+
+  private void CheckRaceClockMilestones()
+  {
+    if (!raceStarted || raceFinished || !raceEndTime.HasValue) return;
+
+    var timeRemaining = GetTimeRemaining();
+    if (timeRemaining <= TimeSpan.Zero) return;
+
+    if (RaceClockMilestones.ShouldAnnounce(
+          timeRemaining, raceDuration, OneMinute, oneMinuteWarningShown))
+    {
+      AddMessage("⚠️ 1 MINUTE REMAINING!");
+      RaiseNotice(NoticeLevel.Critical, "1 minute left");
+      oneMinuteWarningShown = true;
+      return;
+    }
+
+    if (RaceClockMilestones.ShouldAnnounce(
+          timeRemaining, raceDuration, FiveMinutes, fiveMinuteWarningShown))
+    {
+      AddMessage("⚠️ 5 MINUTES REMAINING!");
+      RaiseNotice(NoticeLevel.Warning, "5 minutes left");
+      fiveMinuteWarningShown = true;
+    }
+  }
+
   private void ShowNextExpectedCrossing()
   {
     // Create snapshot to avoid nested locking
@@ -2466,65 +2739,16 @@ public partial class Form1 : Form
     return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
   }
 
+  /// <summary>
+  /// Race-logic heartbeat. All view repainting is driven by
+  /// <see cref="UiRefreshCoordinator"/>; only work that must happen regardless
+  /// of which tab is on screen belongs here.
+  /// </summary>
   private void timerUpdate_Tick(object? sender, EventArgs e)
   {
-    UpdateStatisticsDisplay();
-
-    // Update riders display if needed - always update immediately to avoid empty table
-    if (ridersDisplayNeedsUpdate)
-    {
-      ridersDisplayNeedsUpdate = false;
-      UpdateRidersDisplay();
-    }
-    else if (tabControl.SelectedIndex == 2) // If on Riders tab, update predictions periodically
-    {
-      // Update only the time-sensitive columns to keep predictions current (but not if race is finished)
-      if (!raceFinished)
-      {
-        UpdateRiderPredictions();
-      }
-    }
-
-    // Update lap chart if needed or every 5 seconds to keep progress line current
-    if (lapChartNeedsUpdate)
-    {
-      lapChartNeedsUpdate = false;
-      if (tabControl.SelectedIndex == 4) // Only update if on Lap Chart tab
-      {
-        panelLapChart.Invalidate();
-        lastProgressLineUpdate = DateTime.Now;
-      }
-    }
-    else if (tabControl.SelectedIndex == 4) // If on Lap Chart tab, refresh every 5 seconds
-    {
-      var timeSinceLastUpdate = DateTime.Now - lastProgressLineUpdate;
-      if (timeSinceLastUpdate.TotalSeconds >= 5)
-      {
-        panelLapChart.Invalidate(); // Refresh to update progress line position
-        lastProgressLineUpdate = DateTime.Now;
-      }
-    }
-
-    // Update lap progression display if needed - be more aggressive about updates
-    if (lapProgressionNeedsUpdate)
-    {
-      lapProgressionNeedsUpdate = false;
-
-      // Create snapshot for lap progression update
-      List<RiderInfo> riderSnapshot;
-      bool raceFinishedSnapshot;
-      bool waitingForFinalLapsSnapshot;
-
-      lock (ridersLock)
-      {
-        riderSnapshot = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
-        raceFinishedSnapshot = raceFinished;
-        waitingForFinalLapsSnapshot = waitingForFinalLaps;
-      }
-
-      // Update regardless of which tab is active - the manager will handle efficiency
-      _lapProgressionManager.UpdateLapProgressionDisplay(riderSnapshot, raceFinishedSnapshot, waitingForFinalLapsSnapshot, this);
-    }
+    CheckRaceClockMilestones();
+    CheckReaderHealth();
+    UpdateStatusBar();
 
     // Check for DNF timeouts if we're in final laps phase
     if (waitingForFinalLaps)
@@ -2545,8 +2769,7 @@ public partial class Form1 : Form
     if (raceFinished)
       return;
 
-    // Only update if we're on the Riders tab and have data
-    if (tabControl.SelectedIndex != 2 || dataGridViewRiders.Rows.Count == 0)
+    if (_riderRows.Count == 0)
       return;
 
     // Create snapshot of data to avoid holding lock during UI updates
@@ -2561,14 +2784,18 @@ public partial class Form1 : Form
 
     try
     {
-      var sortedRiders = PositionCalculator.GetSortedRidersFromSnapshot(riderSnapshot);
+      // Only the two countdown columns move between crossings. Update them in
+      // the backing rows and repaint - in virtual mode there are no cells to write.
+      var byTag = new Dictionary<string, RiderInfo>(riderSnapshot.Count);
+      foreach (var r in riderSnapshot) byTag[r.TagID] = r;
 
-      for (int i = 0; i < Math.Min(sortedRiders.Count, dataGridViewRiders.Rows.Count); i++)
+      var changed = false;
+
+      for (var i = 0; i < _riderRows.Count; i++)
       {
-        var rider = sortedRiders[i];
-        var row = dataGridViewRiders.Rows[i];
+        var row = _riderRows[i];
+        if (!byTag.TryGetValue(row.TagID, out var rider)) continue;
 
-        // Update next crossing prediction
         var nextCrossingStr = "N/A";
         var timeToNextStr = "N/A";
 
@@ -2590,10 +2817,9 @@ public partial class Form1 : Form
           var timeToNext = nextTime - DateTime.Now;
           if (timeToNext > TimeSpan.Zero)
           {
-            if (timeToNext.TotalMinutes < 1)
-              timeToNextStr = $"{timeToNext.TotalSeconds:F0}s";
-            else
-              timeToNextStr = $"{timeToNext:mm\\:ss}";
+            timeToNextStr = timeToNext.TotalMinutes < 1
+              ? $"{timeToNext.TotalSeconds:F0}s"
+              : $"{timeToNext:mm\\:ss}";
           }
           else
           {
@@ -2601,21 +2827,20 @@ public partial class Form1 : Form
           }
         }
 
-        // Update the cells
-        row.Cells["NextCrossing"].Value = nextCrossingStr;
-        row.Cells["TimeToNext"].Value = timeToNextStr;
+        if (row.Cells[RiderRowData.ColNextCrossing] != nextCrossingStr ||
+            row.Cells[RiderRowData.ColTimeToNext] != timeToNextStr)
+        {
+          row.Cells[RiderRowData.ColNextCrossing] = nextCrossingStr;
+          row.Cells[RiderRowData.ColTimeToNext] = timeToNextStr;
+          changed = true;
+        }
+      }
 
-        // Update styling for overdue riders (but not DNF or finished race)
-        if (timeToNextStr == "Overdue" && !rider.IsDNF && !raceFinishedSnapshot)
-        {
-          row.Cells["TimeToNext"].Style.ForeColor = Color.Red;
-          row.Cells["TimeToNext"].Style.Font = new Font(dataGridViewRiders.Font, FontStyle.Bold);
-        }
-        else
-        {
-          row.Cells["TimeToNext"].Style.ForeColor = dataGridViewRiders.DefaultCellStyle.ForeColor;
-          row.Cells["TimeToNext"].Style.Font = dataGridViewRiders.Font;
-        }
+      // Repaint just the two columns that moved, and only where they are visible.
+      if (changed)
+      {
+        dataGridViewRiders.InvalidateColumn(RiderRowData.ColNextCrossing);
+        dataGridViewRiders.InvalidateColumn(RiderRowData.ColTimeToNext);
       }
     }
     catch (Exception ex)
@@ -2697,11 +2922,15 @@ public partial class Form1 : Form
 
   private void ComboBoxClassFilter_SelectedIndexChanged(object? sender, EventArgs e)
   {
-    if (comboBoxClassFilter.SelectedItem != null)
-    {
-      selectedClassFilter = comboBoxClassFilter.SelectedItem.ToString() ?? "All Classes";
-      UpdateRidersDisplay(); // Refresh the display with the new filter
-    }
+    if (comboBoxClassFilter.SelectedItem == null) return;
+
+    selectedClassFilter = comboBoxClassFilter.SelectedItem.ToString() ?? "All Classes";
+
+    // PopulateClassFilter runs from the constructor and sets SelectedItem, which
+    // fires this handler before Form1_Load has built the refresh coordinator.
+    // There is nothing to repaint that early - the first render comes from
+    // InitializeRefreshCoordinator.
+    _refresh?.RenderNow(RaceViewKind.Riders);
   }
 
   private void PopulateClassFilter()
@@ -2793,69 +3022,89 @@ public partial class Form1 : Form
   #region Tag Ignore List Management
 
   /// <summary>
-  /// Adds a tag to the ignore list and removes any existing rider data
+  /// Stops counting a transponder.
+  ///
+  /// This used to delete the rider and every recorded lap outright, from memory
+  /// and from the database, with no confirmation and no way back - and it was
+  /// bound to the Delete key. Ignoring now defaults to affecting future reads
+  /// only; discarding the laps already recorded is a separate, explicit choice.
   /// </summary>
   private void AddTagToIgnoreList(string tagID)
   {
     if (string.IsNullOrWhiteSpace(tagID))
       return;
 
-    if (ignoredTags.Add(tagID))
+    if (ignoredTags.Contains(tagID))
     {
-      AddMessage($"⛔ Added tag '{tagID}' to ignore list. Total ignored tags: {ignoredTags.Count}");
+      AddMessage($"⚠️ {GetRiderDisplayText(tagID)} is already being ignored.");
+      return;
+    }
 
-      // Remove any existing rider data for this tag
-      bool hadExistingData = false;
-      lock (ridersLock)
+    // Snapshot what is at stake before asking, and hold no lock across the dialog.
+    int recordedLaps;
+    bool hasExistingData;
+    lock (ridersLock)
+    {
+      hasExistingData = riders.TryGetValue(tagID, out var existing);
+      recordedLaps = hasExistingData ? existing!.TotalLaps : 0;
+    }
+
+    var discardRecordedLaps = false;
+
+    if (hasExistingData && recordedLaps > 0)
+    {
+      var answer = MessageBox.Show(
+        $"Stop counting {GetRiderDisplayText(tagID)}?\n\n" +
+        $"Yes - ignore future reads and delete the {recordedLaps} lap(s) already recorded.\n" +
+        "No - ignore future reads but keep the laps already recorded.\n" +
+        "Cancel - do nothing.",
+        "Ignore transponder",
+        MessageBoxButtons.YesNoCancel,
+        MessageBoxIcon.Warning,
+        MessageBoxDefaultButton.Button2);
+
+      if (answer == DialogResult.Cancel) return;
+      discardRecordedLaps = answer == DialogResult.Yes;
+    }
+
+    if (!ignoredTags.Add(tagID))
+      return;
+
+    AddMessage($"⛔ Now ignoring {GetRiderDisplayText(tagID)}. Ignored transponders: {ignoredTags.Count}");
+
+    if (!discardRecordedLaps)
+    {
+      // Laps stay on record; the rider simply drops out of the standings.
+      _refresh.Invalidate(RaceViewKind.All);
+      return;
+    }
+
+    lock (ridersLock)
+    {
+      if (riders.Remove(tagID))
       {
-        if (riders.ContainsKey(tagID))
-        {
-          var rider = riders[tagID];
-          hadExistingData = true;
-
-          // Remove from riders dictionary
-          riders.Remove(tagID);
-
-          // Remove from position tracking
-          lastKnownPositions.Remove(tagID);
-          lastKnownLapCounts.Remove(tagID);
-
-          AddMessage($"🗑️ Removed existing race data for ignored tag '{tagID}' ({rider.TotalLaps} laps)");
-
-          // Mark displays for update
-          ridersDisplayNeedsUpdate = true;
-          lapChartNeedsUpdate = true;
-          lapProgressionNeedsUpdate = true;
-        }
-      }
-
-      // Remove from database if exists
-      if (hadExistingData && currentRaceId.HasValue)
-      {
-        Task.Run(() =>
-        {
-          // Delete all laps for this rider
-          var riderLaps = _raceDb.GetRiderLaps(tagID);
-          foreach (var lap in riderLaps)
-          {
-            _raceDb.DeleteLap(tagID, lap.LapNumber);
-          }
-
-          // Remove rider from database by trying to get all riders and filtering out this one
-          // Since there's no direct DeleteRider method, we rely on the rider being excluded from future queries
-          AddMessage($"🗄️ Removed all lap data for tag '{tagID}' from database");
-        });
-      }
-
-      // Update displays if user is viewing them
-      if (tabControl.SelectedIndex == 2) // Riders tab
-      {
-        BeginInvoke(new Action(UpdateRidersDisplay));
+        lastKnownPositions.Remove(tagID);
+        lastKnownLapCounts.Remove(tagID);
+        AddMessage($"🗑️ Deleted {recordedLaps} recorded lap(s) for the ignored transponder.");
       }
     }
-    else
+
+    _refresh.Invalidate(RaceViewKind.All);
+
+    if (currentRaceId.HasValue)
     {
-      AddMessage($"⚠️ Tag '{tagID}' is already in the ignore list.");
+      Task.Run(() =>
+      {
+        try
+        {
+          foreach (var lap in _raceDb.GetRiderLaps(tagID))
+            _raceDb.DeleteLap(tagID, lap.LapNumber);
+        }
+        catch (Exception ex)
+        {
+          AddDiagnostic($"Could not delete stored laps for {tagID}: {ex.Message}");
+        }
+      });
     }
   }
 
@@ -2914,8 +3163,7 @@ public partial class Form1 : Form
   {
     if (dataGridViewRiders.SelectedRows.Count > 0)
     {
-      var selectedRow = dataGridViewRiders.SelectedRows[0];
-      var tagID = selectedRow.Cells["TagID"].Value?.ToString();
+      var tagID = SelectedRiderTag();
 
       if (!string.IsNullOrEmpty(tagID))
       {
@@ -2949,8 +3197,7 @@ public partial class Form1 : Form
   {
     if (dataGridViewRiders.SelectedRows.Count > 0)
     {
-      var selectedRow = dataGridViewRiders.SelectedRows[0];
-      var tagID = selectedRow.Cells["TagID"].Value?.ToString();
+      var tagID = SelectedRiderTag();
 
       if (!string.IsNullOrEmpty(tagID))
       {
@@ -3010,150 +3257,20 @@ public partial class Form1 : Form
   }
 
   /// <summary>
-  /// Extracts the tag ID from the currently selected item in the tag events list
+  /// The transponder of the currently selected rider row, taken from the row's
+  /// Tag. Cell text carries status decorations and must never be parsed back.
+  /// </summary>
+  private string? SelectedRiderTag()
+  {
+    var index = dataGridViewRiders.CurrentRow?.Index ?? -1;
+    return index >= 0 && index < _riderRows.Count ? _riderRows[index].TagID : null;
+  }
+
+  /// <summary>
+  /// The transponder referred to by the selected Tag Events line, if any.
   /// </summary>
   private string? ExtractTagFromSelectedEvent()
-  {
-    if (listBoxTagEvents.SelectedItem == null)
-      return null;
-
-    string eventText = listBoxTagEvents.SelectedItem.ToString() ?? "";
-
-    // Tag events format: "HH:mm:ss.fff - Tag: TAGID (status message)"
-    // Extract the tag ID between "Tag: " and " ("
-    int tagStart = eventText.IndexOf("Tag: ");
-    if (tagStart == -1) return null;
-
-    tagStart += 5; // Skip "Tag: "
-    int tagEnd = eventText.IndexOf(" (", tagStart);
-    if (tagEnd == -1) tagEnd = eventText.Length;
-
-    string tagId = eventText.Substring(tagStart, tagEnd - tagStart).Trim();
-    return string.IsNullOrEmpty(tagId) ? null : tagId;
-  }
-
-  private void HandleSplitSuggestedLap()
-  {
-    if (dataGridViewRiders.SelectedRows.Count > 0)
-    {
-      var selectedRow = dataGridViewRiders.SelectedRows[0];
-      var tagID = selectedRow.Cells["TagID"].Value?.ToString();
-
-      if (!string.IsNullOrEmpty(tagID))
-      {
-        // Remove the extra markers (*, ?, (DNF)) from tagID
-        tagID = tagID.Replace(" *", "").Replace(" ?", "").Replace(" (DNF)", "");
-
-        lock (ridersLock)
-        {
-          if (riders.TryGetValue(tagID, out var rider))
-          {
-            var suggestedLap = rider.Laps.FirstOrDefault(l => l.IsSuggestedForSplit);
-            if (suggestedLap != null)
-            {
-              var riderDisplay = GetRiderDisplayText(rider);
-
-              // Calculate current and projected positions
-              var currentPosition = PositionCalculator.CalculateCurrentPosition(tagID, riders);
-              var projectedPosition = PositionCalculator.CalculateProjectedPositionWithSplits(tagID, riders);
-
-              string positionInfo = "";
-              if (projectedPosition != currentPosition)
-              {
-                var change = currentPosition - projectedPosition;
-                if (change > 0)
-                {
-                  positionInfo = $"\n\nPosition Impact: {currentPosition} → {projectedPosition} (improve by {change} position{(change > 1 ? "s" : "")})";
-                }
-                else
-                {
-                  positionInfo = $"\n\nPosition Impact: {currentPosition} → {projectedPosition} (drop by {Math.Abs(change)} position{(Math.Abs(change) > 1 ? "s" : "")})";
-                }
-              }
-              else
-              {
-                positionInfo = $"\n\nPosition Impact: No change (would remain at position {currentPosition})";
-              }
-
-              var result = MessageBox.Show(
-                $"Split lap {suggestedLap.LapNumber} for {riderDisplay}?\n\n" +
-                $"Original lap time: {suggestedLap.LapTime?.TotalSeconds:F1}s\n" +
-                $"Will be split into: {suggestedLap.SuggestedSplitCount} laps of {suggestedLap.SuggestedSplitLapTime?.TotalSeconds:F1}s each" +
-                positionInfo,
-                "Confirm Lap Split",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-
-              if (result == DialogResult.Yes)
-              {
-                PerformLapSplit(tagID, suggestedLap.LapNumber);
-              }
-            }
-            else
-            {
-              MessageBox.Show("No suggested splits found for this rider.", "No Suggestions",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-          }
-        }
-      }
-    }
-  }
-  private void HandleDismissSplitSuggestion()
-  {
-    if (dataGridViewRiders.SelectedRows.Count > 0)
-    {
-      var selectedRow = dataGridViewRiders.SelectedRows[0];
-      var tagID = selectedRow.Cells["TagID"].Value?.ToString();
-
-      if (!string.IsNullOrEmpty(tagID))
-      {
-        // Remove the extra markers (*, ?, (DNF)) from tagID
-        tagID = tagID.Replace(" *", "").Replace(" ?", "").Replace(" (DNF)", "");
-
-        lock (ridersLock)
-        {
-          if (riders.TryGetValue(tagID, out var rider))
-          {
-            var suggestedLap = rider.Laps.FirstOrDefault(l => l.IsSuggestedForSplit);
-            if (suggestedLap != null)
-            {
-              var riderDisplay = GetRiderDisplayText(rider);
-              var result = MessageBox.Show(
-                $"Dismiss split suggestion for lap {suggestedLap.LapNumber} for {riderDisplay}?\n\n" +
-                $"The lap will remain as a single {suggestedLap.LapTime?.TotalSeconds:F1}s lap.",
-                "Dismiss Split Suggestion",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-
-              if (result == DialogResult.Yes)
-              {
-                suggestedLap.IsSuggestedForSplit = false;
-                suggestedLap.SuggestedSplitCount = 0;
-                suggestedLap.SuggestedSplitLapTime = null;
-
-                // Update displays
-                ridersDisplayNeedsUpdate = true;
-
-                AddMessage($"❌ SPLIT SUGGESTION DISMISSED: {riderDisplay} - Lap {suggestedLap.LapNumber} will remain as single lap");
-
-                // Refresh display if on riders tab
-                if (tabControl.SelectedIndex == 2)
-                {
-                  BeginInvoke(new Action(UpdateRidersDisplay));
-                }
-              }
-            }
-            else
-            {
-              MessageBox.Show("No suggested splits found for this rider.", "No Suggestions",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-          }
-        }
-      }
-    }
-  }
+    => (listBoxTagEvents.SelectedItem as TagEventItem)?.TagId;
 
   #endregion
 
@@ -3162,7 +3279,10 @@ public partial class Form1 : Form
     try
     {
       // Delegate to the lap chart renderer using the actual race state from Form1
-      _lapChartRenderer.DrawLapChart(e.Graphics, panelLapChart.ClientRectangle, riders,
+      // _lapChartSnapshot is a private copy taken under ridersLock by
+      // RefreshLapChart. Painting straight from `riders` raced with the network
+      // thread and threw "Collection was modified" mid-draw.
+      _lapChartRenderer.DrawLapChart(e.Graphics, panelLapChart.ClientRectangle, _lapChartSnapshot,
         raceStartTime, raceEndTime, raceDuration, panelLapChart);
     }
     catch (Exception ex)
@@ -3185,7 +3305,7 @@ public partial class Form1 : Form
     if (e.Button == MouseButtons.Left)
     {
       // Delegate to the lap chart renderer for left clicks
-      _lapChartRenderer.HandleMouseClick(adjustedLocation, ShowRiderDetails, () => panelLapChart.Invalidate());
+      _lapChartRenderer.HandleMouseClick(adjustedLocation, OpenLapCorrection, () => panelLapChart.Invalidate());
     }
     else if (e.Button == MouseButtons.Right)
     {
@@ -3205,7 +3325,7 @@ public partial class Form1 : Form
                                    e.Location.Y - panelLapChart.AutoScrollPosition.Y);
 
     // Delegate to the lap chart renderer
-    bool hasHoveredElement = _lapChartRenderer.HandleMouseMove(adjustedLocation, () => panelLapChart.Invalidate(), riders);
+    bool hasHoveredElement = _lapChartRenderer.HandleMouseMove(adjustedLocation, () => panelLapChart.Invalidate(), _lapChartSnapshot);
 
     // Change cursor when hovering over clickable elements
     panelLapChart.Cursor = hasHoveredElement ? Cursors.Hand : Cursors.Default;
@@ -3218,101 +3338,6 @@ public partial class Form1 : Form
     panelLapChart.Cursor = Cursors.Default;
   }
 
-  private void ShowRiderDetails(string riderId)
-  {
-    lock (ridersLock)
-    {
-      if (riders.TryGetValue(riderId, out var rider))
-      {
-        var details = new StringBuilder();
-        details.AppendLine($"Rider: {riderId}");
-        details.AppendLine($"Total Laps: {rider.TotalLaps}");
-        details.AppendLine($"Total Time: {rider.TotalTime:hh\\:mm\\:ss\\.fff}");
-        if (rider.BestLapTime.HasValue)
-          details.AppendLine($"Best Lap: {rider.BestLapTime.Value:mm\\:ss\\.fff}");
-        details.AppendLine();
-        details.AppendLine("Lap Times with Positions:");
-
-        for (int i = 0; i < rider.Laps.Count; i++)
-        {
-          var lap = rider.Laps[i];
-          TimeSpan? displayLapTime = lap.LapTime;
-
-          // Calculate first lap time from race start if it's null
-          if (i == 0 && lap.LapTime == null && raceStartTime.HasValue)
-          {
-            displayLapTime = lap.CrossingTime - raceStartTime.Value;
-          }
-
-          var lapTimeStr = displayLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-
-          // Calculate position for this lap by comparing with other riders at this lap completion time
-          int position = CalculatePositionAtTime(riderId, lap.CrossingTime, i + 1);
-
-          details.AppendLine($"  Lap {i + 1}: P{position} - {lapTimeStr} ({lap.CrossingTime:HH:mm:ss})");
-        }
-
-        MessageBox.Show(details.ToString(), $"Lap Details - {riderId}",
-          MessageBoxButtons.OK, MessageBoxIcon.Information);
-      }
-    }
-  }
-
-  /// <summary>
-  /// Calculate what position a rider was in when they completed a specific lap
-  /// </summary>
-  private int CalculatePositionAtTime(string riderId, DateTime lapCompletionTime, int riderLapCount)
-  {
-    // Count how many riders had completed more laps at this time, or same laps but faster total time
-    int ridersAhead = 0;
-
-    foreach (var otherRider in riders.Values)
-    {
-      if (otherRider.TagID == riderId || ignoredTags.Contains(otherRider.TagID)) continue;
-
-      // Count laps completed by this other rider at the time of the target rider's lap completion
-      int otherRiderLapsAtTime = 0;
-      DateTime? otherRiderTimeAtSameLaps = null;
-
-      foreach (var otherLap in otherRider.Laps)
-      {
-        if (otherLap.CrossingTime <= lapCompletionTime)
-        {
-          otherRiderLapsAtTime++;
-          if (otherRiderLapsAtTime == riderLapCount)
-          {
-            otherRiderTimeAtSameLaps = otherLap.CrossingTime;
-          }
-        }
-        else
-        {
-          break; // No need to check further laps
-        }
-      }
-
-      // Determine if this other rider was ahead
-      if (otherRiderLapsAtTime > riderLapCount)
-      {
-        // Other rider had more laps completed - they were ahead
-        ridersAhead++;
-      }
-      else if (otherRiderLapsAtTime == riderLapCount && otherRiderTimeAtSameLaps.HasValue)
-      {
-        // Same number of laps - compare completion times
-        if (otherRiderTimeAtSameLaps.Value < lapCompletionTime)
-        {
-          // Other rider completed the same lap faster - they were ahead
-          ridersAhead++;
-        }
-      }
-    }
-
-    return ridersAhead + 1; // Position is number of riders ahead + 1
-  }
-
-  /// <summary>
-  /// Show context menu for tag operations
-  /// </summary>
   private void ShowTagContextMenu(string tagId, Point location)
   {
     var contextMenu = new ContextMenuStrip();
@@ -3321,13 +3346,13 @@ public partial class Form1 : Form
 
     if (isIgnored)
     {
-      var removeItem = new ToolStripMenuItem($"Remove {tagId} from ignore list");
+      var removeItem = new ToolStripMenuItem($"Count {GetRiderDisplayText(tagId)} again");
       removeItem.Click += (s, e) => RemoveTagFromIgnoreList(tagId);
       contextMenu.Items.Add(removeItem);
     }
     else
     {
-      var addItem = new ToolStripMenuItem($"Add {tagId} to ignore list");
+      var addItem = new ToolStripMenuItem($"Stop counting {GetRiderDisplayText(tagId)}...");
       addItem.Click += (s, e) => AddTagToIgnoreList(tagId);
       contextMenu.Items.Add(addItem);
     }
@@ -3354,6 +3379,8 @@ public partial class Form1 : Form
   {
     manualStartMode = radioButtonStartManual.Checked;
     UpdateRaceStartControls();
+  
+    RememberRaceSetup();
   }
 
   private void UpdateRaceStartControls()
@@ -3394,11 +3421,11 @@ public partial class Form1 : Form
         var leaderRider = riders[leaderAtTimeExpiry];
         var remainingLaps = targetLapsToFinishRace - leaderRider.TotalLaps;
         var lapsText = remainingLaps == 1 ? "lap" : "laps";
-        labelRaceStatus.Text = $"Race: LEADER {leaderAtTimeExpiry} - {remainingLaps} {lapsText} to go (target: {targetLapsToFinishRace})";
+        labelRaceStatus.Text = $"Race: LEADER {GetRiderDisplayText(leaderAtTimeExpiry ?? "")} - {remainingLaps} {lapsText} to go (target: {targetLapsToFinishRace})";
       }
       else
       {
-        labelRaceStatus.Text = $"Race: Waiting for Leader {leaderAtTimeExpiry} to complete additional laps";
+        labelRaceStatus.Text = $"Race: Waiting for Leader {GetRiderDisplayText(leaderAtTimeExpiry ?? "")} to complete additional laps";
       }
       labelRaceStatus.ForeColor = Color.Purple;
     }
@@ -3428,7 +3455,7 @@ public partial class Form1 : Form
       raceStarted = true;
 
       // Create new race in database
-      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration);
+      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName);
 
       // Update race start time for all existing riders
       lock (ridersLock)
@@ -3441,14 +3468,15 @@ public partial class Form1 : Form
 
       UpdateRaceStartControls();
       AddMessage($"🏁 Race started manually at {raceStartTime.Value:HH:mm:ss}");
+    RaiseNotice(NoticeLevel.Info, "Race started");
 
       // Reset warnings
       fiveMinuteWarningShown = false;
       oneMinuteWarningShown = false;
 
       // Update displays to reflect new total times
-      ridersDisplayNeedsUpdate = true;
-      lapChartNeedsUpdate = true;
+      _refresh.Invalidate(RaceViewKind.Riders);
+      _refresh.Invalidate(RaceViewKind.LapChart);
     }
   }
 
@@ -3471,9 +3499,10 @@ public partial class Form1 : Form
     var finishingRider = riders.Values
       .FirstOrDefault(r => r.TotalLaps >= targetLapsToFinishRace);
 
-    var finishingRiderTag = finishingRider?.TagID ?? "Unknown";
+    var finishingRiderTag = finishingRider?.Label ?? "The leader";
 
     AddMessage($"🏁 RACE TARGET REACHED! {finishingRiderTag} completed {targetLapsToFinishRace} laps in {actualRaceDuration:mm\\:ss}.");
+    RaiseNotice(NoticeLevel.Critical, "Leader has finished - everyone else completes their current lap");
     AddMessage($"🏁 All other riders must complete only their current lap, then no more laps will be counted.");
 
     // Store the current lap numbers for all riders at race finish
@@ -3485,13 +3514,13 @@ public partial class Form1 : Form
         {
           // Riders who reached the target are NOT allowed to complete another lap
           rider.FinalAllowedLap = rider.TotalLaps;
-          AddMessage($"📋 Rider {rider.TagID}: Reached target with {rider.TotalLaps} laps, RACE FINISHED - no more laps allowed");
+          AddMessage($"📋 Rider {rider.Label}: Reached target with {rider.TotalLaps} laps, RACE FINISHED - no more laps allowed");
         }
         else
         {
           // All other riders are allowed to complete exactly one more lap (their current lap)
           rider.FinalAllowedLap = rider.TotalLaps + 1;
-          AddMessage($"📋 Rider {rider.TagID}: Currently has {rider.TotalLaps} laps, allowed to complete lap {rider.FinalAllowedLap}");
+          AddMessage($"📋 Rider {rider.Label}: Currently has {rider.TotalLaps} laps, allowed to complete lap {rider.FinalAllowedLap}");
         }
       }
     }
@@ -3500,8 +3529,8 @@ public partial class Form1 : Form
     UpdateRaceStartControls();
 
     // Force final update of displays
-    ridersDisplayNeedsUpdate = true;
-    lapChartNeedsUpdate = true;
+    _refresh.Invalidate(RaceViewKind.Riders);
+    _refresh.Invalidate(RaceViewKind.LapChart);
   }
 
   private void CheckIfAllFinalLapsCompleted()
@@ -3509,10 +3538,22 @@ public partial class Form1 : Form
     // Check if all riders have either completed their final allowed lap or have timed out
     bool allRidersFinished = true;
 
-    foreach (var rider in riders.Values)
+    List<RiderInfo> field;
+    lock (ridersLock)
     {
-      // Skip riders already marked as DNF
-      if (rider.IsDNF)
+      // Called from a background task as well as the timer; take a copy of the
+      // collection rather than enumerating it while crossings may be arriving.
+      field = riders.Values.ToList();
+    }
+
+    foreach (var rider in field)
+    {
+      // Skip riders already marked as DNF or DNS
+      if (rider.IsDNF || rider.IsDNS)
+        continue;
+
+      // An operator who has already ruled on this rider outranks the timeout.
+      if (rider.StatusSetByOperator)
         continue;
 
       // If rider hasn't reached their final allowed lap yet
@@ -3533,12 +3574,12 @@ public partial class Form1 : Form
           // Rider has timed out - mark as DNF
           rider.IsDNF = true;
           rider.DNFTime = DateTime.Now;
-          AddMessage($"🚫 Rider {rider.TagID} marked as DNF (Did Not Finish) - {timeSinceLeaderFinished.TotalMinutes:F1} min since leader finished, failed to complete final lap");
-          AddRaceEvent($"DNF: {rider.TagID} - Timeout after {timeSinceLeaderFinished.TotalMinutes:F1} minutes");
+          AddMessage($"🚫 Rider {rider.Label} marked as DNF (Did Not Finish) - {timeSinceLeaderFinished.TotalMinutes:F1} min since leader finished, failed to complete final lap");
+          AddRaceEvent($"DNF: {rider.Label} - Timeout after {timeSinceLeaderFinished.TotalMinutes:F1} minutes");
 
           // Update displays to show DNF status
-          ridersDisplayNeedsUpdate = true;
-          lapChartNeedsUpdate = true;
+          _refresh.Invalidate(RaceViewKind.Riders);
+          _refresh.Invalidate(RaceViewKind.LapChart);
         }
       }
     }
@@ -3570,6 +3611,7 @@ public partial class Form1 : Form
     var finishedRiders = riders.Values.Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID)).Count();
 
     AddMessage($"🏁 RACE COMPLETELY FINISHED! All riders have completed their final laps or timed out.");
+    RaiseNotice(NoticeLevel.Critical, "Race finished - results are final");
     AddMessage($"🏁 Final race duration: {actualRaceDuration:mm\\:ss}");
 
     if (dnfRiders.Any())
@@ -3580,7 +3622,7 @@ public partial class Form1 : Form
         var raceLeaderFinishTime = dnfRider.DNFTime?.AddMinutes(-dnfTimeoutMinutes) ?? DateTime.Now;
         var timeAtDNF = dnfRider.DNFTime.HasValue ?
           (dnfRider.DNFTime.Value - raceLeaderFinishTime).TotalMinutes : 0;
-        AddMessage($"   • {dnfRider.TagID}: {dnfRider.TotalLaps} laps completed, DNF after {timeAtDNF:F1} min timeout");
+        AddMessage($"   • {dnfRider.Label}: {dnfRider.TotalLaps} laps completed, DNF after {timeAtDNF:F1} min timeout");
       }
       AddMessage($"✅ {finishedRiders} rider(s) completed the race successfully.");
     }
@@ -3595,58 +3637,147 @@ public partial class Form1 : Form
     UpdateRaceStartControls();
 
     // Force final update of displays
-    ridersDisplayNeedsUpdate = true;
-    lapChartNeedsUpdate = true;
+    _refresh.Invalidate(RaceViewKind.Riders);
+    _refresh.Invalidate(RaceViewKind.LapChart);
   }
 
   private void InitializeLogging()
   {
     try
     {
-      // Create logs directory if it doesn't exist
-      var logsDir = Path.Combine(Application.StartupPath, "logs");
-      Directory.CreateDirectory(logsDir);
+      var logsDir = AppPaths.LogsFolder;
 
       // Create log file with timestamp
       var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
       logFilePath = Path.Combine(logsDir, $"CrossMgrInterface_{timestamp}.log");
 
+      // One long-lived handle drained by a background writer, rather than an
+      // open/write/flush/close on the UI thread for every message.
+      logWriter = new StreamWriter(logFilePath, append: true, Encoding.UTF8) { AutoFlush = false };
+      logWriterTask = Task.Run(RunLogWriter);
+
       // Write initial log header
       var header = $"=== CrossMgr Interface Log Started at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===";
       WriteToLogFile("SYSTEM", header);
 
-      AddMessage($"📝 Logging initialized: {logFilePath}");
+      AddDiagnostic($"Logging to {logFilePath}");
     }
     catch (Exception ex)
     {
       // Don't crash if logging fails, just show a message
-      MessageBox.Show($"Warning: Could not initialize logging: {ex.Message}",
-        "Logging Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+      AddDiagnostic($"Logging could not be started: {ex.Message}");
     }
   }
 
+  /// <summary>
+  /// Queues a line for the background log writer. Never blocks and never throws:
+  /// if the queue is full the line is dropped rather than stalling a tag read.
+  /// </summary>
   private void WriteToLogFile(string category, string message)
   {
-    if (string.IsNullOrEmpty(logFilePath))
+    if (logWriter == null)
       return;
 
+    var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
     try
     {
-      lock (logLock)
-      {
-        var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-        var logEntry = $"[{timestamp}] [{category}] {message}{Environment.NewLine}";
+      logQueue.TryAdd($"[{timestamp}] [{category}] {message}");
+    }
+    catch (InvalidOperationException)
+    {
+      // Queue already completed during shutdown.
+    }
+  }
 
-        File.AppendAllText(logFilePath, logEntry, Encoding.UTF8);
+  /// <summary>
+  /// Drains the log queue on a background thread, batching flushes so a burst of
+  /// tag reads costs one disk write rather than one per line.
+  /// </summary>
+  private void RunLogWriter()
+  {
+    var sinceFlush = 0;
+    try
+    {
+      while (!logQueue.IsCompleted)
+      {
+        // Time-bounded take rather than a blocking enumerate, so a quiet log
+        // still gets flushed. Buffering purely by line count meant a crash
+        // shortly after startup left an empty log file - exactly when the log
+        // is most needed.
+        if (logQueue.TryTake(out var line, millisecondsTimeout: 500))
+        {
+          try
+          {
+            logWriter!.WriteLine(line);
+            sinceFlush++;
+          }
+          catch (Exception)
+          {
+            // A failing log must never take the race down.
+          }
+        }
+
+        if (sinceFlush == 0) continue;
+
+        try { logWriter!.Flush(); sinceFlush = 0; }
+        catch (Exception) { }
       }
     }
     catch (Exception)
     {
-      // Silently ignore logging errors to prevent infinite loops
-      // and avoid disrupting the main application
+      // Queue completed or disposed during shutdown.
+    }
+    finally
+    {
+      try { logWriter?.Flush(); } catch (Exception) { }
     }
   }
 
+  private void ShutdownLogging()
+  {
+    try
+    {
+      logQueue.CompleteAdding();
+      logWriterTask?.Wait(TimeSpan.FromSeconds(2));
+    }
+    catch (Exception)
+    {
+      // Nothing useful to do while closing.
+    }
+    finally
+    {
+      try { logWriter?.Flush(); logWriter?.Dispose(); } catch (Exception) { }
+      logWriter = null;
+    }
+  }
+
+
+  /// <summary>
+  /// Applies the short-lap rejection settings. Ten seconds is right for some
+  /// tracks and badly wrong for others - a tight supercross lap can be under it,
+  /// and a marshal carrying a spare transponder past the loop trips it.
+  /// </summary>
+  private void buttonSetShortLapSettings_Click(object? sender, EventArgs e)
+  {
+    RememberRaceSetup();
+    minimumLapTime = TimeSpan.FromSeconds((double)numericUpDownMinimumLapTime.Value);
+    shortLapDetectionEnabled = checkBoxShortLapDetection.Checked;
+
+    AddMessage(shortLapDetectionEnabled
+      ? $"⚙️ Laps faster than {minimumLapTime.TotalSeconds:F0}s will be treated as double reads and ignored"
+      : "⚙️ Short-lap rejection is off - every read counts as a lap");
+  }
+
+  /// <summary>
+  /// Applies the DNF timeout. Previously hard-coded, with no way for an operator
+  /// to shorten it to close out a race that is waiting on a rider who has retired.
+  /// </summary>
+  private void buttonSetDnfTimeout_Click(object? sender, EventArgs e)
+  {
+    dnfTimeoutMinutes = (int)numericUpDownDnfTimeout.Value;
+    RememberRaceSetup();
+    AddMessage($"⚙️ Riders have {dnfTimeoutMinutes} minute(s) after the leader finishes before they are scored DNF");
+  }
 
   /// <summary>
   /// Event handler for the Set Additional Laps button
@@ -3690,6 +3821,8 @@ public partial class Form1 : Form
         }
       }
     }
+  
+    RememberRaceSetup();
   }
 
   /// <summary>
@@ -3701,32 +3834,42 @@ public partial class Form1 : Form
     if (!raceStarted || raceFinished)
       return;
 
-    // Get current standings sorted by position (DNF riders last)
-    var currentStandings = riders.Values
-      .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
-      .ThenByDescending(r => r.TotalLaps)
-      .ThenBy(r => r.TotalTime)
-      .ToList();
-
-    if (currentStandings.Count < 2)
-      return; // Need at least 2 riders for position changes
-
-    // Check for passing and lapping events (only if we have previous data)
-    if (lastKnownPositions.Count > 0 && lastKnownLapCounts.Count > 0)
+    // The snapshot has to be taken *inside* positionCheckLock, not before it.
+    // Two riders crossing together spawn two of these tasks; if each snapshots
+    // first and then queues for the lock, the second compares its older snapshot
+    // against the baseline the first has just stored - and announces the mirror
+    // image of the pass that was reported a millisecond earlier.
+    //
+    // Lock order is always positionCheckLock then ridersLock, never the reverse.
+    lock (positionCheckLock)
     {
-      CheckForPassingAndLappingEvents(currentStandings, crossingRiderTagID);
-    }
+      List<RiderInfo> currentStandings;
+      lock (ridersLock)
+      {
+        currentStandings = PositionCalculator.GetSortedRidersFromSnapshot(
+          riders.Values.Select(CloneRiderForDisplay).ToList());
+      }
 
-    // Check for position changes (only if enough time has passed to avoid spam)
-    if (lastKnownPositions.Count > 0 &&
-        (DateTime.Now - lastPositionCheck).TotalSeconds >= 5)
-    {
-      var crossingRiderPosition = currentStandings.FindIndex(r => r.TagID == crossingRiderTagID) + 1;
-      CheckForPositionChanges(currentStandings, crossingRiderTagID, crossingRiderPosition);
-    }
+      if (currentStandings.Count < 2)
+        return; // Need at least 2 riders for position changes
 
-    // Store current standings for future comparisons
-    StoreCurrentStandings(currentStandings);
+      // Check for passing and lapping events (only if we have previous data)
+      if (lastKnownPositions.Count > 0 && lastKnownLapCounts.Count > 0)
+      {
+        CheckForPassingAndLappingEvents(currentStandings, crossingRiderTagID);
+      }
+
+      // Check for position changes (only if enough time has passed to avoid spam)
+      if (lastKnownPositions.Count > 0 &&
+          (DateTime.Now - lastPositionCheck).TotalSeconds >= 5)
+      {
+        var crossingRiderPosition = currentStandings.FindIndex(r => r.TagID == crossingRiderTagID) + 1;
+        CheckForPositionChanges(currentStandings, crossingRiderTagID, crossingRiderPosition);
+      }
+
+      // Store current standings for future comparisons
+      StoreCurrentStandings(currentStandings);
+    }
   }
 
   /// <summary>
@@ -3787,11 +3930,11 @@ public partial class Form1 : Form
       // Lapping event detected - crossing rider has gained a lap advantage
       if (currentLapDiff == 1)
       {
-        AddRaceEvent($"🔄 {crossingRiderTagID} has LAPPED {otherRiderTagID}!");
+        AddRaceEvent($"🔄 {GetRiderDisplayText(crossingRiderTagID)} has LAPPED {GetRiderDisplayText(otherRiderTagID)}!");
       }
       else if (currentLapDiff > 1)
       {
-        AddRaceEvent($"🔄 {crossingRiderTagID} has LAPPED {otherRiderTagID} (now {currentLapDiff} laps ahead)!");
+        AddRaceEvent($"🔄 {GetRiderDisplayText(crossingRiderTagID)} has LAPPED {GetRiderDisplayText(otherRiderTagID)} (now {currentLapDiff} laps ahead)!");
       }
     }
 
@@ -3804,38 +3947,58 @@ public partial class Form1 : Form
   /// </summary>
   private void CheckPassingEvent(string crossingRiderTagID, string otherRiderTagID, List<RiderInfo> currentStandings)
   {
-    // Get current positions
-    int currentPosCrossing = currentStandings.FindIndex(r => r.TagID == crossingRiderTagID) + 1;
-    int currentPosOther = currentStandings.FindIndex(r => r.TagID == otherRiderTagID) + 1;
+    int crossingIndex = currentStandings.FindIndex(r => r.TagID == crossingRiderTagID);
+    int otherIndex = currentStandings.FindIndex(r => r.TagID == otherRiderTagID);
+    if (crossingIndex < 0 || otherIndex < 0) return;
+
+    // Only riders on the same lap can pass one another.
+    //
+    // Standings are ordered by lap count first, so a rider who has just crossed
+    // sits ahead of everyone still on the previous lap - including riders only a
+    // few seconds behind on the track. Without this check that registered as a
+    // pass, and the reverse was reported as soon as the other rider crossed:
+    // two announcements a second apart claiming opposite things, when in truth
+    // nobody had overtaken anybody. The doc comment on this method always
+    // claimed "same lap only"; the code never actually enforced it.
+    if (currentStandings[crossingIndex].TotalLaps != currentStandings[otherIndex].TotalLaps)
+      return;
 
     // Get previous positions (if we have history)
     if (!lastKnownPositions.ContainsKey(crossingRiderTagID) || !lastKnownPositions.ContainsKey(otherRiderTagID))
       return; // No previous position data to compare
 
+    int currentPosCrossing = crossingIndex + 1;
+    int currentPosOther = otherIndex + 1;
     int previousPosCrossing = lastKnownPositions[crossingRiderTagID];
     int previousPosOther = lastKnownPositions[otherRiderTagID];
 
     // Check if crossing rider passed the other rider (was behind but now ahead)
     if (previousPosCrossing > previousPosOther && currentPosCrossing < currentPosOther)
     {
-      AddRaceEvent($"⚡ {crossingRiderTagID} PASSES {otherRiderTagID} for position {currentPosCrossing}!");
+      AddRaceEvent($"⚡ {GetRiderDisplayText(crossingRiderTagID)} PASSES {GetRiderDisplayText(otherRiderTagID)} for position {currentPosCrossing}!");
     }
   }
 
   /// <summary>
-  /// Get the previous lap difference between two riders
+  /// Previous lap gap between two riders, used to detect the moment one laps the
+  /// other. Purely per-race scratch state - nothing reads it back after a
+  /// restart - so it lives in memory rather than in LiteDB, where looking it up
+  /// meant an unindexed collection scan per rider pair per crossing.
   /// </summary>
   private int GetPreviousLapDifference(string riderA, string riderB, int defaultValue)
   {
-    return _raceDb.GetPreviousLapDifference(riderA, riderB, defaultValue);
+    lock (lapDifferencesLock)
+    {
+      return lapDifferences.TryGetValue((riderA, riderB), out var diff) ? diff : defaultValue;
+    }
   }
 
-  /// <summary>
-  /// Store the lap difference between two riders
-  /// </summary>
   private void StoreLapDifference(string riderA, string riderB, int lapDifference)
   {
-    _raceDb.StoreLapDifference(riderA, riderB, lapDifference);
+    lock (lapDifferencesLock)
+    {
+      lapDifferences[(riderA, riderB)] = lapDifference;
+    }
   }
 
   /// <summary>
@@ -3856,19 +4019,19 @@ public partial class Form1 : Form
           // Moved up in positions
           if (currentPosition == 1)
           {
-            AddRaceEvent($"🥇 NEW LEADER! {crossingRiderTagID} takes the lead! (was P{previousPosition})");
+            AddRaceEvent($"🥇 NEW LEADER! {GetRiderDisplayText(crossingRiderTagID)} takes the lead! (was P{previousPosition})");
           }
           else if (currentPosition <= 3 && previousPosition > 3)
           {
-            AddRaceEvent($"🏆 {crossingRiderTagID} moves into podium position {currentPosition}! (was P{previousPosition})");
+            AddRaceEvent($"🏆 {GetRiderDisplayText(crossingRiderTagID)} moves into podium position {currentPosition}! (was P{previousPosition})");
           }
           else if (positionChange >= 3)
           {
-            AddRaceEvent($"⬆️ {crossingRiderTagID} surges up {positionChange} positions to P{currentPosition}! (was P{previousPosition})");
+            AddRaceEvent($"⬆️ {GetRiderDisplayText(crossingRiderTagID)} surges up {positionChange} positions to P{currentPosition}! (was P{previousPosition})");
           }
           else
           {
-            AddRaceEvent($"⬆️ {crossingRiderTagID} moves up to P{currentPosition} (was P{previousPosition})");
+            AddRaceEvent($"⬆️ {GetRiderDisplayText(crossingRiderTagID)} moves up to P{currentPosition} (was P{previousPosition})");
           }
         }
         else
@@ -3877,11 +4040,11 @@ public partial class Form1 : Form
           if (previousPosition == 1)
           {
             var newLeader = currentStandings.FirstOrDefault();
-            AddRaceEvent($"🔄 LEADER CHANGE! {newLeader?.TagID} takes over from {crossingRiderTagID} who drops to P{currentPosition}");
+            AddRaceEvent($"🔄 LEADER CHANGE! {(newLeader != null ? newLeader.Label : "the leader")} takes over from {GetRiderDisplayText(crossingRiderTagID)} who drops to P{currentPosition}");
           }
           else if (Math.Abs(positionChange) >= 3)
           {
-            AddRaceEvent($"⬇️ {crossingRiderTagID} drops {Math.Abs(positionChange)} positions to P{currentPosition} (was P{previousPosition})");
+            AddRaceEvent($"⬇️ {GetRiderDisplayText(crossingRiderTagID)} drops {Math.Abs(positionChange)} positions to P{currentPosition} (was P{previousPosition})");
           }
         }
       }
@@ -3913,7 +4076,7 @@ public partial class Form1 : Form
           // Only announce occasionally to avoid spam
           if (ShouldAnnounceBattle(rider1.TagID, rider2.TagID))
           {
-            AddRaceEvent($"🔥 CLOSE BATTLE! P{i + 1} {rider1.TagID} leads P{i + 2} {rider2.TagID} by only {timeDifference.TotalSeconds:F1} seconds!");
+            AddRaceEvent($"🔥 CLOSE BATTLE! P{i + 1} {rider1.Label} leads P{i + 2} {rider2.Label} by only {timeDifference.TotalSeconds:F1} seconds!");
           }
         }
       }
@@ -3925,9 +4088,22 @@ public partial class Form1 : Form
   /// </summary>
   private bool ShouldAnnounceBattle(string rider1, string rider2)
   {
-    // For now, limit battle announcements to avoid spam
-    // Could implement more sophisticated logic later
-    return DateTime.Now.Second % 30 == 0; // Announce battles every 30 seconds max
+    // Rate-limit per pair of riders. The previous test was
+    // `DateTime.Now.Second % 30 == 0`, which is true for 2 seconds in every 60
+    // no matter what the riders are doing - so it dropped almost every battle
+    // and occasionally let an unrelated one through.
+    var pair = string.CompareOrdinal(rider1, rider2) <= 0
+      ? (rider1, rider2)
+      : (rider2, rider1);
+
+    if (lastBattleAnnounced.TryGetValue(pair, out var last) &&
+        (DateTime.Now - last) < BattleAnnouncementCooldown)
+    {
+      return false;
+    }
+
+    lastBattleAnnounced[pair] = DateTime.Now;
+    return true;
   }
 
   /// <summary>
@@ -3951,33 +4127,6 @@ public partial class Form1 : Form
 
 
 
-
-  private void RecordLapProgression(string riderId, int lapNumber, int position, TimeSpan raceTime)
-  {
-    // Delegate to the lap progression manager
-    _lapProgressionManager.RecordLapProgression(riderId, lapNumber, position, raceTime, riders);
-
-    // Set update flag in a thread-safe way using BeginInvoke to avoid deadlocks
-    if (InvokeRequired)
-    {
-      BeginInvoke(new Action(() => lapProgressionNeedsUpdate = true));
-    }
-    else
-    {
-      lapProgressionNeedsUpdate = true;
-    }
-  }
-
-  private void RecordLapProgressionAfterLapCompletion(string riderId, int lapNumber)
-  {
-    if (!riders.ContainsKey(riderId)) return;
-
-    // Calculate current position based on completed laps and total time
-    var position = CalculateCurrentPosition(riderId);
-    var raceTime = riders[riderId].TotalTime;
-
-    RecordLapProgression(riderId, lapNumber, position, raceTime);
-  }
 
   private int CalculateCurrentPosition(string riderId)
   {
@@ -4023,8 +4172,9 @@ public partial class Form1 : Form
     }
     catch (Exception ex)
     {
-      MessageBox.Show($"Error during crash recovery: {ex.Message}", "Recovery Error",
-        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+      ErrorDialog.Show(this,
+        "The previous race could not be restored.",
+        "You can still start a new race. Nothing has been deleted.", ex);
     }
   }
 
@@ -4040,6 +4190,10 @@ public partial class Form1 : Form
       currentRaceId = raceToRestore.Id;
 
       // Restore race variables
+      raceName = raceToRestore.Name;
+      Text = string.IsNullOrEmpty(raceName)
+        ? "CrossMgr RFID Interface"
+        : $"CrossMgr - {raceName}";
       raceStartTime = raceToRestore.StartTime;
       raceEndTime = raceToRestore.EndTime;
       raceDuration = raceToRestore.Duration;
@@ -4082,79 +4236,35 @@ public partial class Form1 : Form
       lastKnownPositions = _raceDb.GetLastKnownPositions();
       lastKnownLapCounts = _raceDb.GetLastKnownLapCounts();
 
-      // Update displays
-      ridersDisplayNeedsUpdate = true;
-      lapChartNeedsUpdate = true;
-      _lapProgressionManager.NeedsUpdate = true;
+      _refresh.Invalidate(RaceViewKind.All);
 
       // Auto-start TCP server if race was in progress
       if (raceStarted && !raceFinished)
       {
-        // Parse the port from the current UI (default to 53135 if not valid)
-        if (!int.TryParse(textBoxPort.Text, out int port) || port < 1 || port > 65535)
-        {
-          port = 53135; // Default port
-        }
-        StartTcpListener(port);
+        StartTcpListener(readerPort);
       }
 
       // Start periodic state saving
       StartPeriodicStateSaving();
 
       // Create snapshot for UI update (exclude ignored riders)
-      var riderSnapshot = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
       var raceFinishedSnapshot = raceFinished;
-      var waitingForFinalLapsSnapshot = waitingForFinalLaps;
       var riderCount = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).Count();
       var totalLaps = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).Sum(r => r.TotalLaps);
 
       // Update UI to reflect restored state
       BeginInvoke(new Action(() =>
       {
-        // Update race status labels
-        if (labelRaceTime != null)
-        {
-          if (raceFinishedSnapshot)
-          {
-            labelRaceTime.Text = "Race: FINISHED";
-            labelRaceTime.BackColor = Color.LightGreen;
-          }
-          else if (raceStarted)
-          {
-            labelRaceTime.Text = raceTimeExpired ? "Race: TIME EXPIRED" : "Race: IN PROGRESS";
-            labelRaceTime.BackColor = raceTimeExpired ? Color.Orange : Color.LightBlue;
-          }
-        }
+        UpdateUI();
 
-        // Update connection status
-        UpdateUI(); // This will update the start/stop button states
+        // Repaint everything. Views that are not on screen keep their dirty bit
+        // and repaint the moment their tab is selected.
+        _refresh.RenderNow(RaceViewKind.All);
 
-        // Update displays
-        ridersDisplayNeedsUpdate = true;
-        lapChartNeedsUpdate = true;
-        UpdateRidersDisplay();
-
-        // Force lap chart refresh if user is currently on lap chart tab
-        if (tabControl.SelectedIndex == 4)
-        {
-          lapChartNeedsUpdate = false;
-          panelLapChart.Invalidate();
-          panelLapChart.Refresh(); // Force immediate repaint
-        }
-        else
-        {
-          // Ensure it will update when user switches to lap chart tab
-          lapChartNeedsUpdate = true;
-        }
-
-        _lapProgressionManager.UpdateLapProgressionDisplay(riderSnapshot, raceFinishedSnapshot, waitingForFinalLapsSnapshot, this);
-
-        // Show recovery success message
-        if (labelLastTag != null)
-        {
-          labelLastTag.Text = $"RECOVERED: {riderCount} riders, {totalLaps} total laps";
-          labelLastTag.BackColor = Color.LightGreen;
-        }
+        // The recovery result used to be written into two labels on the Race
+        // Statistics tab, which a volunteer in the simple view never sees.
+        RaiseNotice(NoticeLevel.Info,
+          $"Restored the previous race: {riderCount} riders, {totalLaps} laps");
       }));
 
       // Add race event outside the UI thread
@@ -4163,8 +4273,9 @@ public partial class Form1 : Form
     }
     catch (Exception ex)
     {
-      MessageBox.Show($"Error restoring race state: {ex.Message}", "Restore Error",
-        MessageBoxButtons.OK, MessageBoxIcon.Error);
+      ErrorDialog.Show(this,
+        "The previous race could not be restored.",
+        "You can still start a new race. Nothing has been deleted.", ex);
     }
   }
 
@@ -4197,7 +4308,7 @@ public partial class Form1 : Form
       {
         riderSnapshot = riders
           .Where(kvp => !ignoredTags.Contains(kvp.Key))
-          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+          .ToDictionary(kvp => kvp.Key, kvp => CloneRiderForDisplay(kvp.Value));
       }
 
       _raceDb.SaveRaceState(

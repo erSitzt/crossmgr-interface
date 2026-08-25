@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using LiteDB;
 using System;
 using System.Collections.Generic;
@@ -9,6 +10,10 @@ namespace CrossMgrInterface;
 public class DbRace
 {
   public int Id { get; set; }
+
+  /// <summary>Operator-supplied name, e.g. "Moto 1 - 250cc". LiteDB is schemaless,
+  /// so existing race documents simply read back as empty.</summary>
+  public string Name { get; set; } = "";
   public DateTime StartTime { get; set; }
   public DateTime? EndTime { get; set; }
   public TimeSpan Duration { get; set; }
@@ -61,6 +66,17 @@ public class DbLap
   public TimeSpan? LapTime { get; set; }
   public int PositionAtCompletion { get; set; }
   public bool IsSplitLap { get; set; } = false; // Track if this lap was created by splitting missed reads
+
+  // Pending missed-read warnings and operator corrections. Without these a crash
+  // recovery silently dropped every outstanding warning and every note about a
+  // lap having been corrected.
+  public bool IsSuggestedForSplit { get; set; }
+  public int SuggestedSplitCount { get; set; }
+  public TimeSpan? SuggestedSplitLapTime { get; set; }
+  public bool SuggestionDismissed { get; set; }
+  public int Source { get; set; }
+  public DateTime? OriginalCrossingTime { get; set; }
+  public string? CorrectionNote { get; set; }
 }
 
 public class DbPositionSnapshot
@@ -100,17 +116,44 @@ public class DbLapDifference
 /// </summary>
 public class RaceDataService : IDisposable
 {
-  private readonly LiteDatabase _db;
-  private readonly ILiteCollection<DbRace> _races;
-  private readonly ILiteCollection<DbRider> _riders;
-  private readonly ILiteCollection<DbLap> _laps;
-  private readonly ILiteCollection<DbPositionSnapshot> _positions;
-  private readonly ILiteCollection<DbRaceEvent> _events;
-  private readonly ILiteCollection<DbLapDifference> _lapDiffs;
+  private LiteDatabase _db;
+  private ILiteCollection<DbRace> _races;
+  private ILiteCollection<DbRider> _riders;
+  private ILiteCollection<DbLap> _laps;
+  private ILiteCollection<DbPositionSnapshot> _positions;
+  private ILiteCollection<DbRaceEvent> _events;
+  private ILiteCollection<DbLapDifference> _lapDiffs;
 
   public int CurrentRaceId { get; private set; }
 
+  /// <summary>
+  /// Set when the database could not be opened and a fresh one was started in
+  /// its place. The old file is kept; see <see cref="QuarantinedDatabasePath"/>.
+  /// </summary>
+  public bool RecoveredFromUnreadableDatabase { get; private set; }
+
+  /// <summary>Where the unreadable database was moved to, if that happened.</summary>
+  public string? QuarantinedDatabasePath { get; private set; }
+
   public RaceDataService(string dbPath = "races.db")
+  {
+    try
+    {
+      Initialise(dbPath);
+    }
+    catch (Exception)
+    {
+      // LiteDB opens lazily: a damaged file does not fail in the constructor but
+      // on the first real page read, which is why the whole initialisation has to
+      // be inside the retry rather than just the open.
+      QuarantineDatabase(dbPath);
+      Initialise(dbPath);
+    }
+  }
+
+  [MemberNotNull(nameof(_db), nameof(_races), nameof(_riders), nameof(_laps),
+                 nameof(_positions), nameof(_events), nameof(_lapDiffs))]
+  private void Initialise(string dbPath)
   {
     _db = new LiteDatabase(dbPath);
 
@@ -121,7 +164,7 @@ public class RaceDataService : IDisposable
     _events = _db.GetCollection<DbRaceEvent>("events");
     _lapDiffs = _db.GetCollection<DbLapDifference>("lap_differences");
 
-    // Create indexes for better performance
+    // Touching an index forces the first real read, so a damaged file fails here.
     _riders.EnsureIndex(x => x.RaceId);
     _riders.EnsureIndex(x => x.TagID);
     _laps.EnsureIndex(x => x.RaceId);
@@ -131,12 +174,38 @@ public class RaceDataService : IDisposable
     _lapDiffs.EnsureIndex(x => x.RaceId);
   }
 
+  /// <summary>
+  /// Moves an unreadable database aside so a fresh one can take its place.
+  ///
+  /// Not being able to time today's racing is far worse than losing access to an
+  /// old database, so the file is preserved rather than deleted and the
+  /// application carries on.
+  /// </summary>
+  private void QuarantineDatabase(string dbPath)
+  {
+    try { _db?.Dispose(); } catch (Exception) { }
+
+    var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+    var quarantine = $"{dbPath}.unreadable-{stamp}";
+
+    if (File.Exists(dbPath)) File.Move(dbPath, quarantine);
+
+    // LiteDB keeps a write-ahead log beside the database. An orphaned log will
+    // corrupt the replacement immediately, so it has to move as well.
+    var log = Path.ChangeExtension(dbPath, null) + "-log.db";
+    if (File.Exists(log)) File.Move(log, $"{quarantine}-log");
+
+    RecoveredFromUnreadableDatabase = true;
+    QuarantinedDatabasePath = quarantine;
+  }
+
   #region Race Management
 
-  public int StartNewRace(DateTime startTime, TimeSpan duration)
+  public int StartNewRace(DateTime startTime, TimeSpan duration, string name = "")
   {
     var race = new DbRace
     {
+      Name = name,
       StartTime = startTime,
       Duration = duration,
       IsFinished = false,
@@ -241,6 +310,7 @@ public class RaceDataService : IDisposable
       existingLap.LapTime = lap.LapTime;
       existingLap.PositionAtCompletion = positionAtCompletion;
       existingLap.IsSplitLap = lap.IsSplitLap;
+      CopyCorrectionFields(lap, existingLap);
       _laps.Update(existingLap);
       Console.WriteLine($"Updated lap: Rider {riderTagID}, Lap {lap.LapNumber}, Race {CurrentRaceId}");
       return;
@@ -256,9 +326,21 @@ public class RaceDataService : IDisposable
       PositionAtCompletion = positionAtCompletion,
       IsSplitLap = lap.IsSplitLap
     };
+    CopyCorrectionFields(lap, dbLap);
 
     _laps.Insert(dbLap);
     Console.WriteLine($"Inserted lap: Rider {riderTagID}, Lap {lap.LapNumber}, Race {CurrentRaceId}");
+  }
+
+  private static void CopyCorrectionFields(RiderLap from, DbLap to)
+  {
+    to.IsSuggestedForSplit = from.IsSuggestedForSplit;
+    to.SuggestedSplitCount = from.SuggestedSplitCount;
+    to.SuggestedSplitLapTime = from.SuggestedSplitLapTime;
+    to.SuggestionDismissed = from.SuggestionDismissed;
+    to.Source = (int)from.Source;
+    to.OriginalCrossingTime = from.OriginalCrossingTime;
+    to.CorrectionNote = from.CorrectionNote;
   }
 
   public List<DbLap> GetRiderLaps(string riderTagID)
@@ -275,6 +357,45 @@ public class RaceDataService : IDisposable
     return _laps.Find(l => l.RaceId == CurrentRaceId)
                .OrderBy(l => l.CrossingTime)
                .ToList();
+  }
+
+  /// <summary>
+  /// Replaces a rider's stored laps wholesale.
+  ///
+  /// Corrections renumber laps, and lap rows are keyed by (race, rider, lap
+  /// number) - so patching row by row means deleting and re-inserting in an
+  /// order that must not collide with itself. Replacing the set is both simpler
+  /// and atomic from the caller's point of view.
+  /// </summary>
+  public void ReplaceRiderLaps(string riderTagID, IEnumerable<RiderLap> laps, Func<RiderLap, int> positionOf)
+  {
+    if (CurrentRaceId == 0) return;
+
+    _laps.DeleteMany(l => l.RaceId == CurrentRaceId && l.RiderTagID == riderTagID);
+
+    var rows = laps
+      .Where(l => !l.IsDeleted)
+      .Select(l => new DbLap
+      {
+        RaceId = CurrentRaceId,
+        RiderTagID = riderTagID,
+        LapNumber = l.LapNumber,
+        CrossingTime = l.CrossingTime,
+        LapTime = l.LapTime,
+        PositionAtCompletion = positionOf(l),
+        IsSplitLap = l.IsSplitLap,
+        IsSuggestedForSplit = l.IsSuggestedForSplit,
+        SuggestedSplitCount = l.SuggestedSplitCount,
+        SuggestedSplitLapTime = l.SuggestedSplitLapTime,
+        SuggestionDismissed = l.SuggestionDismissed,
+        Source = (int)l.Source,
+        OriginalCrossingTime = l.OriginalCrossingTime,
+        CorrectionNote = l.CorrectionNote
+      })
+      .ToList();
+
+    if (rows.Count > 0)
+      _laps.InsertBulk(rows);
   }
 
   public bool DeleteLap(string riderTagID, int lapNumber)
@@ -475,7 +596,14 @@ public class RaceDataService : IDisposable
           LapNumber = dbLap.LapNumber,
           CrossingTime = dbLap.CrossingTime,
           LapTime = dbLap.LapTime,
-          IsSplitLap = dbLap.IsSplitLap
+          IsSplitLap = dbLap.IsSplitLap,
+        IsSuggestedForSplit = dbLap.IsSuggestedForSplit,
+        SuggestedSplitCount = dbLap.SuggestedSplitCount,
+        SuggestedSplitLapTime = dbLap.SuggestedSplitLapTime,
+        SuggestionDismissed = dbLap.SuggestionDismissed,
+        Source = (LapSource)dbLap.Source,
+        OriginalCrossingTime = dbLap.OriginalCrossingTime,
+        CorrectionNote = dbLap.CorrectionNote
         });
       }
 

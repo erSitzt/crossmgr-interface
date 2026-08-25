@@ -146,11 +146,10 @@ public class LapChartRenderer
     if (hoveredElement != null)
     {
       // Get rider information
-      string riderInfo = hoveredElement.RiderId;
-      if (riders != null && riders.TryGetValue(hoveredElement.RiderId, out var rider))
-      {
-        riderInfo = $"#{rider.RiderNumber} {rider.DisplayName}";
-      }
+      // Never show a bare transponder in a tooltip a person reads.
+      string riderInfo = riders != null && riders.TryGetValue(hoveredElement.RiderId, out var rider)
+        ? rider.Label
+        : hoveredElement.RiderId;
 
       if (hoveredElement.IsRider)
       {
@@ -234,7 +233,7 @@ public class LapChartRenderer
     var labelText = $"#{position + 1}:";
     if (!string.IsNullOrEmpty(rider.RiderNumber))
       labelText += $" {rider.RiderNumber}";
-    var displayName = rider.DisplayName != rider.TagID ? rider.DisplayName : rider.TagID;
+    var displayName = rider.Label;
     labelText += $" - {displayName}";
 
     var labelBrush = GetPositionBrush(position);
@@ -245,7 +244,8 @@ public class LapChartRenderer
       var highlightRect = new Rectangle(labelRect.X - 3, labelRect.Y - 3,
           labelRect.Width + 6, labelRect.Height + 6);
       g.FillRectangle(Brushes.Yellow, highlightRect);
-      g.DrawRectangle(new Pen(Color.Orange, 3), highlightRect);
+      using (var highlightPen = new Pen(Color.Orange, 3))
+        g.DrawRectangle(highlightPen, highlightRect);
     }
 
     g.FillRectangle(labelBrush, labelRect);
@@ -272,7 +272,7 @@ public class LapChartRenderer
     }
 
     // Use rider name if available, otherwise fall back to tag ID
-    var nameText = rider.DisplayName != rider.TagID ? rider.DisplayName : rider.TagID;
+    var nameText = rider.Label;
 
     var positionSize = g.MeasureString(positionText, font);
     var nameSize = g.MeasureString(nameText, font);
@@ -511,7 +511,8 @@ public class LapChartRenderer
         else
         {
           // Normal lap - solid color
-          g.FillRectangle(new SolidBrush(lapColor), lapRect);
+          using (var lapBrush = new SolidBrush(lapColor))
+            g.FillRectangle(lapBrush, lapRect);
           g.DrawRectangle(Pens.Black, lapRect);
         }
 

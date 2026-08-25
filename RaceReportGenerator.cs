@@ -403,7 +403,10 @@ public class RaceReportGenerator
       FastestLap = finishedRiders.Where(r => r.BestLapTime.HasValue)
                                 .OrderBy(r => r.BestLapTime ?? TimeSpan.MaxValue)
                                 .FirstOrDefault(),
-      ActualRaceDuration = finishedRiders.FirstOrDefault()?.TotalTime, // Winner's total time
+      // The winner's elapsed time. Labelled "Winning Time" wherever it is
+      // shown: it is not the race duration, and a results sheet that prints it
+      // as one contradicts its own start and end times.
+      ActualRaceDuration = finishedRiders.FirstOrDefault()?.TotalTime,
       AdditionalLapsSignShown = additionalLapsSignShown,
       RaceActuallyEnded = raceActuallyEnded,
       AdditionalLapsCount = additionalLapsCount
@@ -499,7 +502,7 @@ public class RaceReportGenerator
     infoLines.Add($"Scheduled Duration: {_reportData?.RaceDuration:mm\\:ss}");
 
     if (_reportData?.RaceStatistics?.ActualRaceDuration.HasValue == true)
-      infoLines.Add($"Actual Duration: {_reportData.RaceStatistics.ActualRaceDuration.Value:mm\\:ss\\.fff}");
+      infoLines.Add($"Winning Time: {_reportData.RaceStatistics.ActualRaceDuration.Value:mm\\:ss\\.fff}");
 
     infoLines.Add($"Race Status: {(_reportData?.RaceFinished == true ? "Finished" : "In Progress")}");
 
@@ -702,7 +705,7 @@ public class RaceReportGenerator
     sb.AppendLine($"Scheduled Duration: {_reportData.RaceDuration:mm\\:ss}");
 
     if (_reportData.RaceStatistics?.ActualRaceDuration.HasValue == true)
-      sb.AppendLine($"Actual Duration:   {_reportData.RaceStatistics.ActualRaceDuration.Value:mm\\:ss\\.fff}");
+      sb.AppendLine($"Winning Time:      {_reportData.RaceStatistics.ActualRaceDuration.Value:mm\\:ss\\.fff}");
 
     sb.AppendLine($"Race Status:       {(_reportData.RaceFinished ? "Finished" : "In Progress")}");
     sb.AppendLine();
@@ -777,7 +780,10 @@ public class RaceReportGenerator
 
   private TimeSpan? CalculateAverageLapTime(RiderInfo rider)
   {
-    var validLapTimes = rider.Laps.Where(l => l.LapTime.HasValue).Select(l => l.LapTime!.Value).ToList();
+    // Skip the first lap: it runs from the race start to the first crossing and
+    // is not a lap, so including it drags the average below anything the rider
+    // actually rode.
+    var validLapTimes = rider.Laps.Skip(1).Where(l => l.LapTime.HasValue).Select(l => l.LapTime!.Value).ToList();
 
     if (validLapTimes.Count == 0)
       return null;
@@ -848,10 +854,18 @@ public class RaceReportGenerator
       currentRow++;
     }
 
-    if (_reportData.Statistics?.ActualRaceDuration.HasValue == true)
+    if (_reportData.RaceStartTime.HasValue && _reportData.RaceEndTime.HasValue)
     {
       sheet.Cell(currentRow, 1).Value = "Race Duration:";
-      sheet.Cell(currentRow, 2).Value = _reportData.Statistics.ActualRaceDuration.Value.ToString(@"hh\:mm\:ss");
+      sheet.Cell(currentRow, 2).Value =
+        (_reportData.RaceEndTime.Value - _reportData.RaceStartTime.Value).ToString(@"hh\:mm\:ss");
+      currentRow++;
+    }
+
+    if (_reportData.Statistics?.ActualRaceDuration.HasValue == true)
+    {
+      sheet.Cell(currentRow, 1).Value = "Winning Time:";
+      sheet.Cell(currentRow, 2).Value = _reportData.Statistics.ActualRaceDuration.Value.ToString(@"hh\:mm\:ss\.fff");
       currentRow++;
     }
 
@@ -1010,7 +1024,7 @@ public class RaceReportGenerator
 
     if (stats.ActualRaceDuration.HasValue)
     {
-      sheet.Cell(currentRow, 1).Value = "Actual Race Duration:";
+      sheet.Cell(currentRow, 1).Value = "Winning Time:";
       sheet.Cell(currentRow, 2).Value = stats.ActualRaceDuration.Value.ToString(@"hh\:mm\:ss");
       currentRow++;
     }

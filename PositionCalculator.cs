@@ -100,51 +100,65 @@ public static class PositionCalculator
   }
 
   /// <summary>
-  /// Calculate position for a specific lap using a snapshot of riders
+  /// Builds every rider's position at every lap in one pass.
+  ///
+  /// This replaces calling <see cref="CalculatePositionAtLapFromSnapshot"/> once
+  /// per grid cell, which scanned every rider's lap list twice per cell -
+  /// roughly riders x laps x riders x laps work to fill one grid.
+  ///
+  /// The reduction is safe because laps are appended in crossing-time order and
+  /// numbered sequentially, so for lap N every rider who has reached it has
+  /// completed exactly N laps. The lap-count tiebreak in the per-cell version can
+  /// therefore never fire, and ranking collapses to "sort by that lap's crossing
+  /// time". LapProgressionEquivalenceTests pins that claim.
   /// </summary>
-  public static int CalculatePositionAtLap(string riderId, int lapNumber, List<RiderInfo> riderSnapshot)
+  /// <returns>lap number -&gt; (tag id -&gt; 1-based position at that lap)</returns>
+  public static Dictionary<int, Dictionary<string, int>> BuildLapPositionTable(
+    IReadOnlyList<RiderInfo> riderSnapshot, int maxLaps)
   {
-    // Find all riders who had completed at least 'lapNumber' laps
-    // and determine this rider's position among them based on when they completed that lap
+    var byLap = new Dictionary<int, List<(string Tag, DateTime Crossing)>>();
 
-    var targetRider = riderSnapshot.FirstOrDefault(r => r.TagID == riderId);
-    if (targetRider == null) return 999;
-
-    var riderLap = targetRider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-    if (riderLap == null) return 999; // Should not happen
-
-    var ridersAtThisLap = new List<(string Id, DateTime CompletionTime, int TotalLapsAtTime)>();
-
-    foreach (var otherRider in riderSnapshot)
+    foreach (var rider in riderSnapshot)
     {
-      var otherRiderLap = otherRider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-
-      if (otherRiderLap != null)
+      foreach (var lap in rider.Laps)
       {
-        // Count how many laps this rider had when they completed this lap
-        var lapsAtTime = otherRider.Laps.Count(l => l.CrossingTime <= otherRiderLap.CrossingTime);
-        ridersAtThisLap.Add((otherRider.TagID, otherRiderLap.CrossingTime, lapsAtTime));
+        if (lap.LapNumber < 1 || lap.LapNumber > maxLaps) continue;
+
+        if (!byLap.TryGetValue(lap.LapNumber, out var list))
+          byLap[lap.LapNumber] = list = new List<(string, DateTime)>();
+
+        list.Add((rider.TagID, lap.CrossingTime));
       }
     }
 
-    // Sort by laps completed (desc) then by completion time (asc)
-    ridersAtThisLap.Sort((a, b) =>
+    var table = new Dictionary<int, Dictionary<string, int>>(byLap.Count);
+    foreach (var (lapNumber, list) in byLap)
     {
-      var lapComparison = b.TotalLapsAtTime.CompareTo(a.TotalLapsAtTime);
-      if (lapComparison != 0) return lapComparison;
-      return a.CompletionTime.CompareTo(b.CompletionTime);
-    });
+      list.Sort((a, b) => a.Crossing.CompareTo(b.Crossing));
 
-    // Find position
-    for (int i = 0; i < ridersAtThisLap.Count; i++)
-    {
-      if (ridersAtThisLap[i].Id == riderId)
-      {
-        return i + 1; // 1-based position
-      }
+      var positions = new Dictionary<string, int>(list.Count);
+      for (var i = 0; i < list.Count; i++)
+        positions[list[i].Tag] = i + 1;
+
+      table[lapNumber] = positions;
     }
 
-    return 999; // Fallback
+    return table;
+  }
+
+  /// <summary>
+  /// Position at a given lap, from a table built by <see cref="BuildLapPositionTable"/>.
+  /// Returns 999 for a lap the rider never completed, matching the per-cell version.
+  /// </summary>
+  public static int PositionAtLap(
+    Dictionary<int, Dictionary<string, int>> table, string tagId, int lapNumber)
+  {
+    if (table.TryGetValue(lapNumber, out var positions) &&
+        positions.TryGetValue(tagId, out var position))
+    {
+      return position;
+    }
+    return 999;
   }
 
   /// <summary>
@@ -174,11 +188,7 @@ public static class PositionCalculator
   /// </summary>
   public static List<RiderInfo> GetSortedRidersFromDictionary(Dictionary<string, RiderInfo> riders)
   {
-    return riders.Values
-        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
-        .ThenByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
-        .ToList();
+    return GetSortedRidersFromSnapshot(riders.Values);
   }
 
   /// <summary>
@@ -186,17 +196,36 @@ public static class PositionCalculator
   /// </summary>
   public static List<RiderInfo> GetSortedRidersFromSnapshot(IEnumerable<RiderInfo> riderSnapshot)
   {
+    // Keys are projected once rather than recomputed inside each comparison.
     return riderSnapshot
-        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
-        .ThenByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
+        .Select(r => (Rider: r, Dnf: r.IsDNF ? 1 : 0, Laps: r.Laps.Count, Time: r.TotalTime))
+        .OrderBy(x => x.Dnf) // Non-DNF riders first (0), DNF riders last (1)
+        .ThenByDescending(x => x.Laps)
+        .ThenBy(x => x.Time)
+        .Select(x => x.Rider)
         .ToList();
   }
 
   /// <summary>
-  /// Calculate what the current position would be if all suggested splits were applied
+  /// Projected position for one rider if every suggested split were applied.
+  /// Prefer <see cref="CalculateProjectedPositionsWithSplits"/> when more than
+  /// one rider is needed: this rebuilds the whole virtual field per call.
   /// </summary>
   public static int CalculateProjectedPositionWithSplits(string riderId, Dictionary<string, RiderInfo> riders)
+  {
+    return CalculateProjectedPositionsWithSplits(riders).TryGetValue(riderId, out var position)
+      ? position
+      : 0;
+  }
+
+  /// <summary>
+  /// Projected positions for the whole field in one pass.
+  ///
+  /// The single-rider version above was called from inside the riders-grid render
+  /// loop, so filling the grid rebuilt and re-sorted a copy of every rider and
+  /// every lap once per row.
+  /// </summary>
+  public static Dictionary<string, int> CalculateProjectedPositionsWithSplits(Dictionary<string, RiderInfo> riders)
   {
     // Create a virtual copy of all riders with suggested splits applied
     var virtualRiders = new List<RiderInfo>();
@@ -267,21 +296,14 @@ public static class PositionCalculator
       virtualRiders.Add(virtualRider);
     }
 
-    // Calculate position using virtual riders
-    var sortedVirtualRiders = virtualRiders
-        .OrderBy(r => r.IsDNF ? 1 : 0)
-        .ThenByDescending(r => r.TotalLaps)
-        .ThenBy(r => r.TotalTime)
-        .ToList();
+    // Rank the virtual field once and return every rider's projected position.
+    var sortedVirtualRiders = GetSortedRidersFromSnapshot(virtualRiders);
 
+    var projected = new Dictionary<string, int>(sortedVirtualRiders.Count);
     for (int i = 0; i < sortedVirtualRiders.Count; i++)
-    {
-      if (sortedVirtualRiders[i].TagID == riderId)
-      {
-        return i + 1; // 1-based position
-      }
-    }
+      projected[sortedVirtualRiders[i].TagID] = i + 1;
 
-    return 999; // Not found
+    return projected;
   }
+
 }

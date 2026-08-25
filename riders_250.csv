@@ -1,0 +1,251 @@
+tagid,number,name,team,class
+RIDER001,397,Tim Meyer,Team Süd,MX1
+RIDER002,573,Marie Meyer,Team Ost,Veterans
+RIDER003,270,Laura Wolf,Privateer,Quad
+RIDER004,831,Lea Meyer,MSC Adler,Veterans
+RIDER005,694,Paul Neumann,Privateer,MX2
+RIDER006,833,Felix Klein,Team West,MX2
+RIDER007,395,Hanna Braun,Team West,Youth
+RIDER008,629,Paul Wagner,Team Ost,Veterans
+RIDER009,877,Max Bauer,MX Racing,MX2
+RIDER010,50,Emma Schwarz,Team Nord,Quad
+RIDER011,487,Tim Krüger,MX Racing,Veterans
+RIDER012,486,Anna Braun,MSC Adler,Youth
+RIDER013,671,Ben Wagner,Team Nord,Youth
+RIDER014,767,Emma Becker,Team Süd,MX1
+RIDER015,714,Finn Schulz,MSC Adler,Quad
+RIDER016,602,Emma Koch,Team Nord,MX1
+RIDER017,195,Hanna Braun,Team Nord,Youth
+RIDER018,655,Anna Schwarz,Privateer,Quad
+RIDER019,45,Jan Meyer,MSC Adler,Veterans
+RIDER020,821,Julia Meyer,RSV Blitz,Youth
+RIDER021,652,Finn Schmidt,MSC Adler,Youth
+RIDER022,423,Mia Zimmermann,Team Süd,Quad
+RIDER023,49,Anna Müller,MX Racing,Youth
+RIDER024,809,Leon Schneider,Team Nord,Youth
+RIDER025,569,Tim Klein,Team Nord,Youth
+RIDER026,851,Clara Klein,Team Nord,Veterans
+RIDER027,444,Sophie Schulz,RSV Blitz,MX1
+RIDER028,483,Jonas Neumann,MSC Adler,MX2
+RIDER029,355,Emma Neumann,Team Ost,Youth
+RIDER030,758,Paul Neumann,RSV Blitz,MX1
+RIDER031,948,Finn Becker,Team Nord,MX1
+RIDER032,245,Laura Bauer,Team Süd,Youth
+RIDER033,446,Julia Koch,Team Süd,MX2
+RIDER034,63,Anna Braun,Team Ost,Veterans
+RIDER035,309,Ben Meyer,Team Nord,MX1
+RIDER036,768,Julia Bauer,MSC Adler,Youth
+RIDER037,34,Emma Klein,MX Racing,Youth
+RIDER038,342,Mia Koch,MX Racing,Youth
+RIDER039,456,Paul Schmidt,MX Racing,Veterans
+RIDER040,550,Lea Müller,Team Nord,Quad
+RIDER041,99,Lukas Wagner,Team Ost,MX1
+RIDER042,906,Leon Richter,Team Ost,MX2
+RIDER043,256,Paul Neumann,Privateer,Veterans
+RIDER044,949,Clara Braun,Team Nord,Veterans
+RIDER045,919,Marie Bauer,MX Racing,MX1
+RIDER046,882,Jonas Bauer,Team West,MX2
+RIDER047,830,Felix Wolf,Team Süd,Youth
+RIDER048,392,Clara Müller,Team Nord,Veterans
+RIDER049,313,Mia Krüger,MX Racing,MX2
+RIDER050,196,Mia Koch,MSC Adler,MX1
+RIDER051,123,Emma Müller,Privateer,Veterans
+RIDER052,220,Hanna Weber,MSC Adler,Youth
+RIDER053,494,Clara Schwarz,Team Nord,Veterans
+RIDER054,470,Sophie Wolf,Privateer,Veterans
+RIDER055,536,Jonas Fischer,RSV Blitz,Veterans
+RIDER056,114,Hanna Wolf,RSV Blitz,MX1
+RIDER057,349,Mia Becker,Team Süd,MX1
+RIDER058,418,Mia Klein,MX Racing,MX2
+RIDER059,387,Max Krüger,Team Süd,Veterans
+RIDER060,769,Finn Schneider,MX Racing,Quad
+RIDER061,917,Jan Müller,Team West,Youth
+RIDER062,911,Jan Bauer,Team Nord,Quad
+RIDER063,666,Marie Meyer,Privateer,MX2
+RIDER064,260,Mia Koch,Team Nord,Veterans
+RIDER065,498,Nina Schmidt,Team West,Youth
+RIDER066,994,Mia Meyer,Team Ost,Veterans
+RIDER067,716,Laura Richter,RSV Blitz,Quad
+RIDER068,912,Nina Richter,RSV Blitz,MX1
+RIDER069,453,Hanna Schneider,Privateer,Youth
+RIDER070,198,Finn Krüger,Privateer,Youth
+RIDER071,384,Anna Schulz,Team Ost,Youth
+RIDER072,388,Emma Becker,MSC Adler,MX2
+RIDER073,670,Felix Weber,Team West,Veterans
+RIDER074,993,Julia Fischer,Team Süd,Youth
+RIDER075,373,Felix Neumann,RSV Blitz,Veterans
+RIDER076,91,Mia Schulz,MX Racing,Veterans
+RIDER077,865,Ben Klein,MX Racing,Veterans
+RIDER078,325,Emma Weber,Privateer,Quad
+RIDER079,424,Lea Klein,Team West,MX1
+RIDER080,976,Leon Neumann,MX Racing,Veterans
+RIDER081,635,Noah Schmidt,RSV Blitz,Youth
+RIDER082,933,Noah Koch,Privateer,MX2
+RIDER083,298,Julia Meyer,MSC Adler,MX1
+RIDER084,588,Nina Koch,MSC Adler,Youth
+RIDER085,104,Marie Meyer,Privateer,MX1
+RIDER086,55,Julia Schmidt,Team Nord,MX2
+RIDER087,249,Julia Schwarz,MX Racing,Veterans
+RIDER088,858,Hanna Wolf,Team Süd,Youth
+RIDER089,365,Lukas Richter,MSC Adler,MX1
+RIDER090,927,Marie Weber,RSV Blitz,Youth
+RIDER091,2,Leon Richter,Team Ost,Quad
+RIDER092,567,Clara Meyer,Team Ost,MX2
+RIDER093,161,Max Krüger,MSC Adler,MX2
+RIDER094,973,Lukas Richter,Team West,Youth
+RIDER095,13,Max Müller,Team Nord,MX1
+RIDER096,417,Lena Klein,Team West,MX2
+RIDER097,215,Finn Wolf,Team Ost,MX1
+RIDER098,440,Lukas Schwarz,MX Racing,MX1
+RIDER099,849,Ben Fischer,Team Süd,Youth
+RIDER100,571,Mia Neumann,Team West,Veterans
+RIDER101,323,Julia Krüger,MX Racing,Veterans
+RIDER102,582,Hanna Wagner,RSV Blitz,MX1
+RIDER103,603,Elias Neumann,Team West,Veterans
+RIDER104,135,Ben Braun,Team West,MX2
+RIDER105,509,Julia Bauer,Team Ost,MX1
+RIDER106,677,Julia Bauer,Team West,MX1
+RIDER107,913,Sophie Meyer,Privateer,Veterans
+RIDER108,720,Ben Schulz,Team Nord,MX2
+RIDER109,311,Marie Neumann,Team Süd,Veterans
+RIDER110,168,Hanna Weber,MX Racing,Quad
+RIDER111,116,Tim Wolf,MSC Adler,Youth
+RIDER112,406,Leon Weber,Privateer,Veterans
+RIDER113,505,Marie Braun,RSV Blitz,Quad
+RIDER114,937,Leon Schmidt,Team West,Quad
+RIDER115,437,Hanna Bauer,MX Racing,MX1
+RIDER116,675,Hanna Meyer,Team Nord,Youth
+RIDER117,90,Julia Fischer,MX Racing,Veterans
+RIDER118,615,Jan Becker,MSC Adler,Quad
+RIDER119,643,Noah Neumann,Team Nord,Youth
+RIDER120,705,Noah Schmidt,Team Nord,Youth
+RIDER121,306,Laura Becker,Team Nord,MX2
+RIDER122,723,Finn Wolf,Privateer,MX1
+RIDER123,52,Felix Klein,Team Ost,Veterans
+RIDER124,524,Tim Becker,Team Ost,MX2
+RIDER125,710,Jan Müller,Privateer,MX1
+RIDER126,201,Finn Zimmermann,Team Nord,MX1
+RIDER127,820,Lena Richter,RSV Blitz,Veterans
+RIDER128,187,Hanna Schulz,Team Süd,MX1
+RIDER129,81,Anna Neumann,MSC Adler,Veterans
+RIDER130,748,Felix Schulz,MX Racing,Youth
+RIDER131,599,Laura Becker,RSV Blitz,MX2
+RIDER132,175,Julia Müller,MX Racing,MX1
+RIDER133,225,Julia Fischer,Team Ost,Quad
+RIDER134,516,Clara Koch,MSC Adler,MX1
+RIDER135,102,Leon Weber,MX Racing,Youth
+RIDER136,684,Mia Müller,Team Ost,MX1
+RIDER137,972,Max Braun,MSC Adler,MX2
+RIDER138,10,Emma Schmidt,Team West,Quad
+RIDER139,842,Ben Weber,Privateer,Veterans
+RIDER140,371,Nina Müller,MX Racing,Youth
+RIDER141,222,Ben Weber,Team Ost,MX2
+RIDER142,535,Lukas Neumann,Privateer,Veterans
+RIDER143,1,Jan Bauer,Privateer,Veterans
+RIDER144,12,Lena Schulz,RSV Blitz,MX1
+RIDER145,366,Sophie Koch,MX Racing,MX1
+RIDER146,209,Lukas Klein,MX Racing,MX2
+RIDER147,304,Julia Wagner,Team Ost,MX2
+RIDER148,402,Anna Meyer,MSC Adler,Veterans
+RIDER149,823,Tim Wagner,Privateer,MX2
+RIDER150,78,Elias Schmidt,Team Nord,MX1
+RIDER151,140,Mia Schulz,RSV Blitz,Veterans
+RIDER152,29,Ben Hoffmann,Team Nord,MX2
+RIDER153,728,Clara Weber,RSV Blitz,Veterans
+RIDER154,80,Max Weber,Team Nord,Veterans
+RIDER155,515,Sophie Klein,Team Süd,Veterans
+RIDER156,204,Nina Wolf,MX Racing,MX1
+RIDER157,625,Paul Bauer,RSV Blitz,MX2
+RIDER158,65,Lena Fischer,MX Racing,MX2
+RIDER159,800,Ben Müller,Privateer,Veterans
+RIDER160,926,Sophie Krüger,Team Nord,Youth
+RIDER161,857,Felix Schneider,Team West,MX1
+RIDER162,37,Paul Klein,Team Süd,MX2
+RIDER163,230,Lukas Koch,RSV Blitz,Quad
+RIDER164,236,Hanna Müller,RSV Blitz,Quad
+RIDER165,717,Finn Wolf,Team Nord,Youth
+RIDER166,147,Lukas Braun,MX Racing,Quad
+RIDER167,546,Julia Krüger,Team Nord,Quad
+RIDER168,96,Marie Richter,RSV Blitz,MX1
+RIDER169,570,Leon Becker,Privateer,MX1
+RIDER170,9,Marie Neumann,Team West,MX2
+RIDER171,941,Max Weber,MSC Adler,Veterans
+RIDER172,283,Hanna Schulz,RSV Blitz,MX2
+RIDER173,14,Jonas Klein,Team Ost,Youth
+RIDER174,929,Lukas Schwarz,RSV Blitz,Veterans
+RIDER175,344,Tim Wagner,Team Nord,MX2
+RIDER176,579,Paul Fischer,RSV Blitz,MX1
+RIDER177,435,Leon Wolf,MX Racing,Veterans
+RIDER178,466,Felix Schmidt,Team Süd,MX2
+RIDER179,873,Finn Meyer,Team Süd,Youth
+RIDER180,299,Julia Fischer,MSC Adler,MX2
+RIDER181,376,Jan Müller,MSC Adler,MX1
+RIDER182,445,Nina Schwarz,Team Süd,Quad
+RIDER183,491,Lena Neumann,Team Nord,Quad
+RIDER184,988,Jan Braun,MX Racing,Quad
+RIDER185,806,Sophie Zimmermann,Privateer,Quad
+RIDER186,704,Tim Krüger,Team Ost,Youth
+RIDER187,645,Felix Fischer,MX Racing,Veterans
+RIDER188,277,Julia Schmidt,Team Ost,MX1
+RIDER189,595,Mia Koch,Team Ost,MX2
+RIDER190,301,Anna Schneider,Team Nord,MX2
+RIDER191,62,Mia Koch,Team Nord,Veterans
+RIDER192,416,Nina Neumann,Team Ost,MX2
+RIDER193,974,Lena Zimmermann,Privateer,MX2
+RIDER194,88,Lena Meyer,Team Ost,Veterans
+RIDER195,934,Clara Schmidt,Team West,Veterans
+RIDER196,98,Tim Weber,RSV Blitz,MX2
+RIDER197,455,Emma Zimmermann,Team Ost,MX2
+RIDER198,870,Lea Becker,RSV Blitz,Quad
+RIDER199,665,Lena Braun,RSV Blitz,Quad
+RIDER200,624,Clara Fischer,RSV Blitz,Veterans
+RIDER201,64,Lena Bauer,Team West,MX2
+RIDER202,751,Paul Koch,Team Süd,Youth
+RIDER203,896,Jan Fischer,MSC Adler,Youth
+RIDER204,438,Hanna Neumann,Team Süd,Veterans
+RIDER205,742,Lena Schneider,MX Racing,MX1
+RIDER206,804,Ben Wolf,Privateer,Veterans
+RIDER207,761,Elias Wagner,MSC Adler,Veterans
+RIDER208,386,Clara Schneider,Team Ost,MX1
+RIDER209,357,Julia Schulz,Team Nord,Quad
+RIDER210,56,Max Fischer,Team Nord,Youth
+RIDER211,925,Lena Müller,Privateer,Veterans
+RIDER212,100,Laura Hoffmann,MSC Adler,Youth
+RIDER213,432,Leon Hoffmann,MX Racing,MX1
+RIDER214,247,Max Neumann,MSC Adler,Youth
+RIDER215,709,Hanna Weber,Team Ost,MX1
+RIDER216,754,Nina Neumann,MSC Adler,Veterans
+RIDER217,765,Mia Meyer,Team Süd,MX1
+RIDER218,900,Noah Wolf,Team Nord,Youth
+RIDER219,542,Finn Koch,Team West,Quad
+RIDER220,746,Hanna Müller,RSV Blitz,MX2
+RIDER221,130,Max Müller,Team Süd,MX1
+RIDER222,101,Lena Neumann,Privateer,Quad
+RIDER223,583,Lea Bauer,MX Racing,MX1
+RIDER224,478,Tim Richter,RSV Blitz,Veterans
+RIDER225,775,Clara Schmidt,MX Racing,MX1
+RIDER226,656,Emma Schwarz,Team Nord,MX1
+RIDER227,844,Clara Schmidt,Privateer,Quad
+RIDER228,983,Jan Krüger,MX Racing,MX2
+RIDER229,237,Paul Braun,Team Ost,Quad
+RIDER230,998,Julia Neumann,Team Ost,MX1
+RIDER231,285,Felix Meyer,MSC Adler,MX2
+RIDER232,936,Lukas Schulz,MX Racing,MX2
+RIDER233,648,Lea Fischer,MSC Adler,Youth
+RIDER234,472,Marie Neumann,Team West,MX1
+RIDER235,514,Sophie Schmidt,Team Süd,MX2
+RIDER236,850,Sophie Schulz,Privateer,MX1
+RIDER237,922,Emma Braun,RSV Blitz,MX1
+RIDER238,32,Clara Hoffmann,RSV Blitz,Veterans
+RIDER239,931,Clara Müller,MSC Adler,Youth
+RIDER240,492,Max Schneider,Team West,MX1
+RIDER241,345,Finn Wolf,MSC Adler,Youth
+RIDER242,151,Elias Schulz,Team West,MX2
+RIDER243,737,Leon Wagner,Team Süd,Youth
+RIDER244,183,Clara Fischer,MSC Adler,Youth
+RIDER245,282,Lukas Braun,MSC Adler,Quad
+RIDER246,805,Emma Richter,Team Süd,Youth
+RIDER247,244,Laura Klein,MSC Adler,Youth
+RIDER248,672,Mia Schwarz,Team Nord,Quad
+RIDER249,93,Lea Fischer,Team Nord,MX1
+RIDER250,223,Julia Koch,MX Racing,Veterans

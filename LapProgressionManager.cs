@@ -3,17 +3,45 @@ namespace CrossMgrInterface;
 /// <summary>
 /// Manages the Lap Progression tab functionality
 /// </summary>
-public class LapProgressionManager
+public class LapProgressionManager : IDisposable
 {
   private DataGridView? _dataGridViewLapProgression;
   private Button? _buttonRefreshProgression;
-  private readonly List<LapProgressionEntry> _lapProgressionHistory = new();
-  private bool _lapProgressionNeedsUpdate = false;
 
-  public bool NeedsUpdate
+  /// <summary>
+  /// Raised when the user asks for a manual rebuild of the progression grid.
+  /// </summary>
+  public event Action? RefreshRequested;
+
+  private Font? _boldCellFont;
+
+  private static readonly Color[] PodiumColors =
   {
-    get => _lapProgressionNeedsUpdate;
-    set => _lapProgressionNeedsUpdate = value;
+    Color.Gold,
+    Color.Silver,
+    Color.FromArgb(205, 127, 50)
+  };
+
+  /// <summary>
+  /// One bold font for the whole grid. This used to be allocated per cell and
+  /// never disposed, leaking hundreds of GDI handles on every rebuild.
+  /// </summary>
+  private Font GetBoldCellFont()
+  {
+    var baseFont = _dataGridViewLapProgression?.DefaultCellStyle.Font ?? Control.DefaultFont;
+    if (_boldCellFont == null || _boldCellFont.FontFamily != baseFont.FontFamily ||
+        Math.Abs(_boldCellFont.Size - baseFont.Size) > 0.01f)
+    {
+      _boldCellFont?.Dispose();
+      _boldCellFont = new Font(baseFont, FontStyle.Bold);
+    }
+    return _boldCellFont;
+  }
+
+  public void Dispose()
+  {
+    _boldCellFont?.Dispose();
+    _boldCellFont = null;
   }
 
   /// <summary>
@@ -22,7 +50,7 @@ public class LapProgressionManager
   public TabPage CreateLapProgressionTab()
   {
     // Create the Lap Progression tab page
-    var tabPage = new TabPage("Lap Progression");
+    var tabPage = new TabPage("Lap Progression") { Name = "tabPageLapProgression" };
 
     // Create the DataGridView for showing lap progression
     _dataGridViewLapProgression = new DataGridView
@@ -66,26 +94,6 @@ public class LapProgressionManager
   }
 
   /// <summary>
-  /// Record lap progression after a rider completes a lap
-  /// </summary>
-  public void RecordLapProgression(string riderId, int lapNumber, int position, TimeSpan raceTime, Dictionary<string, RiderInfo> riders)
-  {
-    var entry = new LapProgressionEntry
-    {
-      RiderId = riderId,
-      LapNumber = lapNumber,
-      Position = position,
-      RaceTime = raceTime,
-      CrossingTime = DateTime.Now,
-      LapTime = riders.ContainsKey(riderId) ? riders[riderId].LastLapTime : null,
-      IsDNF = riders.ContainsKey(riderId) && riders[riderId].IsDNF
-    };
-
-    _lapProgressionHistory.Add(entry);
-    _lapProgressionNeedsUpdate = true;
-  }
-
-  /// <summary>
   /// Update the lap progression display
   /// </summary>
   public void UpdateLapProgressionDisplay(List<RiderInfo> riderSnapshot, bool raceFinished, bool waitingForFinalLaps, Control parentControl)
@@ -122,131 +130,109 @@ public class LapProgressionManager
       // Update columns if needed
       EnsureLapProgressionColumns(maxLaps);
 
-      // Sort riders by their final position (finishing riders first, then DNF)
-      var sortedRiders = riderSnapshot
-          .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF first
-          .ThenByDescending(r => r.TotalLaps)
-          .ThenBy(r => r.TotalTime)
-          .ToList();
+      // Every rider's position at every lap, computed once for the whole grid
+      // instead of twice per cell.
+      var positionTable = PositionCalculator.BuildLapPositionTable(riderSnapshot, maxLaps);
 
-      foreach (var rider in sortedRiders)
+      // Sort riders by their final position (finishing riders first, then DNF)
+      var sortedRiders = PositionCalculator.GetSortedRidersFromSnapshot(riderSnapshot);
+
+      var boldFont = GetBoldCellFont();
+
+      for (int rank = 0; rank < sortedRiders.Count; rank++)
       {
+        var rider = sortedRiders[rank];
         var hasSplitLaps = rider.Laps.Any(l => l.IsSplitLap);
 
-        // Build rider display name with number and name
-        var riderDisplayName = "";
-        if (!string.IsNullOrEmpty(rider.RiderNumber))
-        {
-          riderDisplayName = $"#{rider.RiderNumber}";
-        }
+        // Lap number -> lap, so the per-cell lookups below are not linear scans.
+        var lapsByNumber = new Dictionary<int, RiderLap>(rider.Laps.Count);
+        foreach (var lap in rider.Laps)
+          lapsByNumber[lap.LapNumber] = lap;
 
-        // Add rider name if different from tag ID
-        var displayName = rider.DisplayName != rider.TagID ? rider.DisplayName : rider.TagID;
-        if (!string.IsNullOrEmpty(riderDisplayName))
-        {
-          riderDisplayName += $" {displayName}";
-        }
-        else
-        {
-          riderDisplayName = displayName;
-        }
+        var riderDisplayName = rider.Label;
 
         // Add split lap indicator if needed
         if (hasSplitLaps)
-        {
           riderDisplayName += " *";
-        }
 
-        var row = new List<object> { riderDisplayName };
+        // A concrete type rather than an anonymous one: the values used to be
+        // read back out with GetType().GetProperty(...).GetValue(...) three times
+        // per cell.
+        var cells = new ProgressionCell[maxLaps];
 
-        // Add position for each completed lap
         for (int lap = 1; lap <= maxLaps; lap++)
         {
-          if (lap <= rider.TotalLaps)
+          if (lap > rider.TotalLaps)
           {
-            // Calculate what position this rider was in when they completed this lap
-            var position = PositionCalculator.CalculatePositionAtLapFromSnapshot(rider, lap, riderSnapshot);
-            var lapTime = GetLapTimeFromRider(rider, lap);
+            cells[lap - 1] = new ProgressionCell("", Color.White, false);
+            continue;
+          }
 
-            // Calculate position change from previous lap
-            string positionChangeArrow = "";
-            string lapTimeChangeArrow = "";
-            Color cellBackColor = Color.LightBlue; // Default neutral color for maintained position
+          var position = PositionCalculator.PositionAtLap(positionTable, rider.TagID, lap);
+          lapsByNumber.TryGetValue(lap, out var lapData);
+          var lapTime = lapData?.LapTime;
 
-            if (lap > 1)
+          string positionChangeArrow = "";
+          string lapTimeChangeArrow = "";
+          Color cellBackColor = Color.LightBlue; // Default neutral color for maintained position
+
+          if (lap > 1)
+          {
+            var previousPosition = PositionCalculator.PositionAtLap(positionTable, rider.TagID, lap - 1);
+            int positionChange = previousPosition - position; // Positive = improved (lower position number)
+
+            lapsByNumber.TryGetValue(lap - 1, out var previousLapData);
+            var previousLapTime = previousLapData?.LapTime;
+
+            bool lapTimeImproved = false;
+            bool lapTimeWorsened = false;
+
+            if (lapTime.HasValue && previousLapTime.HasValue)
             {
-              var previousPosition = PositionCalculator.CalculatePositionAtLapFromSnapshot(rider, lap - 1, riderSnapshot);
-              int positionChange = previousPosition - position; // Positive = improved (lower position number)
-
-              // Check lap time improvement
-              var previousLapTime = GetLapTimeFromRider(rider, lap - 1);
-              bool lapTimeImproved = false;
-              bool lapTimeWorsened = false;
-
-              if (lapTime.HasValue && previousLapTime.HasValue)
+              var timeDifference = lapTime.Value.TotalMilliseconds - previousLapTime.Value.TotalMilliseconds;
+              if (timeDifference < 0) // Any improvement, even 1ms faster
               {
-                var timeDifference = lapTime.Value.TotalMilliseconds - previousLapTime.Value.TotalMilliseconds;
-                if (timeDifference < 0) // Any improvement, even 1ms faster
-                {
-                  lapTimeImproved = true;
-                  lapTimeChangeArrow = "⚡"; // Fast lap indicator
-                }
-                else if (timeDifference > 0) // Any degradation, even 1ms slower
-                {
-                  lapTimeWorsened = true;
-                  lapTimeChangeArrow = "🐌"; // Slow lap indicator
-                }
+                lapTimeImproved = true;
+                lapTimeChangeArrow = "\u26a1"; // Fast lap indicator
               }
-
-              // Determine cell color based on position AND lap time changes
-              if (positionChange > 0)
+              else if (timeDifference > 0) // Any degradation, even 1ms slower
               {
-                // Moved up in positions
-                positionChangeArrow = " ↑"; // Improved position
-                cellBackColor = Color.LightGreen;
-              }
-              else if (positionChange < 0)
-              {
-                // Moved down in positions
-                positionChangeArrow = " ↓"; // Lost position
-                cellBackColor = Color.LightPink;
-              }
-              else // Position maintained
-              {
-                // Use lap time performance for color when position unchanged
-                if (lapTimeImproved)
-                {
-                  cellBackColor = Color.LightCyan; // Light cyan for faster lap time
-                }
-                else if (lapTimeWorsened)
-                {
-                  cellBackColor = Color.MistyRose; // Light pink for slower lap time
-                }
-                else
-                {
-                  cellBackColor = Color.LightBlue; // Neutral for similar lap time
-                }
+                lapTimeWorsened = true;
+                lapTimeChangeArrow = "\U0001f40c"; // Slow lap indicator
               }
             }
 
-            string cellValue = $"P{position} {positionChangeArrow}{lapTimeChangeArrow}";
-
-            // Check if this lap is a split lap
-            var lapData = rider.Laps.FirstOrDefault(l => l.LapNumber == lap);
-            var isSplitLap = lapData?.IsSplitLap ?? false;
-
-            if (lapTime.HasValue)
+            // Determine cell color based on position AND lap time changes
+            if (positionChange > 0)
             {
-              var splitIndicator = isSplitLap ? "*" : "";
-              cellValue += $"\n{lapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
+              positionChangeArrow = " \u2191"; // Improved position
+              cellBackColor = Color.LightGreen;
             }
+            else if (positionChange < 0)
+            {
+              positionChangeArrow = " \u2193"; // Lost position
+              cellBackColor = Color.LightPink;
+            }
+            else if (lapTimeImproved)
+            {
+              cellBackColor = Color.LightCyan; // Faster lap at the same position
+            }
+            else if (lapTimeWorsened)
+            {
+              cellBackColor = Color.MistyRose; // Slower lap at the same position
+            }
+          }
 
-            row.Add(new { Value = cellValue, BackColor = cellBackColor, IsSplitLap = isSplitLap });
-          }
-          else
+          var isSplitLap = lapData?.IsSplitLap ?? false;
+          string cellValue = $"P{position} {positionChangeArrow}{lapTimeChangeArrow}";
+
+          if (lapTime.HasValue)
           {
-            row.Add(new { Value = "", BackColor = Color.White }); // No lap completed
+            var splitIndicator = isSplitLap ? "*" : "";
+            cellValue += $"\n{lapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
           }
+
+          cells[lap - 1] = new ProgressionCell(cellValue, cellBackColor, isSplitLap);
         }
 
         // Add status - determine if this specific rider has finished
@@ -262,106 +248,56 @@ public class LapProgressionManager
         else if (waitingForFinalLapsSnapshot)
         {
           // Check if this rider has completed their final allowed lap
-          if (rider.FinalAllowedLap > 0 && rider.TotalLaps >= rider.FinalAllowedLap)
-          {
-            status = "Finished";
-          }
-          else
-          {
-            status = "Final Lap";
-          }
+          status = rider.FinalAllowedLap > 0 && rider.TotalLaps >= rider.FinalAllowedLap
+            ? "Finished"
+            : "Final Lap";
         }
         else
         {
           status = "Racing";
         }
 
-        row.Add(new { Value = status, BackColor = Color.White });
-
-        // Create the row with just the values
-        var rowValues = new object[row.Count];
-        for (int i = 0; i < row.Count; i++)
-        {
-          if (row[i] is string str)
-          {
-            rowValues[i] = str; // Rider ID
-          }
-          else if (row[i] != null && row[i].GetType().GetProperty("Value") != null)
-          {
-            rowValues[i] = row[i].GetType().GetProperty("Value")?.GetValue(row[i]) ?? "";
-          }
-          else
-          {
-            rowValues[i] = row[i] ?? "";
-          }
-        }
+        var rowValues = new object[cells.Length + 2];
+        rowValues[0] = riderDisplayName;
+        for (int i = 0; i < cells.Length; i++)
+          rowValues[i + 1] = cells[i].Text;
+        rowValues[^1] = status;
 
         _dataGridViewLapProgression.Rows.Add(rowValues);
 
-        // Apply cell formatting
         var currentGridRow = _dataGridViewLapProgression.Rows[_dataGridViewLapProgression.Rows.Count - 1];
+        var statusCellIndex = currentGridRow.Cells.Count - 1;
 
-        // Apply individual cell background colors for position changes
-        for (int i = 1; i < row.Count - 1; i++) // Skip rider ID (0) and status (last)
+        for (int i = 0; i < cells.Length; i++)
         {
-          if (row[i] != null && row[i].GetType().GetProperty("BackColor") != null)
-          {
-            var backColor = (Color)(row[i].GetType().GetProperty("BackColor")?.GetValue(row[i]) ?? Color.White);
-            var isSplitLap = (bool)(row[i].GetType().GetProperty("IsSplitLap")?.GetValue(row[i]) ?? false);
+          var cellIndex = i + 1;
+          if (cellIndex >= statusCellIndex) break;
 
-            if (i < currentGridRow.Cells.Count)
-            {
-              currentGridRow.Cells[i].Style.BackColor = backColor;
+          var cell = currentGridRow.Cells[cellIndex];
+          cell.Style.BackColor = cells[i].BackColor;
 
-              // Add special formatting for split laps
-              if (isSplitLap)
-              {
-                currentGridRow.Cells[i].Style.ForeColor = Color.Red;
-                currentGridRow.Cells[i].Style.Font = new Font(currentGridRow.DefaultCellStyle.Font ?? _dataGridViewLapProgression.DefaultCellStyle.Font, FontStyle.Bold);
-              }
-            }
-          }
+          if (cells[i].IsSplitLap)
+            cell.Style.ForeColor = Color.Red;
+
+          // Make position text bold in each populated lap cell
+          if (cells[i].Text.Length > 0)
+            cell.Style.Font = boldFont;
         }
 
-        // Make position text bold in each lap cell
-        for (int i = 1; i < currentGridRow.Cells.Count - 1; i++) // Skip rider ID and status
-        {
-          if (!string.IsNullOrEmpty(currentGridRow.Cells[i].Value?.ToString()))
-          {
-            currentGridRow.Cells[i].Style.Font = new Font(currentGridRow.DefaultCellStyle.Font ?? _dataGridViewLapProgression.DefaultCellStyle.Font, FontStyle.Bold);
-          }
-        }
-
-        // Color code specific columns based on overall position (only rider ID and status columns)
+        // Color code the rider ID and status columns based on overall position
         if (rider.IsDNF)
         {
-          // Apply DNF styling to rider ID and status columns only
-          currentGridRow.Cells[0].Style.BackColor = Color.LightGray; // Rider ID
+          currentGridRow.Cells[0].Style.BackColor = Color.LightGray;
           currentGridRow.Cells[0].Style.ForeColor = Color.DarkRed;
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.BackColor = Color.LightGray; // Status
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.ForeColor = Color.DarkRed;
+          currentGridRow.Cells[statusCellIndex].Style.BackColor = Color.LightGray;
+          currentGridRow.Cells[statusCellIndex].Style.ForeColor = Color.DarkRed;
         }
-        else if (sortedRiders.IndexOf(rider) == 0)
+        else if (rank < PodiumColors.Length)
         {
-          // Leader styling to rider ID and status columns only
-          currentGridRow.Cells[0].Style.BackColor = Color.Gold;
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.BackColor = Color.Gold;
-        }
-        else if (sortedRiders.IndexOf(rider) == 1)
-        {
-          // 2nd place styling to rider ID and status columns only
-          currentGridRow.Cells[0].Style.BackColor = Color.Silver;
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.BackColor = Color.Silver;
-        }
-        else if (sortedRiders.IndexOf(rider) == 2)
-        {
-          // 3rd place styling to rider ID and status columns only
-          currentGridRow.Cells[0].Style.BackColor = Color.FromArgb(205, 127, 50);
-          currentGridRow.Cells[currentGridRow.Cells.Count - 1].Style.BackColor = Color.FromArgb(205, 127, 50);
+          currentGridRow.Cells[0].Style.BackColor = PodiumColors[rank];
+          currentGridRow.Cells[statusCellIndex].Style.BackColor = PodiumColors[rank];
         }
       }
-
-      _lapProgressionNeedsUpdate = false;
     }
     catch (Exception ex)
     {
@@ -466,15 +402,13 @@ public class LapProgressionManager
 
   private void ButtonRefreshProgression_Click(object? sender, EventArgs e)
   {
-    _lapProgressionNeedsUpdate = true;
+    RefreshRequested?.Invoke();
   }
 
-  /// <summary>
-  /// Get lap time from rider data directly (no dictionary access needed)
-  /// </summary>
-  private TimeSpan? GetLapTimeFromRider(RiderInfo rider, int lapNumber)
-  {
-    var lap = rider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber);
-    return lap?.LapTime;
-  }
 }
+
+/// <summary>
+/// One cell of the lap progression grid: what to show, how to tint it, and
+/// whether the lap it represents came from a split.
+/// </summary>
+public readonly record struct ProgressionCell(string Text, Color BackColor, bool IsSplitLap);

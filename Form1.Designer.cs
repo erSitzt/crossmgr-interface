@@ -38,7 +38,6 @@ partial class Form1
   private System.Windows.Forms.TextBox textBoxPort;
   private System.Windows.Forms.Label labelPort;
   private System.Windows.Forms.Button buttonClear;
-  private System.Windows.Forms.Button buttonClearTagEvents;
   private System.Windows.Forms.Label labelConnections;
   private System.Windows.Forms.Button buttonShowSummary;
   private System.Windows.Forms.Button buttonClearRiders;
@@ -87,6 +86,11 @@ partial class Form1
   private System.Windows.Forms.CheckBox checkBoxShortLapDetection;
   private System.Windows.Forms.Button buttonSetShortLapSettings;
 
+  // DNF timeout: how long riders get to finish after the leader
+  private System.Windows.Forms.Label labelDnfTimeout;
+  private System.Windows.Forms.NumericUpDown numericUpDownDnfTimeout;
+  private System.Windows.Forms.Button buttonSetDnfTimeout;
+
   private void InitializeComponent()
   {
     components = new System.ComponentModel.Container();
@@ -129,6 +133,9 @@ partial class Form1
     buttonSetShortLapSettings = new Button();
     checkBoxShortLapDetection = new CheckBox();
     numericUpDownMinimumLapTime = new NumericUpDown();
+    numericUpDownDnfTimeout = new NumericUpDown();
+    labelDnfTimeout = new Label();
+    buttonSetDnfTimeout = new Button();
     labelMinimumLapTime = new Label();
     labelAdditionalLaps = new Label();
     numericUpDownAdditionalLaps = new NumericUpDown();
@@ -153,6 +160,7 @@ partial class Form1
     tabPageLapChart.SuspendLayout();
     tabPageRaceSettings.SuspendLayout();
     ((System.ComponentModel.ISupportInitialize)numericUpDownMinimumLapTime).BeginInit();
+    ((System.ComponentModel.ISupportInitialize)numericUpDownDnfTimeout).BeginInit();
     ((System.ComponentModel.ISupportInitialize)numericUpDownAdditionalLaps).BeginInit();
     groupBoxRaceStart.SuspendLayout();
     SuspendLayout();
@@ -295,7 +303,7 @@ partial class Form1
     labelRaceDuration.Name = "labelRaceDuration";
     labelRaceDuration.Size = new Size(172, 25);
     labelRaceDuration.TabIndex = 10;
-    labelRaceDuration.Text = "Race Duration (min):";
+    labelRaceDuration.Text = "How long is the race? (minutes)";
     // 
     // numericUpDownRaceDuration
     // 
@@ -321,18 +329,16 @@ partial class Form1
     // 
     // tabControl
     // 
-    tabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+    tabControl.Dock = DockStyle.Fill;
     tabControl.Controls.Add(tabPageLive);
     tabControl.Controls.Add(tabPageTagEvents);
     tabControl.Controls.Add(tabPageRiders);
     tabControl.Controls.Add(tabPageStats);
     tabControl.Controls.Add(tabPageLapChart);
     tabControl.Controls.Add(tabPageRaceSettings);
-    tabControl.Location = new Point(17, 83);
     tabControl.Margin = new Padding(4, 5, 4, 5);
     tabControl.Name = "tabControl";
     tabControl.SelectedIndex = 0;
-    tabControl.Size = new Size(1657, 917);
     tabControl.TabIndex = 10;
     // 
     // tabPageLive
@@ -567,6 +573,9 @@ partial class Form1
     tabPageRaceSettings.Controls.Add(buttonSetShortLapSettings);
     tabPageRaceSettings.Controls.Add(checkBoxShortLapDetection);
     tabPageRaceSettings.Controls.Add(numericUpDownMinimumLapTime);
+    tabPageRaceSettings.Controls.Add(labelDnfTimeout);
+    tabPageRaceSettings.Controls.Add(numericUpDownDnfTimeout);
+    tabPageRaceSettings.Controls.Add(buttonSetDnfTimeout);
     tabPageRaceSettings.Controls.Add(labelMinimumLapTime);
     tabPageRaceSettings.Controls.Add(labelAdditionalLaps);
     tabPageRaceSettings.Controls.Add(numericUpDownAdditionalLaps);
@@ -622,6 +631,34 @@ partial class Form1
     numericUpDownMinimumLapTime.TabIndex = 17;
     numericUpDownMinimumLapTime.Value = new decimal(new int[] { 10, 0, 0, 0 });
     // 
+    // labelDnfTimeout
+    // 
+    labelDnfTimeout.AutoSize = true;
+    labelDnfTimeout.Location = new Point(29, 156);
+    labelDnfTimeout.Margin = new Padding(4, 0, 4, 0);
+    labelDnfTimeout.Name = "labelDnfTimeout";
+    labelDnfTimeout.Size = new Size(280, 25);
+    labelDnfTimeout.Text = "Time to finish after the leader (min):";
+    // 
+    // numericUpDownDnfTimeout
+    // 
+    numericUpDownDnfTimeout.Location = new Point(318, 154);
+    numericUpDownDnfTimeout.Margin = new Padding(4, 5, 4, 5);
+    numericUpDownDnfTimeout.Maximum = new decimal(new int[] { 30, 0, 0, 0 });
+    numericUpDownDnfTimeout.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+    numericUpDownDnfTimeout.Name = "numericUpDownDnfTimeout";
+    numericUpDownDnfTimeout.Size = new Size(171, 31);
+    numericUpDownDnfTimeout.Value = new decimal(new int[] { 2, 0, 0, 0 });
+    // 
+    // buttonSetDnfTimeout
+    // 
+    buttonSetDnfTimeout.Location = new Point(497, 149);
+    buttonSetDnfTimeout.Margin = new Padding(4, 5, 4, 5);
+    buttonSetDnfTimeout.Name = "buttonSetDnfTimeout";
+    buttonSetDnfTimeout.Size = new Size(107, 38);
+    buttonSetDnfTimeout.Text = "Set";
+    buttonSetDnfTimeout.UseVisualStyleBackColor = true;
+    // 
     // labelMinimumLapTime
     // 
     labelMinimumLapTime.AutoSize = true;
@@ -630,7 +667,7 @@ partial class Form1
     labelMinimumLapTime.Name = "labelMinimumLapTime";
     labelMinimumLapTime.Size = new Size(208, 25);
     labelMinimumLapTime.TabIndex = 16;
-    labelMinimumLapTime.Text = "Minimum Lap Time (sec):";
+    labelMinimumLapTime.Text = "Ignore laps faster than (seconds):";
     // 
     // labelAdditionalLaps
     // 
@@ -640,7 +677,7 @@ partial class Form1
     labelAdditionalLaps.Name = "labelAdditionalLaps";
     labelAdditionalLaps.Size = new Size(278, 25);
     labelAdditionalLaps.TabIndex = 13;
-    labelAdditionalLaps.Text = "Additional Laps After Time (0-10):";
+    labelAdditionalLaps.Text = "Extra laps after the clock runs out:";
     // 
     // numericUpDownAdditionalLaps
     // 
@@ -676,7 +713,7 @@ partial class Form1
     groupBoxRaceStart.Size = new Size(400, 167);
     groupBoxRaceStart.TabIndex = 17;
     groupBoxRaceStart.TabStop = false;
-    groupBoxRaceStart.Text = "Race Start Mode";
+    groupBoxRaceStart.Text = "When does the clock start?";
     // 
     // radioButtonStartOnFirstTag
     // 
@@ -688,7 +725,7 @@ partial class Form1
     radioButtonStartOnFirstTag.Size = new Size(205, 29);
     radioButtonStartOnFirstTag.TabIndex = 0;
     radioButtonStartOnFirstTag.TabStop = true;
-    radioButtonStartOnFirstTag.Text = "Start on first tag read";
+    radioButtonStartOnFirstTag.Text = "When the first rider crosses";
     radioButtonStartOnFirstTag.UseVisualStyleBackColor = true;
     // 
     // radioButtonStartManual
@@ -699,7 +736,7 @@ partial class Form1
     radioButtonStartManual.Name = "radioButtonStartManual";
     radioButtonStartManual.Size = new Size(135, 29);
     radioButtonStartManual.TabIndex = 1;
-    radioButtonStartManual.Text = "Manual start";
+    radioButtonStartManual.Text = "I will press Start Race myself";
     radioButtonStartManual.UseVisualStyleBackColor = true;
     // 
     // buttonStartRace
@@ -734,7 +771,7 @@ partial class Form1
     labelTagFilter.Name = "labelTagFilter";
     labelTagFilter.Size = new Size(86, 25);
     labelTagFilter.TabIndex = 13;
-    labelTagFilter.Text = "Tag Filter:";
+    labelTagFilter.Text = "Only count transponders starting with:";
     // 
     // textBoxTagFilter
     // 
@@ -779,18 +816,6 @@ partial class Form1
     AutoScaleMode = AutoScaleMode.Font;
     ClientSize = new Size(1691, 1020);
     Controls.Add(tabControl);
-    Controls.Add(labelImportStatus);
-    Controls.Add(buttonImportRiders);
-    Controls.Add(buttonGenerateReport);
-    Controls.Add(buttonClearRiders);
-    Controls.Add(buttonShowSummary);
-    Controls.Add(labelConnections);
-    Controls.Add(buttonClear);
-    Controls.Add(labelPort);
-    Controls.Add(textBoxPort);
-    Controls.Add(buttonStop);
-    Controls.Add(buttonStart);
-    Controls.Add(labelStatus);
     Margin = new Padding(4, 5, 4, 5);
     MinimumSize = new Size(1133, 796);
     Name = "Form1";
@@ -809,6 +834,7 @@ partial class Form1
     tabPageRaceSettings.ResumeLayout(false);
     tabPageRaceSettings.PerformLayout();
     ((System.ComponentModel.ISupportInitialize)numericUpDownMinimumLapTime).EndInit();
+    ((System.ComponentModel.ISupportInitialize)numericUpDownDnfTimeout).EndInit();
     ((System.ComponentModel.ISupportInitialize)numericUpDownAdditionalLaps).EndInit();
     groupBoxRaceStart.ResumeLayout(false);
     groupBoxRaceStart.PerformLayout();

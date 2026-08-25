@@ -61,3 +61,13 @@ nunit-*.xml
 
 # Database files
 *.db
+
+# Race data written at runtime (now stored under %LOCALAPPDATA%\CrossMgrInterface;
+# these entries keep stray copies from a pre-AppPaths build out of the repo)
+*.db
+*.db-log
+logs/
+reports/
+
+# Output of the load harness
+stress_sent.jsonl

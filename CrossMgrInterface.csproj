@@ -13,4 +13,11 @@
     <PackageReference Include="LiteDB" Version="5.0.21" />
   </ItemGroup>
 
+  <!-- The project sits at the repo root, so the default **/*.cs glob would
+       otherwise swallow the test project's sources. -->
+  <ItemGroup>
+    <Compile Remove="CrossMgrInterface.Tests/**" />
+    <None Remove="CrossMgrInterface.Tests/**" />
+  </ItemGroup>
+
 </Project>
