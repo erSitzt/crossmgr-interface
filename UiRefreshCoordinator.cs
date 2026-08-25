@@ -13,7 +13,12 @@ public enum RaceViewKind
   LapChart = 1 << 2,
   LapProgression = 1 << 3,
   RaceDay = 1 << 4,
-  All = Riders | Statistics | LapChart | LapProgression | RaceDay
+
+  /// <summary>The circuit map. Like RaceDay, it is a live operator screen, so it
+  /// is part of All - anything big enough to repaint everything moves riders too.</summary>
+  Track = 1 << 5,
+
+  All = Riders | Statistics | LapChart | LapProgression | RaceDay | Track
 }
 
 /// <summary>
@@ -33,6 +38,22 @@ public interface IRaceView
   /// progress line. Those need a periodic tick as well as change notifications.
   /// </summary>
   bool NeedsHeartbeat { get; }
+
+  /// <summary>
+  /// True while this view's content changes on every frame rather than only when
+  /// the data does - an animated map, where the dots move with the wall clock.
+  ///
+  /// Such a view keeps its dirty bit after rendering, so the pump repaints it on
+  /// every tick instead of once a second. That is the difference between motion
+  /// and a display that looks broken: a rider covers about twenty pixels a second
+  /// at circuit zoom, so one frame a second reads as a fault rather than as speed.
+  ///
+  /// It costs nothing while the view is hidden, because Flush skips invisible
+  /// views before it renders anything. Implementations must return false as soon
+  /// as there is nothing left to animate, or a finished race would spin the pump
+  /// at full rate for no reason.
+  /// </summary>
+  bool WantsContinuousRepaint => false;
 
   /// <summary>Full repaint from current data. Called when the view is dirty and visible.</summary>
   void Render();
@@ -261,7 +282,18 @@ public sealed class UiRefreshCoordinator : IDisposable
 
       // Cleared whether or not Render threw - otherwise a persistently failing
       // view would spin the pump at full rate for the rest of the race.
-      lock (_gate) _dirty &= ~view.Kind;
+      //
+      // An animating view is the deliberate exception: it is never "clean",
+      // because its content moves with the clock rather than with the data, so
+      // its bit is left set and the pump paints it again next tick. Note this
+      // has to be decided HERE rather than by the view calling Invalidate from
+      // inside Render - that would be undone by this very line.
+      lock (_gate)
+      {
+        if (view.WantsContinuousRepaint) _dirty |= view.Kind;
+        else _dirty &= ~view.Kind;
+      }
+
       _everRendered |= view.Kind;
     }
   }

@@ -107,6 +107,7 @@ public partial class Form1 : Form
   // compare against tabControl.SelectedIndex - the indices shift whenever a tab
   // is added, removed or hidden.
   private TabPage tabPageLapProgression = null!;
+  // tabPageTrack is declared in Form1.Track.cs, beside the rest of its plumbing.
 
   /// <summary>Whether the technical tabs are shown. Off by default.</summary>
   private bool advancedMode = false;
@@ -150,7 +151,12 @@ public partial class Form1 : Form
 
     // Simple mode is Race Day plus the riders grid; the grid stays because it is
     // where corrections are made. Everything else is for whoever wants detail.
-    var desired = new List<TabPage> { tabPageRaceDay, tabPageRiders };
+    //
+    // The track map is in simple mode too. "Where is everyone?" is the most asked
+    // question of the day and the person being asked is exactly the volunteer
+    // running this view; the advanced tabs are diagnostics, and this is not. It
+    // comes after Riders because tab order puts what you need in a hurry first.
+    var desired = new List<TabPage> { tabPageRaceDay, tabPageRiders, tabPageTrack };
 
     if (advancedMode)
     {
@@ -202,6 +208,10 @@ public partial class Form1 : Form
     tabPageLapProgression = _lapProgressionManager.CreateLapProgressionTab();
     InitializeRaceDayView();
     InitializeChrome();
+
+    // After InitializeChrome, which is what loads _settings - the track view
+    // needs LastTrackId to restore the circuit that was last on screen.
+    InitializeTrackView();
     InitializeRefreshCoordinator();
     InitializeCorrections();
     _lapProgressionManager.RefreshRequested += () => _refresh.RenderNow(RaceViewKind.LapProgression);
@@ -379,6 +389,10 @@ public partial class Form1 : Form
 
   private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
   {
+    // Cancels tile fetches and disposes the decoded-tile cache, which is
+    // unmanaged memory the GC will not reclaim in time on its own.
+    _trackTab?.Dispose();
+
     StopTcpListener();
 
     // Write final log entry
@@ -991,7 +1005,7 @@ public partial class Form1 : Form
       }
 
       _refresh.Invalidate(RaceViewKind.LapProgression | RaceViewKind.Riders |
-                          RaceViewKind.LapChart | RaceViewKind.RaceDay);
+                          RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
 
       return firstLap;
     }
@@ -1139,7 +1153,7 @@ public partial class Form1 : Form
 
       _refresh.Invalidate(
 
-        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
+        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
 
 
       return newLap;
@@ -1267,7 +1281,7 @@ public partial class Form1 : Form
       lastTagID = "None";
       lastTagTime = DateTime.MinValue;
       _refresh.Invalidate(
-        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
+        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
       currentRaceId = null;
 
       // Reset position tracking
@@ -1800,7 +1814,7 @@ public partial class Form1 : Form
 
         // Refresh displays to show updated rider information
         _refresh.Invalidate(
-          RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
+          RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
       }
     }
   }
@@ -2933,36 +2947,44 @@ public partial class Form1 : Form
     _refresh?.RenderNow(RaceViewKind.Riders);
   }
 
+  /// <summary>
+  /// Every class in the meeting, from riders seen so far and from the imported
+  /// list. Shared by the riders grid's filter and the track map's, which keep
+  /// their own SELECTED value: the grid filter is a working tool for the
+  /// operator, the map filter is a display for everyone else, and narrowing one
+  /// must not silently empty the other.
+  /// </summary>
+  private List<string> AvailableClasses()
+  {
+    List<string> classes;
+
+    lock (ridersLock)
+    {
+      classes = riders.Values
+        .Where(r => !string.IsNullOrEmpty(r.Category))
+        .Select(r => r.Category)
+        .Distinct()
+        .OrderBy(c => c)
+        .ToList();
+    }
+
+    classes.AddRange(_riderDataImporter.GetAllRiderData().Values
+      .Where(r => !string.IsNullOrEmpty(r.Category))
+      .Select(r => r.Category)
+      .Distinct()
+      .Where(c => !classes.Contains(c))
+      .OrderBy(c => c));
+
+    return classes;
+  }
+
   private void PopulateClassFilter()
   {
     if (comboBoxClassFilter == null) return;
 
     // Always include "All Classes" as the first option
     var classOptions = new List<string> { "All Classes" };
-
-    // Get unique categories from all riders (both active and imported)
-    lock (ridersLock)
-    {
-      var activeCategories = riders.Values
-        .Where(r => !string.IsNullOrEmpty(r.Category))
-        .Select(r => r.Category)
-        .Distinct()
-        .OrderBy(c => c)
-        .ToList();
-
-      classOptions.AddRange(activeCategories);
-    }
-
-    // Also check imported rider data for additional categories
-    var importedCategories = _riderDataImporter.GetAllRiderData().Values
-      .Where(r => !string.IsNullOrEmpty(r.Category))
-      .Select(r => r.Category)
-      .Distinct()
-      .Where(c => !classOptions.Contains(c))
-      .OrderBy(c => c)
-      .ToList();
-
-    classOptions.AddRange(importedCategories);
+    classOptions.AddRange(AvailableClasses());
 
     // Update ComboBox
     var currentSelection = comboBoxClassFilter.SelectedItem?.ToString();
@@ -3476,7 +3498,7 @@ public partial class Form1 : Form
 
       // Update displays to reflect new total times
       _refresh.Invalidate(
-        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
+        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
     }
   }
 
@@ -3530,7 +3552,7 @@ public partial class Form1 : Form
 
     // Force final update of displays
     _refresh.Invalidate(
-      RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
+      RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
   }
 
   private void CheckIfAllFinalLapsCompleted()
@@ -3579,7 +3601,7 @@ public partial class Form1 : Form
 
           // Update displays to show DNF status
           _refresh.Invalidate(
-            RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
+            RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
         }
       }
     }
@@ -3638,7 +3660,7 @@ public partial class Form1 : Form
 
     // Force final update of displays
     _refresh.Invalidate(
-      RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
+      RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
   }
 
   private void InitializeLogging()

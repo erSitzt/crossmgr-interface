@@ -232,6 +232,7 @@ public partial class Form1
 
     var goRaceDay = Item("Race day", Keys.Control | Keys.D1, (s, e) => tabControl.SelectedTab = tabPageRaceDay);
     var goRiders = Item("Riders", Keys.Control | Keys.D2, (s, e) => tabControl.SelectedTab = tabPageRiders);
+    var goTrack = Item("Track map", Keys.Control | Keys.D3, (s, e) => tabControl.SelectedTab = tabPageTrack);
 
     _menuAdvanced = new ToolStripMenuItem("Show advanced tabs")
     {
@@ -251,7 +252,7 @@ public partial class Form1
 
     view.DropDownItems.AddRange(new ToolStripItem[]
     {
-      goRaceDay, goRiders, _menuAdvanced, new ToolStripSeparator(), clearLog
+      goRaceDay, goRiders, goTrack, _menuAdvanced, new ToolStripSeparator(), clearLog
     });
 
     // ---- Help ----

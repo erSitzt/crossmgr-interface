@@ -27,6 +27,11 @@ public class DbRace
   public DateTime? FinalLapsStartTime { get; set; }
   public bool FiveMinuteWarningShown { get; set; }
   public DateTime? LastSavedAt { get; set; }
+
+  /// <summary>Circuit this race was run on, or null. Schemaless, like Name above:
+  /// races recorded before the track map existed read back as null.</summary>
+  public string? TrackId { get; set; }
+
   public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 

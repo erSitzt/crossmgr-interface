@@ -47,6 +47,18 @@ public sealed class AppSettings
   public bool ManualStart { get; set; }
   public int DnfTimeoutMinutes { get; set; } = 2;
 
+  /// <summary>Which of position, start number and name are written beside each rider dot.</summary>
+  public MapLabelParts TrackLabelParts { get; set; } = MapLabelParts.Position | MapLabelParts.Number;
+
+  /// <summary>Basemap last chosen for the track map - street, satellite, and so on.</summary>
+  public string? TileProviderId { get; set; }
+
+  /// <summary>
+  /// The circuit last shown on the track map. A club runs the same venue all day,
+  /// so the map should come back with the right loop already on it.
+  /// </summary>
+  public string? LastTrackId { get; set; }
+
   private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
   public static AppSettings Load()

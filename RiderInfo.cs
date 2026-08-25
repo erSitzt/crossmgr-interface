@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Class to track comprehensive rider information including laps, times, and race status
@@ -148,6 +148,55 @@ public class RiderInfo
       }
 
       if (found == 0) return null;
+
+      for (var i = 0; i < found; i++)
+      {
+        // recent[0] is the newest, so it carries the highest weight.
+        double weight = found - i;
+        weightedSum += recent[i] * weight;
+        totalWeight += weight;
+      }
+
+      return TimeSpan.FromMilliseconds(weightedSum / totalWeight);
+    }
+  }
+
+  /// <summary>
+  /// Pace of a rider already circulating: the same 3:2:1 weighting as
+  /// <see cref="PredictedLapTime"/>, but over the last three timed laps EXCLUDING
+  /// the first, for the reason spelled out on <see cref="BestLapTime"/>. Null
+  /// until a second lap has been timed.
+  ///
+  /// The track map dead-reckons from this and not from PredictedLapTime, and the
+  /// difference is not cosmetic. When the race starts on the first transponder
+  /// read, lap 1 is 0.000s for whoever triggered it, so dividing elapsed time by
+  /// it sends the leader's dot - the most watched thing on that screen - orbiting
+  /// the circuit. Even three laps in, including lap 1 still leaves the estimate
+  /// around 17% fast.
+  ///
+  /// PredictedLapTime deliberately keeps its own behaviour: it is persisted to the
+  /// race database and drives the riders grid's countdown columns. The two are
+  /// pinned apart by test, so do not "unify" them.
+  /// </summary>
+  public TimeSpan? RacingPace
+  {
+    get
+    {
+      // Walks backwards into a fixed buffer for the same reason PredictedLapTime
+      // does: with the whole field on the map this is read once per rider per frame.
+      Span<double> recent = stackalloc double[3];
+      var found = 0;
+
+      for (var i = Laps.Count - 1; i >= 1 && found < 3; i--)
+      {
+        if (Laps[i].LapTime.HasValue)
+          recent[found++] = Laps[i].LapTime!.Value.TotalMilliseconds;
+      }
+
+      if (found == 0) return null;
+
+      double weightedSum = 0;
+      double totalWeight = 0;
 
       for (var i = 0; i < found; i++)
       {

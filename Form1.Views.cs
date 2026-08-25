@@ -31,6 +31,7 @@ public partial class Form1
     _refresh.Register(new StatisticsView(this));
     _refresh.Register(new LapChartView(this));
     _refresh.Register(new LapProgressionView(this));
+    _refresh.Register(new TrackMapViewAdapter(this));
 
     _refresh.Start();
   }
@@ -71,6 +72,11 @@ public partial class Form1
   /// <summary>
   /// Deep copy for handing rider data to renderers and reports. The laps list
   /// must be copied too: consumers iterate it outside the lock.
+  ///
+  /// Every status field has to come across. This used to copy IsDNF but not
+  /// IsDNS, which made every DNS branch in RaceDayView unreachable - a rider
+  /// marked as not started was scored on the leaderboard as though they were
+  /// still out on the circuit.
   /// </summary>
   private static RiderInfo CloneRiderForDisplay(RiderInfo r) => new()
   {
@@ -87,6 +93,10 @@ public partial class Form1
     RaceStartTime = r.RaceStartTime,
     IsDNF = r.IsDNF,
     DNFTime = r.DNFTime,
+    IsDNS = r.IsDNS,
+    StatusSetByOperator = r.StatusSetByOperator,
+    StatusReason = r.StatusReason,
+    Revision = r.Revision,
     FinalAllowedLap = r.FinalAllowedLap,
     Laps = r.Laps.ToList()
   };
