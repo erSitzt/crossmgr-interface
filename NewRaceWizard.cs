@@ -303,11 +303,25 @@ public sealed class NewRaceWizard : Form
     _summary.Size = new Size(700, 180);
     _summary.Font = new Font(Font.FontFamily, 11F);
 
-    _startReader.Text = "Connect to the transponder reader now";
     _startReader.Location = new Point(0, 240);
     _startReader.AutoSize = true;
-    _startReader.Checked = !readerRunning;
-    _startReader.Enabled = !readerRunning;
+
+    if (readerRunning)
+    {
+      // Already connected, so there is nothing to do - but a greyed-out,
+      // unchecked box reads as "this will not happen", which is the opposite of
+      // the truth. Show it as the settled state it is.
+      _startReader.Text = "The reader is already connected";
+      _startReader.Checked = true;
+      _startReader.Enabled = false;
+      _startReader.ForeColor = Color.FromArgb(0, 120, 50);
+    }
+    else
+    {
+      _startReader.Text = "Connect to the transponder reader now";
+      _startReader.Checked = true;
+      _startReader.Enabled = true;
+    }
 
     panel.Controls.AddRange(new Control[] { prompt, _summary, _startReader });
     return panel;
@@ -361,11 +375,16 @@ public sealed class NewRaceWizard : Form
       ? "You will press Start Race"
       : "The clock starts on the first rider";
 
+    var reader = _startReader.Enabled
+      ? "will be connected when you finish"
+      : "already connected";
+
     _summary.Text =
       $"Race:      {_name.Text.Trim()}\n\n" +
       $"Riders:    {riders}\n\n" +
       $"Length:    {_duration.Value} minutes, then {_extraLaps.Value} more lap(s)\n\n" +
-      $"Start:     {start}";
+      $"Start:     {start}\n\n" +
+      $"Reader:    {reader}";
   }
 
   private void ChooseRiderFile()
