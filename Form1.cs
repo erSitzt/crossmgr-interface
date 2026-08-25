@@ -990,9 +990,8 @@ public partial class Form1 : Form
         });
       }
 
-      _refresh.Invalidate(RaceViewKind.LapProgression);
-      _refresh.Invalidate(RaceViewKind.Riders);
-      _refresh.Invalidate(RaceViewKind.LapChart);
+      _refresh.Invalidate(RaceViewKind.LapProgression | RaceViewKind.Riders |
+                          RaceViewKind.LapChart | RaceViewKind.RaceDay);
 
       return firstLap;
     }
@@ -1138,8 +1137,9 @@ public partial class Form1 : Form
       // Check for position changes and lapping events
       Task.Run(() => CheckForPositionChangesAndLapping(tagID));
 
-      _refresh.Invalidate(RaceViewKind.Riders);
-      _refresh.Invalidate(RaceViewKind.LapChart);
+      _refresh.Invalidate(
+
+        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
 
 
       return newLap;
@@ -1266,8 +1266,8 @@ public partial class Form1 : Form
       targetLapsToFinishRace = 0;
       lastTagID = "None";
       lastTagTime = DateTime.MinValue;
-      _refresh.Invalidate(RaceViewKind.Riders);
-      _refresh.Invalidate(RaceViewKind.LapChart);
+      _refresh.Invalidate(
+        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
       currentRaceId = null;
 
       // Reset position tracking
@@ -1799,8 +1799,8 @@ public partial class Form1 : Form
         AddMessage($"📋 Updated {updatedCount} existing riders with imported data");
 
         // Refresh displays to show updated rider information
-        _refresh.Invalidate(RaceViewKind.Riders);
-        _refresh.Invalidate(RaceViewKind.LapChart);
+        _refresh.Invalidate(
+          RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
       }
     }
   }
@@ -3475,8 +3475,8 @@ public partial class Form1 : Form
       oneMinuteWarningShown = false;
 
       // Update displays to reflect new total times
-      _refresh.Invalidate(RaceViewKind.Riders);
-      _refresh.Invalidate(RaceViewKind.LapChart);
+      _refresh.Invalidate(
+        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
     }
   }
 
@@ -3529,8 +3529,8 @@ public partial class Form1 : Form
     UpdateRaceStartControls();
 
     // Force final update of displays
-    _refresh.Invalidate(RaceViewKind.Riders);
-    _refresh.Invalidate(RaceViewKind.LapChart);
+    _refresh.Invalidate(
+      RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
   }
 
   private void CheckIfAllFinalLapsCompleted()
@@ -3578,8 +3578,8 @@ public partial class Form1 : Form
           AddRaceEvent($"DNF: {rider.Label} - Timeout after {timeSinceLeaderFinished.TotalMinutes:F1} minutes");
 
           // Update displays to show DNF status
-          _refresh.Invalidate(RaceViewKind.Riders);
-          _refresh.Invalidate(RaceViewKind.LapChart);
+          _refresh.Invalidate(
+            RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
         }
       }
     }
@@ -3637,8 +3637,8 @@ public partial class Form1 : Form
     UpdateRaceStartControls();
 
     // Force final update of displays
-    _refresh.Invalidate(RaceViewKind.Riders);
-    _refresh.Invalidate(RaceViewKind.LapChart);
+    _refresh.Invalidate(
+      RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay);
   }
 
   private void InitializeLogging()

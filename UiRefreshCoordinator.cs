@@ -224,6 +224,7 @@ public sealed class UiRefreshCoordinator : IDisposable
         continue;
       }
 
+      var started = Environment.TickCount64;
       try
       {
         view.RenderHeartbeat();
@@ -231,6 +232,13 @@ public sealed class UiRefreshCoordinator : IDisposable
       catch (Exception ex)
       {
         _log?.Invoke($"Error on {view.Kind} heartbeat: {ex.Message}");
+      }
+      finally
+      {
+        // Counted like any other render: a clock-driven repaint costs the UI
+        // thread just as much as a data-driven one, and leaving it out of the
+        // measurements hid most of what the application was actually doing.
+        Record(view.Kind, Environment.TickCount64 - started);
       }
     }
   }
@@ -249,22 +257,26 @@ public sealed class UiRefreshCoordinator : IDisposable
     }
     finally
     {
-      var elapsed = Environment.TickCount64 - started;
-
-      if (!_stats.TryGetValue(view.Kind, out var stat))
-        _stats[view.Kind] = stat = new ViewStats();
-      stat.Renders++;
-      stat.TotalMs += elapsed;
-      if (elapsed > stat.MaxMs) stat.MaxMs = elapsed;
-
-      if (elapsed >= SlowRenderMs)
-        _log?.Invoke($"Slow render: {view.Kind} took {elapsed} ms");
+      Record(view.Kind, Environment.TickCount64 - started);
 
       // Cleared whether or not Render threw - otherwise a persistently failing
       // view would spin the pump at full rate for the rest of the race.
       lock (_gate) _dirty &= ~view.Kind;
       _everRendered |= view.Kind;
     }
+  }
+
+  private void Record(RaceViewKind kind, long elapsedMs)
+  {
+    if (!_stats.TryGetValue(kind, out var stat))
+      _stats[kind] = stat = new ViewStats();
+
+    stat.Renders++;
+    stat.TotalMs += elapsedMs;
+    if (elapsedMs > stat.MaxMs) stat.MaxMs = elapsedMs;
+
+    if (elapsedMs >= SlowRenderMs)
+      _log?.Invoke($"Slow render: {kind} took {elapsedMs} ms");
   }
 
   /// <summary>

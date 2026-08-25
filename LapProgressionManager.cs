@@ -111,7 +111,12 @@ public class LapProgressionManager : IDisposable
     bool waitingForFinalLapsSnapshot;
 
     // Data is already a snapshot, so no locking needed
-    if (riderSnapshot.Count == 0) return;
+    if (riderSnapshot.Count == 0)
+    {
+      _rows = new List<LapProgressionRowData>();
+      _dataGridViewLapProgression.RowCount = 0;
+      return;
+    }
 
     raceFinishedSnapshot = raceFinished;
     waitingForFinalLapsSnapshot = waitingForFinalLaps;
@@ -120,8 +125,7 @@ public class LapProgressionManager : IDisposable
     {
       _dataGridViewLapProgression.SuspendLayout();
 
-      // Clear existing rows
-      _dataGridViewLapProgression.Rows.Clear();
+      var rows = new List<LapProgressionRowData>(riderSnapshot.Count);
 
       // Find the maximum number of laps completed by any rider
       int maxLaps = riderSnapshot.Max(r => r.TotalLaps);
@@ -137,7 +141,6 @@ public class LapProgressionManager : IDisposable
       // Sort riders by their final position (finishing riders first, then DNF)
       var sortedRiders = PositionCalculator.GetSortedRidersFromSnapshot(riderSnapshot);
 
-      var boldFont = GetBoldCellFont();
 
       for (int rank = 0; rank < sortedRiders.Count; rank++)
       {
@@ -257,47 +260,37 @@ public class LapProgressionManager : IDisposable
           status = "Racing";
         }
 
-        var rowValues = new object[cells.Length + 2];
-        rowValues[0] = riderDisplayName;
-        for (int i = 0; i < cells.Length; i++)
-          rowValues[i + 1] = cells[i].Text;
-        rowValues[^1] = status;
-
-        _dataGridViewLapProgression.Rows.Add(rowValues);
-
-        var currentGridRow = _dataGridViewLapProgression.Rows[_dataGridViewLapProgression.Rows.Count - 1];
-        var statusCellIndex = currentGridRow.Cells.Count - 1;
-
-        for (int i = 0; i < cells.Length; i++)
-        {
-          var cellIndex = i + 1;
-          if (cellIndex >= statusCellIndex) break;
-
-          var cell = currentGridRow.Cells[cellIndex];
-          cell.Style.BackColor = cells[i].BackColor;
-
-          if (cells[i].IsSplitLap)
-            cell.Style.ForeColor = Color.Red;
-
-          // Make position text bold in each populated lap cell
-          if (cells[i].Text.Length > 0)
-            cell.Style.Font = boldFont;
-        }
-
-        // Color code the rider ID and status columns based on overall position
+        // Build the row; the grid is in virtual mode and pulls what it paints.
+        var rowBack = Color.Empty;
+        var rowFore = Color.Empty;
         if (rider.IsDNF)
         {
-          currentGridRow.Cells[0].Style.BackColor = Color.LightGray;
-          currentGridRow.Cells[0].Style.ForeColor = Color.DarkRed;
-          currentGridRow.Cells[statusCellIndex].Style.BackColor = Color.LightGray;
-          currentGridRow.Cells[statusCellIndex].Style.ForeColor = Color.DarkRed;
+          rowBack = Color.LightGray;
+          rowFore = Color.DarkRed;
         }
         else if (rank < PodiumColors.Length)
         {
-          currentGridRow.Cells[0].Style.BackColor = PodiumColors[rank];
-          currentGridRow.Cells[statusCellIndex].Style.BackColor = PodiumColors[rank];
+          rowBack = PodiumColors[rank];
         }
+
+        rows.Add(new LapProgressionRowData
+        {
+          RiderName = riderDisplayName,
+          Status = status,
+          LapCells = cells,
+          EdgeBackColor = rowBack,
+          EdgeForeColor = rowFore
+        });
       }
+
+      _rows = rows;
+
+      // Virtual mode: the control asks for the rows it is painting, so a large
+      // field costs no more than a small one.
+      if (_dataGridViewLapProgression.RowCount != rows.Count)
+        _dataGridViewLapProgression.RowCount = rows.Count;
+
+      _dataGridViewLapProgression.Invalidate();
     }
     catch (Exception ex)
     {
@@ -310,9 +303,59 @@ public class LapProgressionManager : IDisposable
     }
   }
 
+  private List<LapProgressionRowData> _rows = new();
+
+  /// <summary>Supplies cell text for the rows the grid is painting.</summary>
+  private void Grid_CellValueNeeded(object? sender, DataGridViewCellValueEventArgs e)
+  {
+    if (e.RowIndex < 0 || e.RowIndex >= _rows.Count) return;
+    var row = _rows[e.RowIndex];
+
+    // Column layout is: rider name, one column per lap, then status.
+    if (e.ColumnIndex == 0) { e.Value = row.RiderName; return; }
+
+    var statusIndex = (_dataGridViewLapProgression?.ColumnCount ?? 0) - 1;
+    if (e.ColumnIndex == statusIndex) { e.Value = row.Status; return; }
+
+    var lapIndex = e.ColumnIndex - 1;
+    e.Value = lapIndex >= 0 && lapIndex < row.LapCells.Length ? row.LapCells[lapIndex].Text : "";
+  }
+
+  /// <summary>Applies the position and lap-time colouring at paint time.</summary>
+  private void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+  {
+    if (e.RowIndex < 0 || e.RowIndex >= _rows.Count) return;
+    var row = _rows[e.RowIndex];
+
+    var statusIndex = (_dataGridViewLapProgression?.ColumnCount ?? 0) - 1;
+
+    // Rider name and status carry the podium or DNF shading.
+    if (e.ColumnIndex == 0 || e.ColumnIndex == statusIndex)
+    {
+      if (!row.EdgeBackColor.IsEmpty) e.CellStyle.BackColor = row.EdgeBackColor;
+      if (!row.EdgeForeColor.IsEmpty) e.CellStyle.ForeColor = row.EdgeForeColor;
+      return;
+    }
+
+    var lapIndex = e.ColumnIndex - 1;
+    if (lapIndex < 0 || lapIndex >= row.LapCells.Length) return;
+
+    var cell = row.LapCells[lapIndex];
+    e.CellStyle.BackColor = cell.BackColor;
+    if (cell.IsSplitLap) e.CellStyle.ForeColor = Color.Red;
+    if (cell.Text.Length > 0) e.CellStyle.Font = GetBoldCellFont();
+  }
+
   private void InitializeLapProgressionGrid()
   {
     if (_dataGridViewLapProgression == null) return;
+
+    // Virtual mode: no row data lives in the control.
+    _dataGridViewLapProgression.VirtualMode = true;
+    _dataGridViewLapProgression.CellValueNeeded -= Grid_CellValueNeeded;
+    _dataGridViewLapProgression.CellValueNeeded += Grid_CellValueNeeded;
+    _dataGridViewLapProgression.CellFormatting -= Grid_CellFormatting;
+    _dataGridViewLapProgression.CellFormatting += Grid_CellFormatting;
 
     _dataGridViewLapProgression.Columns.Clear();
 
@@ -389,9 +432,9 @@ public class LapProgressionManager : IDisposable
           Resizable = DataGridViewTriState.True
         };
 
-        // Apply consistent styling
+        // Alignment only: the grid's own font already applies, and allocating a
+        // Font per column leaked a GDI handle for every lap of the race.
         newColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-        newColumn.DefaultCellStyle.Font = new Font(_dataGridViewLapProgression.Font, FontStyle.Regular);
 
         // Insert before the Status column (which should be last)
         var statusColumnIndex = _dataGridViewLapProgression.Columns["Status"]?.Index ?? _dataGridViewLapProgression.Columns.Count;
@@ -412,3 +455,23 @@ public class LapProgressionManager : IDisposable
 /// whether the lap it represents came from a split.
 /// </summary>
 public readonly record struct ProgressionCell(string Text, Color BackColor, bool IsSplitLap);
+
+/// <summary>
+/// One prepared row of the lap progression grid.
+///
+/// The grid runs in virtual mode: rows are built into a plain list and the
+/// control asks for the handful it is painting, so the cost no longer grows
+/// with the size of the field.
+/// </summary>
+public sealed class LapProgressionRowData
+{
+  public string RiderName { get; init; } = "";
+  public string Status { get; init; } = "";
+
+  /// <summary>One entry per lap column.</summary>
+  public ProgressionCell[] LapCells { get; init; } = Array.Empty<ProgressionCell>();
+
+  /// <summary>Podium or DNF shading for the rider-name and status columns.</summary>
+  public Color EdgeBackColor { get; init; } = Color.Empty;
+  public Color EdgeForeColor { get; init; } = Color.Empty;
+}
