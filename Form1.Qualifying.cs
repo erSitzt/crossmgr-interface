@@ -19,8 +19,9 @@ public partial class Form1
   private string _qualifyingClassFilter = "All Classes";
 
   /// <summary>
-  /// Everyone who should appear on the sheet, which is more than everyone the
-  /// timing loop has seen.
+  /// Everyone entered in the session, which is more than everyone the timing
+  /// loop has seen. Shared by the gate pick order and the transponder check -
+  /// the second one is all about the riders the loop has NOT seen.
   ///
   /// A RiderInfo is only created on a rider's first crossing, so a rider on the
   /// imported roster who never went out has no record at all. Without the union
@@ -28,7 +29,7 @@ public partial class Form1
   /// as having set no time, which is the one thing the operator most needs to
   /// see before handing the list out.
   /// </summary>
-  private List<RiderInfo> BuildQualifyingField()
+  private List<RiderInfo> BuildSessionField()
   {
     List<RiderInfo> field;
 
@@ -84,7 +85,7 @@ public partial class Form1
   /// <summary>Repaints the gate pick order from the current field.</summary>
   private void RenderQualifying()
   {
-    var field = BuildQualifyingField();
+    var field = BuildSessionField();
 
     _qualifyingView.SetClasses(QualifyingClasses(field), _qualifyingClassFilter);
 
@@ -239,7 +240,7 @@ public partial class Form1
   {
     try
     {
-      var field = BuildQualifyingField();
+      var field = BuildSessionField();
 
       DateTime? sessionStart;
       DateTime? sessionEnd;

@@ -160,7 +160,7 @@ public partial class Form1
     // screen the operator watches all session.
     //
     // Ranks the snapshot already taken above rather than calling
-    // BuildQualifyingField, which would clone the whole field a second time on
+    // BuildSessionField, which would clone the whole field a second time on
     // every heartbeat. The board shows the top of the order, and riders who
     // never went out have no time and so are never in it - so the picks shown
     // here are the same ones the sheet prints.

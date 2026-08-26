@@ -16,6 +16,7 @@ public partial class Form1
   private ToolStripMenuItem _menuStartRace = null!;
   private ToolStripMenuItem _menuEndRace = null!;
   private ToolStripMenuItem _menuGatePick = null!;
+  private ToolStripMenuItem _menuTransponders = null!;
   private ToolStripMenuItem _menuStartReader = null!;
   private ToolStripMenuItem _menuStopReader = null!;
   private ToolStripMenuItem _menuUndo = null!;
@@ -180,6 +181,7 @@ public partial class Form1
     _menuEndRace = Item("End race now...", Keys.Control | Keys.E, (s, e) => EndRaceNow());
     var results = Item("Results...", Keys.Control | Keys.P, buttonGenerateReport_Click);
     _menuGatePick = Item("Gate pick order...", Keys.None, (s, e) => ShowQualifyingReport());
+    _menuTransponders = Item("Transponder check...", Keys.None, (s, e) => ShowTransponderReport());
     var summary = Item("Rider summary", Keys.None, buttonShowSummary_Click);
     var clear = Item("Delete race data...", Keys.None, buttonClearRiders_Click);
     var exit = Item("Exit", Keys.None, (s, e) => Close());
@@ -188,7 +190,7 @@ public partial class Form1
     {
       newRace, import, new ToolStripSeparator(),
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
-      results, _menuGatePick, summary, new ToolStripSeparator(),
+      results, _menuGatePick, _menuTransponders, summary, new ToolStripSeparator(),
       clear, exit
     });
 
@@ -319,6 +321,9 @@ public partial class Form1
     // Shown only for a qualifying session: after a race there is no gate pick
     // order, and offering one beside Results... invites printing the wrong sheet.
     _menuGatePick.Visible = IsQualifying;
+
+    // Practice and qualifying both: a tag can still be re-fitted before the race.
+    _menuTransponders.Visible = IsTimedSession;
     _menuStartReader.Enabled = !isListening;
     _menuStopReader.Enabled = isListening;
 

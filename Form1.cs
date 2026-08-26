@@ -179,6 +179,10 @@ public partial class Form1 : Form
     // leaderboard is an invitation to read the wrong sheet.
     if (IsQualifying && tabPageQualifying != null) desired.Add(tabPageQualifying);
 
+    // Any timed session. Practice is the session whose whole point is finding
+    // bad tags, and qualifying is the last chance to fix one before the race.
+    if (IsTimedSession && tabPageTransponder != null) desired.Add(tabPageTransponder);
+
     desired.Add(tabPageTrack);
 
     if (advancedMode)
@@ -238,6 +242,7 @@ public partial class Form1 : Form
     // qualifying session.
     InitializeTrackView();
     InitializeQualifyingView();
+    InitializeTransponderView();
     InitializeRefreshCoordinator();
     InitializeCorrections();
     _lapProgressionManager.RefreshRequested += () => _refresh.RenderNow(RaceViewKind.LapProgression);

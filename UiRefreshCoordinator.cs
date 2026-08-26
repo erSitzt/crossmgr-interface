@@ -21,6 +21,9 @@ public enum RaceViewKind
   /// <summary>The gate pick order. Only present during a qualifying session.</summary>
   Qualifying = 1 << 6,
 
+  /// <summary>The transponder check. Present for any timed session.</summary>
+  Transponder = 1 << 7,
+
   /// <summary>
   /// The views that move when a lap is recorded.
   ///
@@ -28,9 +31,9 @@ public enum RaceViewKind
   /// site, which is how the qualifying sheet would otherwise have been left out
   /// of one of them and quietly gone stale.
   /// </summary>
-  Standings = Riders | LapChart | RaceDay | Track | Qualifying,
+  Standings = Riders | LapChart | RaceDay | Track | Qualifying | Transponder,
 
-  All = Riders | Statistics | LapChart | LapProgression | RaceDay | Track | Qualifying
+  All = Riders | Statistics | LapChart | LapProgression | RaceDay | Track | Qualifying | Transponder
 }
 
 /// <summary>

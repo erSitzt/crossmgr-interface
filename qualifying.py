@@ -76,24 +76,55 @@ FIELD = [
 # count; the 42.0 after it must not.
 FRANK_LATE = [42.0, 42.0, 42.0, 42.0, 42.0, 38.0, 42.0]
 
+# --tags rewrites the field to exercise the transponder check instead of the
+# ranking: every category it can report has to be produced on purpose, because
+# waiting for a real bad tag to turn up is not a test.
+#
+#   Carla   - two missed reads, so two laps run at ~2x her pace
+#   David   - four clean laps and then silence while the rest ride on
+#   Elif    - a second read four seconds after each of two laps
+#   Greta   - out-lap only, as before
+#   Ida/Jonas - on the roster, never leave the paddock
+TAGS_FIELD = [
+    ("QUAL001", "11", "Anna Berger",  20.0, [45.0, 44.0, 43.5, 42.0, 43.0, 44.0]),
+    ("QUAL002", "22", "Ben Fischer",  25.0, [46.0, 38.5, 44.0, 43.0, 44.0]),
+    # 82.0 and 84.0 are two laps' worth each: one missed read apiece.
+    ("QUAL003", "33", "Carla Hoff",   18.0, [41.0, 82.0, 41.5, 84.0, 42.0]),
+    ("QUAL004", "44", "David Kern",   22.0, [42.0, 44.5, 45.0]),
+    ("QUAL005", "55", "Elif Yilmaz",  21.0, [40.0, 39.2, 40.5, 39.8, 41.0]),
+    ("QUAL006", "66", "Frank Weber",  23.0, [43.0, 41.0, 42.0, 42.0, 43.0]),
+    ("QUAL007", "77", "Greta Lang",   24.0, []),
+    ("QUAL008", "88", "Hugo Reiter",  26.0, [44.0, 43.5, 45.0, 44.0, 44.5]),
+]
 
-def schedule(late, scale):
-    """Every crossing as (offset_seconds, tag, lap_number), in time order."""
+# Extra reads sent 4s after the rider's own crossing at these lap numbers.
+DOUBLE_READS = {"QUAL005": [2, 4]}
+
+
+def schedule(late, scale, tags=False):
+    """Every crossing as (offset_seconds, tag, lap_number, duplicate), in time order."""
     events = []
+    field = TAGS_FIELD if tags else FIELD
 
-    for tag, _number, _name, outlap, laps in FIELD:
+    for tag, _number, _name, outlap, laps in field:
         times = list(laps)
         if late and tag == "QUAL006":
             times = times + FRANK_LATE
 
         offset = outlap
-        events.append((offset, tag, 1))
+        events.append((offset, tag, 1, False))
         for i, lap in enumerate(times):
             offset += lap
-            events.append((offset, tag, i + 2))
+            lap_number = i + 2
+            events.append((offset, tag, lap_number, False))
+
+            # A duplicate is a second read of the same pass: too soon to be a
+            # lap, so the app should reject it and count it here.
+            if tags and lap_number in DOUBLE_READS.get(tag, []):
+                events.append((offset + 4.0, tag, lap_number, True))
 
     events.sort(key=lambda e: e[0])
-    return [(o * scale, t, n) for o, t, n in events]
+    return [(o * scale, t, n, d) for o, t, n, d in events]
 
 
 def send(sock, tag, count, stamp):
@@ -115,6 +146,9 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--late", action="store_true",
                         help="Frank Weber stays out past the flag")
+    parser.add_argument("--tags", action="store_true",
+                        help="drive the transponder check instead: missed reads, "
+                             "a tag that goes quiet, duplicate reads")
     parser.add_argument("--scale", type=float, default=1.0,
                         help="shrink every lap time by this factor to test faster "
                              "(0.5 gives ~20s laps; below 0.35 laps get rejected "
@@ -126,8 +160,9 @@ def main():
               f"10s minimum lap time and be rejected as short reads.")
         return 2
 
-    names = {tag: (number, name) for tag, number, name, _o, _l in FIELD}
-    events = schedule(args.late, args.scale)
+    field = TAGS_FIELD if args.tags else FIELD
+    names = {tag: (number, name) for tag, number, name, _o, _l in field}
+    events = schedule(args.late, args.scale, args.tags)
 
     sock = socket.socket()
     sock.settimeout(15)
@@ -142,23 +177,27 @@ def main():
         print("Frank Weber (#66) will stay out past the flag.", flush=True)
     else:
         print("everyone is in by about "
-              f"{max(o for o, _t, _n in events):.0f}s - the clock should run out "
+              f"{max(o for o, _t, _n, _d in events):.0f}s - the clock should run out "
               "with an empty track.", flush=True)
     print(flush=True)
 
-    for offset, tag, lap in events:
+    for offset, tag, lap, duplicate in events:
         due = base + timedelta(seconds=offset)
         wait = (due - datetime.now()).total_seconds()
         if wait > 0:
             time.sleep(wait)
 
-        counts[tag] = counts.get(tag, 0) + 1
+        # A duplicate re-sends the lap count the rider already has, which is what
+        # a tag being read twice in one pass actually looks like on the wire.
+        if not duplicate:
+            counts[tag] = counts.get(tag, 0) + 1
+
         # The exact intended moment goes on the wire, not datetime.now(), so the
         # lap times are exact rather than however long sleep() actually took.
-        send(sock, tag, counts[tag], due)
+        send(sock, tag, counts.get(tag, 1), due)
 
         number, name = names[tag]
-        note = " (out-lap)" if lap == 1 else ""
+        note = " (out-lap)" if lap == 1 else (" DUPLICATE" if duplicate else "")
         print(f"  {offset:6.1f}s  #{number:<3} {name:<14} lap {lap}{note}", flush=True)
 
     print("\nall crossings sent - leaving the connection open so the reader "

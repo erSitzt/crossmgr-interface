@@ -21,6 +21,7 @@ partial class Form1
     {
       _raceReportGenerator?.Dispose();
       _qualifyingReportGenerator?.Dispose();
+      _transponderReportGenerator?.Dispose();
     }
     base.Dispose(disposing);
   }

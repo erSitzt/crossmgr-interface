@@ -33,6 +33,7 @@ public partial class Form1
     _refresh.Register(new LapProgressionView(this));
     _refresh.Register(new TrackMapViewAdapter(this));
     _refresh.Register(new QualifyingViewAdapter(this));
+    _refresh.Register(new TransponderViewAdapter(this));
 
     _refresh.Start();
   }
@@ -169,6 +170,21 @@ public partial class Form1
     public bool NeedsHeartbeat => false;
 
     public void Render() => _form.RenderQualifying();
+  }
+
+  private sealed class TransponderViewAdapter : IRaceView
+  {
+    private readonly Form1 _form;
+    public TransponderViewAdapter(Form1 form) => _form = form;
+
+    public RaceViewKind Kind => RaceViewKind.Transponder;
+    public TabPage? HostTab => _form.tabPageTransponder;
+
+    // "Went quiet" is measured against the rest of the field rather than the
+    // clock, so nothing on this view moves until another crossing arrives.
+    public bool NeedsHeartbeat => false;
+
+    public void Render() => _form.RenderTransponderCheck();
   }
 
   private sealed class LapProgressionView : IRaceView
