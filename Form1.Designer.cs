@@ -92,6 +92,7 @@ partial class Form1
   private System.Windows.Forms.Label labelDnfTimeout;
   private System.Windows.Forms.NumericUpDown numericUpDownDnfTimeout;
   private System.Windows.Forms.Button buttonSetDnfTimeout;
+  private System.Windows.Forms.Button buttonMissedReadSettings;
 
   private void InitializeComponent()
   {
@@ -138,6 +139,7 @@ partial class Form1
     numericUpDownDnfTimeout = new NumericUpDown();
     labelDnfTimeout = new Label();
     buttonSetDnfTimeout = new Button();
+    buttonMissedReadSettings = new Button();
     labelMinimumLapTime = new Label();
     labelAdditionalLaps = new Label();
     numericUpDownAdditionalLaps = new NumericUpDown();
@@ -582,6 +584,7 @@ partial class Form1
     tabPageRaceSettings.Controls.Add(labelAdditionalLaps);
     tabPageRaceSettings.Controls.Add(numericUpDownAdditionalLaps);
     tabPageRaceSettings.Controls.Add(buttonSetAdditionalLaps);
+    tabPageRaceSettings.Controls.Add(buttonMissedReadSettings);
     tabPageRaceSettings.Controls.Add(groupBoxRaceStart);
     tabPageRaceSettings.Controls.Add(labelTagFilter);
     tabPageRaceSettings.Controls.Add(textBoxTagFilter);
@@ -653,6 +656,16 @@ partial class Form1
     numericUpDownDnfTimeout.Value = new decimal(new int[] { 2, 0, 0, 0 });
     // 
     // buttonSetDnfTimeout
+    // 
+    // 
+    // buttonMissedReadSettings
+    // 
+    buttonMissedReadSettings.Location = new Point(29, 460);
+    buttonMissedReadSettings.Name = "buttonMissedReadSettings";
+    buttonMissedReadSettings.Size = new Size(260, 40);
+    buttonMissedReadSettings.TabIndex = 40;
+    buttonMissedReadSettings.Text = "Missed read detection...";
+    buttonMissedReadSettings.UseVisualStyleBackColor = true;
     // 
     buttonSetDnfTimeout.Location = new Point(497, 149);
     buttonSetDnfTimeout.Margin = new Padding(4, 5, 4, 5);

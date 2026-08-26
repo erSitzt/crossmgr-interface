@@ -134,7 +134,7 @@ public partial class Form1
       //    by the very next re-scan.
       var globalAverage = CalculateGlobalAverageLapTime();
       foreach (var rider in affected)
-        LapAnomalyDetector.Analyze(rider, globalAverage);
+        LapAnomalyDetector.Analyze(rider, globalAverage, missedReadSettings);
 
       // 2. Work out the new standings. The position baseline itself is re-seeded
       //    below, outside this lock: the position check takes positionCheckLock
@@ -208,6 +208,39 @@ public partial class Form1
 
     // 6. Repaint straight away: the operator is watching the standings behind
     //    the dialog to see what their change did.
+    _refresh.RenderNow(RaceViewKind.All);
+  }
+
+  /// <summary>
+  /// Opens the missed-read detection settings, then re-scans every rider.
+  ///
+  /// The re-scan matters: the flags already on the laps were worked out under
+  /// the old values, so without it the change appears to do nothing until the
+  /// next crossing arrives.
+  /// </summary>
+  private void ShowMissedReadSettings()
+  {
+    using var dialog = new MissedReadSettingsDialog(missedReadSettings);
+    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+    if (dialog.Result == missedReadSettings) return;
+
+    missedReadSettings = dialog.Result;
+    RememberRaceSetup();
+
+    int flagged;
+    lock (ridersLock)
+    {
+      var globalAverage = CalculateGlobalAverageLapTime();
+      foreach (var rider in riders.Values)
+        LapAnomalyDetector.Analyze(rider, globalAverage, missedReadSettings);
+
+      flagged = riders.Values.Sum(r => r.Laps.Count(l => l.IsSuggestedForSplit));
+    }
+
+    AddMessage($"⚙️ Missed read detection: long lap at {missedReadSettings.MinRatio:0.0}x pace, " +
+               $"judged after {missedReadSettings.MinPriorLaps} lap(s). " +
+               $"{flagged} lap(s) now flagged.");
+
     _refresh.RenderNow(RaceViewKind.All);
   }
 }

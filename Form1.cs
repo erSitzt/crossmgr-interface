@@ -66,6 +66,9 @@ public partial class Form1 : Form
   private int additionalLapsAfterTimeExpiry = 1; // Configurable number of laps after time expires
   private int dnfTimeoutMinutes = 2; // Configurable DNF timeout in minutes
 
+  /// <summary>How hard to look for a missed read. Restored from settings on load.</summary>
+  private LapAnomalySettings missedReadSettings = LapAnomalySettings.Default;
+
   // Lap time validation
   private TimeSpan minimumLapTime = TimeSpan.FromSeconds(10); // Ignore laps shorter than this
   private bool shortLapDetectionEnabled = true;
@@ -270,6 +273,7 @@ public partial class Form1 : Form
 
     buttonSetShortLapSettings.Click += buttonSetShortLapSettings_Click;
     buttonSetDnfTimeout.Click += buttonSetDnfTimeout_Click;
+    buttonMissedReadSettings.Click += (_, _) => ShowMissedReadSettings();
 
     // Initialize tag filter controls
     textBoxTagFilter.PlaceholderText = "e.g., RIDER, 1000, BIKE (comma-separated)";
@@ -1201,7 +1205,7 @@ public partial class Form1 : Form
       .Select(l => l.LapNumber)
       .ToHashSet();
 
-    LapAnomalyDetector.Analyze(rider, CalculateGlobalAverageLapTime());
+    LapAnomalyDetector.Analyze(rider, CalculateGlobalAverageLapTime(), missedReadSettings);
 
     var newlyFlagged = rider.Laps
       .Where(l => l.IsSuggestedForSplit && !before.Contains(l.LapNumber))

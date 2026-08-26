@@ -49,6 +49,13 @@ public partial class Form1
       _settings.DnfTimeoutMinutes, numericUpDownDnfTimeout.Minimum, numericUpDownDnfTimeout.Maximum);
     dnfTimeoutMinutes = _settings.DnfTimeoutMinutes;
     sessionType = _settings.SessionType;
+    missedReadSettings = new LapAnomalySettings
+    {
+      MinRatio = _settings.MissedReadMinRatio,
+      MaxRatio = _settings.MissedReadMaxRatio,
+      MinPriorLaps = _settings.MissedReadMinPriorLaps,
+      PaceWindow = _settings.MissedReadPaceWindow
+    }.Validated();
     radioButtonStartManual.Checked = _settings.ManualStart;
     radioButtonStartOnFirstTag.Checked = !_settings.ManualStart;
 
@@ -95,6 +102,10 @@ public partial class Form1
     _settings.ManualStart = manualStartMode;
     _settings.DnfTimeoutMinutes = dnfTimeoutMinutes;
     _settings.SessionType = sessionType;
+    _settings.MissedReadMinRatio = missedReadSettings.MinRatio;
+    _settings.MissedReadMaxRatio = missedReadSettings.MaxRatio;
+    _settings.MissedReadMinPriorLaps = missedReadSettings.MinPriorLaps;
+    _settings.MissedReadPaceWindow = missedReadSettings.PaceWindow;
     _settings.Save();
   }
 

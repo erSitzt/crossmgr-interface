@@ -54,6 +54,14 @@ public sealed class AppSettings
   /// </summary>
   public SessionType SessionType { get; set; }
 
+  // How hard the app looks for a missed transponder read. Tunable because the
+  // right sensitivity depends on the circuit; see LapAnomalySettings for what
+  // each one does and what it originally was.
+  public double MissedReadMinRatio { get; set; } = 1.8;
+  public double MissedReadMaxRatio { get; set; } = 5.5;
+  public int MissedReadMinPriorLaps { get; set; } = 1;
+  public int MissedReadPaceWindow { get; set; } = 5;
+
   /// <summary>Which of position, start number and name are written beside each rider dot.</summary>
   public MapLabelParts TrackLabelParts { get; set; } = MapLabelParts.Position | MapLabelParts.Number;
 
