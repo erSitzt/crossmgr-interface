@@ -732,12 +732,12 @@ partial class Form1
     // 
     // radioButtonStartOnFirstTag
     // 
-    radioButtonStartOnFirstTag.AutoSize = true;
+    radioButtonStartOnFirstTag.AutoSize = false;
     radioButtonStartOnFirstTag.Checked = true;
     radioButtonStartOnFirstTag.Location = new Point(14, 37);
     radioButtonStartOnFirstTag.Margin = new Padding(4, 5, 4, 5);
     radioButtonStartOnFirstTag.Name = "radioButtonStartOnFirstTag";
-    radioButtonStartOnFirstTag.Size = new Size(205, 29);
+    radioButtonStartOnFirstTag.Size = new Size(240, 29);
     radioButtonStartOnFirstTag.TabIndex = 0;
     radioButtonStartOnFirstTag.TabStop = true;
     radioButtonStartOnFirstTag.Text = "When the first rider crosses";
@@ -745,11 +745,11 @@ partial class Form1
     // 
     // radioButtonStartManual
     // 
-    radioButtonStartManual.AutoSize = true;
+    radioButtonStartManual.AutoSize = false;
     radioButtonStartManual.Location = new Point(14, 78);
     radioButtonStartManual.Margin = new Padding(4, 5, 4, 5);
     radioButtonStartManual.Name = "radioButtonStartManual";
-    radioButtonStartManual.Size = new Size(135, 29);
+    radioButtonStartManual.Size = new Size(240, 29);
     radioButtonStartManual.TabIndex = 1;
     radioButtonStartManual.Text = "I will press Start Race myself";
     radioButtonStartManual.UseVisualStyleBackColor = true;
@@ -757,7 +757,7 @@ partial class Form1
     // buttonStartRace
     // 
     buttonStartRace.Enabled = false;
-    buttonStartRace.Location = new Point(214, 75);
+    buttonStartRace.Location = new Point(266, 75);
     buttonStartRace.Margin = new Padding(4, 5, 4, 5);
     buttonStartRace.Name = "buttonStartRace";
     buttonStartRace.Size = new Size(107, 38);
@@ -768,29 +768,29 @@ partial class Form1
     // 
     // labelRaceStatus
     // 
-    labelRaceStatus.AutoSize = true;
+    labelRaceStatus.AutoSize = false;
     labelRaceStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
     labelRaceStatus.ForeColor = Color.DarkRed;
     labelRaceStatus.Location = new Point(14, 125);
     labelRaceStatus.Margin = new Padding(4, 0, 4, 0);
     labelRaceStatus.Name = "labelRaceStatus";
-    labelRaceStatus.Size = new Size(170, 22);
+    labelRaceStatus.Size = new Size(372, 22);
     labelRaceStatus.TabIndex = 3;
     labelRaceStatus.Text = "Race: Not Started";
     // 
     // labelTagFilter
     // 
-    labelTagFilter.AutoSize = true;
-    labelTagFilter.Location = new Point(29, 157);
+    labelTagFilter.AutoSize = false;
+    labelTagFilter.Location = new Point(29, 197);
     labelTagFilter.Margin = new Padding(4, 0, 4, 0);
     labelTagFilter.Name = "labelTagFilter";
-    labelTagFilter.Size = new Size(86, 25);
+    labelTagFilter.Size = new Size(280, 25);
     labelTagFilter.TabIndex = 13;
-    labelTagFilter.Text = "Only count transponders starting with:";
+    labelTagFilter.Text = "Only transponders starting with:";
     // 
     // textBoxTagFilter
     // 
-    textBoxTagFilter.Location = new Point(318, 154);
+    textBoxTagFilter.Location = new Point(318, 195);
     textBoxTagFilter.Margin = new Padding(4, 5, 4, 5);
     textBoxTagFilter.Name = "textBoxTagFilter";
     textBoxTagFilter.Size = new Size(171, 31);
@@ -798,7 +798,7 @@ partial class Form1
     // 
     // buttonSetFilter
     // 
-    buttonSetFilter.Location = new Point(497, 150);
+    buttonSetFilter.Location = new Point(497, 190);
     buttonSetFilter.Margin = new Padding(4, 5, 4, 5);
     buttonSetFilter.Name = "buttonSetFilter";
     buttonSetFilter.Size = new Size(107, 38);
@@ -810,7 +810,7 @@ partial class Form1
     // checkBoxFilterEnabled
     // 
     checkBoxFilterEnabled.AutoSize = true;
-    checkBoxFilterEnabled.Location = new Point(612, 156);
+    checkBoxFilterEnabled.Location = new Point(612, 197);
     checkBoxFilterEnabled.Margin = new Padding(4, 5, 4, 5);
     checkBoxFilterEnabled.Name = "checkBoxFilterEnabled";
     checkBoxFilterEnabled.Size = new Size(101, 29);

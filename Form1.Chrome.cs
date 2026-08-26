@@ -84,6 +84,11 @@ public partial class Form1
     // Layout is not final until the form is actually on screen, so verify the
     // real geometry then rather than trusting it during Load.
     Shown += (_, _) => VerifyChromeLayout();
+
+    // Checked when a tab is first brought to the front, not at startup: a
+    // control on an unselected TabPage reports Visible false and has no laid-out
+    // size yet, so checking early measures nothing at all.
+    tabControl.SelectedIndexChanged += (_, _) => VerifyTabLayoutOnce(tabControl.SelectedTab);
   }
 
   /// <summary>Records that the reader connection is open, or closed, across restarts.</summary>
@@ -163,6 +168,88 @@ public partial class Form1
   /// dock z-order wrong is silent - nothing throws, the tab strip just disappears
   /// behind the menu - so it is worth asserting once at startup.
   /// </summary>
+  /// <summary>
+  /// Reports controls that sit on top of each other on an absolutely positioned
+  /// tab.
+  ///
+  /// The settings tabs place every control by hand, so inserting a row means
+  /// remembering to move everything below it - and the tag filter row spent a
+  /// while underneath the DNF timeout row because nobody did. Nothing throws or
+  /// looks wrong at build time; one control simply draws over another.
+  ///
+  /// Checked after the form is shown, using measured sizes rather than declared
+  /// ones, because an AutoSize label ignores the width in the designer and a
+  /// scaled display changes all of them.
+  /// </summary>
+  private readonly HashSet<string> _layoutVerified = new();
+
+  private void VerifyTabLayoutOnce(TabPage? page)
+  {
+    if (page == null || !_layoutVerified.Add(page.Name)) return;
+    VerifyTabLayout(page);
+  }
+
+  /// <summary>Name for the log, falling back to the type for code-built controls.</summary>
+  private static string Describe(Control c) =>
+    !string.IsNullOrEmpty(c.Name) ? c.Name
+      : !string.IsNullOrWhiteSpace(c.Text) ? $"{c.GetType().Name}(\"{c.Text}\")"
+      : c.GetType().Name;
+
+  /// <summary>Overlap thinner than this in either direction is a rounding artefact.</summary>
+  private const int SliverPixels = 6;
+
+  private void VerifyTabLayout(TabPage page)
+  {
+    var clashes = new List<string>();
+    var checked_ = 0;
+
+    // Recurses into group boxes and panels. The first version only looked at the
+    // tab's own children and so could not see the Start Race button sitting
+    // under a radio button's text inside a group box - siblings only collide
+    // with siblings, and every container has its own coordinate space.
+    void Check(Control parent)
+    {
+      var siblings = parent.Controls.Cast<Control>().Where(c => c.Visible).ToList();
+      checked_ += siblings.Count;
+
+      // A layout panel places its own children and a docked control is layered
+      // on purpose. Only hand-positioned siblings can collide by accident, and
+      // reporting the rest made this cry wolf on two tabs that were fine.
+      var positioned = parent is TableLayoutPanel or FlowLayoutPanel
+        ? new List<Control>()
+        : siblings.Where(c => c.Dock == DockStyle.None).ToList();
+
+      for (var i = 0; i < positioned.Count; i++)
+      {
+        for (var j = i + 1; j < positioned.Count; j++)
+        {
+          var a = positioned[i].Bounds;
+          var b = positioned[j].Bounds;
+          var hit = Rectangle.Intersect(a, b);
+          if (hit.IsEmpty) continue;
+
+          // AutoScaleMode rounds every coordinate, so controls that merely abut
+          // report a sliver of overlap - wide but a couple of pixels tall, or
+          // the reverse. Something genuinely hidden behind something else is
+          // thick in both directions. Measuring that rather than a share of the
+          // area also keeps the rule independent of how big the controls are.
+          if (hit.Width <= SliverPixels || hit.Height <= SliverPixels) continue;
+
+          clashes.Add($"{Describe(positioned[i])} over {Describe(positioned[j])}");
+        }
+      }
+
+      foreach (var child in siblings)
+        if (child.HasChildren) Check(child);
+    }
+
+    Check(page);
+
+    AddDiagnostic(clashes.Count == 0
+      ? $"Layout {page.Text}: {checked_} controls, no overlaps"
+      : $"Layout {page.Text}: *** {clashes.Count} OVERLAP(S) *** {string.Join(", ", clashes)}");
+  }
+
   private void VerifyChromeLayout()
   {
     var overlapped = tabControl.Top < _menu.Bottom || tabControl.Bottom > _statusBar.Top;
