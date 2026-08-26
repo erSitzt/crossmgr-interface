@@ -3681,8 +3681,13 @@ public partial class Form1 : Form
     // One deadline for the whole pass. A timed session stretches it to cover a
     // flag lap - see ChequeredFlag.Grace for why the configured value alone is
     // not safe there.
+    var fieldPace = RaceProgress.MedianPace(field);
     var grace = TimeSpan.FromMinutes(dnfTimeoutMinutes);
-    if (IsTimedSession) grace = ChequeredFlag.Grace(grace, RaceProgress.MedianPace(field));
+    if (IsTimedSession) grace = ChequeredFlag.Grace(grace, fieldPace);
+
+    // When the flag actually fell, for telling a rider who was still out from
+    // one who had already pulled in.
+    var flagTime = finalLapsStartTime ?? DateTime.Now;
 
     foreach (var rider in field)
     {
@@ -3701,8 +3706,18 @@ public partial class Form1 : Form
         var timeSinceLeaderFinished = finalLapsStartTime.HasValue ?
           DateTime.Now - finalLapsStartTime.Value : TimeSpan.Zero;
 
+        // A race waits out the grace for everyone: the leader has finished and
+        // any rider still classified may yet complete their final lap. A timed
+        // session can tell the two apart, because the flag falls on the clock
+        // rather than on somebody finishing - so a rider whose last crossing is
+        // already more than a lap old had pulled in before it and is not coming
+        // round. There is nothing to wait for.
+        var pace = TrackPositionSolver.UsablePace(rider.RacingPace) ?? fieldPace;
+        var wasCirculating = !IsTimedSession
+          || ChequeredFlag.WasCirculatingAtFlag(flagTime - rider.LastCrossing, pace);
+
         // Still inside the grace - the rider may yet come round.
-        if (timeSinceLeaderFinished < grace)
+        if (wasCirculating && timeSinceLeaderFinished < grace)
         {
           allRidersFinished = false;
           // Don't break - continue checking other riders for DNF timeout
@@ -3716,9 +3731,21 @@ public partial class Form1 : Form
           rider.DNFTime = DateTime.Now;
           if (IsTimedSession)
           {
-            rider.StatusReason = "Did not complete the lap after the flag";
-            AddMessage($"🏁 {rider.Label} did not complete the lap after the flag - {timeSinceLeaderFinished.TotalMinutes:F1} min since the flag. Any time already set still counts.");
-            AddRaceEvent($"Off track: {rider.Label} - did not complete the lap after the flag");
+            // Only the rider who was actually out on a lap when the flag fell
+            // is worth announcing. Everyone who had already pulled in is marked
+            // for the same reason - they never cross again - and saying so for
+            // each of them fills the feed with warnings that mean "finished
+            // their session normally".
+            if (wasCirculating)
+            {
+              rider.StatusReason = "Did not complete the lap after the flag";
+              AddMessage($"🏁 {rider.Label} did not complete the lap after the flag - {timeSinceLeaderFinished.TotalMinutes:F1} min since the flag. Any time already set still counts.");
+              AddRaceEvent($"Off track: {rider.Label} - did not complete the lap after the flag");
+            }
+            else
+            {
+              rider.StatusReason = "Was not on track when the flag fell";
+            }
           }
           else
           {

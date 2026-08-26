@@ -88,4 +88,42 @@ public class ChequeredFlagTests
 
     Assert.Equal(configured, ChequeredFlag.Grace(configured, null));
   }
+
+  [Fact]
+  public void ARiderWhoCrossedJustBeforeTheFlagWasStillOut()
+  {
+    // Mid-lap when the clock ran out - this is the rider the operator needs to
+    // hear about, because the session is waiting on them.
+    Assert.True(ChequeredFlag.WasCirculatingAtFlag(
+      TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(42)));
+  }
+
+  [Fact]
+  public void ARiderWhoPulledInLongBeforeTheFlagWasNot()
+  {
+    // Their last crossing is over two laps old, so they were already overdue
+    // when the flag fell. They finished their session and went home; announcing
+    // them as off track would be a warning about nothing.
+    Assert.False(ChequeredFlag.WasCirculatingAtFlag(
+      TimeSpan.FromSeconds(96), TimeSpan.FromSeconds(42)));
+  }
+
+  [Fact]
+  public void ASlowLapStillCountsAsCirculating()
+  {
+    // A rider having a bad lap is still out on it. The boundary matches the
+    // grace they are given after the flag, so the two rules agree.
+    Assert.True(ChequeredFlag.WasCirculatingAtFlag(
+      TimeSpan.FromSeconds(62), TimeSpan.FromSeconds(42)));
+    Assert.False(ChequeredFlag.WasCirculatingAtFlag(
+      TimeSpan.FromSeconds(64), TimeSpan.FromSeconds(42)));
+  }
+
+  [Fact]
+  public void WithNoPaceToJudgeByTheRiderIsAssumedToHaveBeenOut()
+  {
+    // Over-reporting costs a line in the feed. Under-reporting hides a rider
+    // who went out and never came back, so the doubt breaks that way.
+    Assert.True(ChequeredFlag.WasCirculatingAtFlag(TimeSpan.FromMinutes(10), null));
+  }
 }

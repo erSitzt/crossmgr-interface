@@ -34,4 +34,29 @@ public static class ChequeredFlag
     var lapBased = medianPace.Value * LapsOfGrace;
     return lapBased > configured ? lapBased : configured;
   }
+
+  /// <summary>
+  /// Whether a rider was still out on a lap when the flag fell, as opposed to
+  /// having pulled in earlier and finished their session normally.
+  ///
+  /// Both end up marked off-track by the grace, because neither crosses the
+  /// loop again - but only the first is worth telling the operator about. In a
+  /// practice session most of the field comes in before the clock runs out, so
+  /// announcing every one of them buries the one rider who is genuinely still
+  /// out under a page of warnings that mean "finished normally".
+  ///
+  /// A rider still circulating crossed within about the last lap. Anyone whose
+  /// last crossing is older than that was already overdue when the flag fell,
+  /// which in practice means they had pulled in.
+  /// </summary>
+  /// <param name="sinceLastCrossing">Flag time minus the rider's last crossing.</param>
+  /// <param name="pace">The rider's lap time, or the field's, or null if unknown.</param>
+  public static bool WasCirculatingAtFlag(TimeSpan sinceLastCrossing, TimeSpan? pace)
+  {
+    // With no pace to judge by, assume they were out. Over-reporting is a line
+    // in the feed; under-reporting hides a rider who never came back.
+    if (!pace.HasValue) return true;
+
+    return sinceLastCrossing <= pace.Value * LapsOfGrace;
+  }
 }
