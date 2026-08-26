@@ -32,6 +32,11 @@ public class DbRace
   /// races recorded before the track map existed read back as null.</summary>
   public string? TrackId { get; set; }
 
+  /// <summary>Practice, qualifying or a race. Schemaless, like Name and TrackId
+  /// above: races recorded before session types existed read back as
+  /// <see cref="SessionType.Race"/>, which is what they were.</summary>
+  public SessionType SessionType { get; set; }
+
   public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
@@ -206,13 +211,20 @@ public class RaceDataService : IDisposable
 
   #region Race Management
 
-  public int StartNewRace(DateTime startTime, TimeSpan duration, string name = "")
+  /// <summary>
+  /// Records the session type once, here. It is deliberately absent from
+  /// SaveRaceState: the type is chosen in setup and cannot change once the
+  /// clock is running, so periodic state saves have nothing to say about it.
+  /// </summary>
+  public int StartNewRace(DateTime startTime, TimeSpan duration, string name = "",
+    SessionType sessionType = SessionType.Race)
   {
     var race = new DbRace
     {
       Name = name,
       StartTime = startTime,
       Duration = duration,
+      SessionType = sessionType,
       IsFinished = false,
       IsTimeExpired = false
     };

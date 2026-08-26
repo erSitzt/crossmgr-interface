@@ -20,6 +20,7 @@ partial class Form1
     if (disposing)
     {
       _raceReportGenerator?.Dispose();
+      _qualifyingReportGenerator?.Dispose();
     }
     base.Dispose(disposing);
   }

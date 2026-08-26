@@ -424,16 +424,42 @@ public sealed class RaceDayView
   private static string FormatClock(TimeSpan value) =>
     value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"mm\:ss");
 
+  /// <summary>
+  /// Retitles the state words and the action buttons for a practice session.
+  ///
+  /// "Last laps", "Finishing" and "Results" are race words. A timed session
+  /// ends on a flag, not on a finish, and what comes out of it is a gate pick
+  /// order rather than a result.
+  /// </summary>
+  public bool Qualifying
+  {
+    get => _qualifying;
+    set
+    {
+      if (_qualifying == value) return;
+      _qualifying = value;
+      ApplySessionWording();
+    }
+  }
+  private bool _qualifying;
+
+  private void ApplySessionWording()
+  {
+    _startRace.Text = _qualifying ? "START SESSION" : "START RACE";
+    _endRace.Text = _qualifying ? "End session now" : "End race now";
+    _results.Text = _qualifying ? "Gate pick order..." : "Results...";
+  }
+
   public void SetState(RaceDayState state, string detail)
   {
     (_stateValue.Text, _stateValue.ForeColor) = state switch
     {
       RaceDayState.WaitingForFirstRider => ("Waiting for first rider", Color.DimGray),
       RaceDayState.ReadyToStart => ("Ready to start", Color.FromArgb(214, 137, 16)),
-      RaceDayState.Running => ("Race running", Color.FromArgb(0, 130, 55)),
+      RaceDayState.Running => (_qualifying ? "Session running" : "Race running", Color.FromArgb(0, 130, 55)),
       RaceDayState.LastLaps => ("Last laps", Color.FromArgb(20, 90, 180)),
-      RaceDayState.Finishing => ("Finishing", Color.FromArgb(20, 90, 180)),
-      _ => ("Race finished", Color.FromArgb(20, 60, 140))
+      RaceDayState.Finishing => (_qualifying ? "Chequered flag" : "Finishing", Color.FromArgb(20, 90, 180)),
+      _ => (_qualifying ? "Session over" : "Race finished", Color.FromArgb(20, 60, 140))
     };
 
     _stateDetail.Text = detail;
@@ -491,6 +517,8 @@ public sealed class RaceDayView
   /// </summary>
   public void SetLeaderboard(IReadOnlyList<RiderInfo> sortedRiders)
   {
+    SetLeaderboardHeaders(qualifying: false);
+
     var shown = Math.Min(sortedRiders.Count, LeaderboardRows);
 
     while (_leaderboard.Rows.Count > shown)
@@ -530,6 +558,68 @@ public sealed class RaceDayView
     _leaderboardFooter.Text = remaining > 0
       ? $"+ {remaining} more - see the Riders tab"
       : "";
+  }
+
+  /// <summary>
+  /// The same scoreboard, ranked on best lap instead of laps completed.
+  ///
+  /// A timed session shown on the race board would sort the field by how many
+  /// laps each rider had got through, which is not a ranking at all - and it
+  /// would look exactly as authoritative as the real one. Three of the six
+  /// column headers change with it so nobody reads "Laps / Last lap / Gap" and
+  /// takes it for a race.
+  /// </summary>
+  public void SetQualifyingLeaderboard(IReadOnlyList<QualifyingEntry> ranking)
+  {
+    SetLeaderboardHeaders(qualifying: true);
+
+    var shown = Math.Min(ranking.Count, LeaderboardRows);
+
+    while (_leaderboard.Rows.Count > shown)
+      _leaderboard.Rows.RemoveAt(_leaderboard.Rows.Count - 1);
+    if (_leaderboard.Rows.Count < shown)
+      _leaderboard.Rows.Add(shown - _leaderboard.Rows.Count);
+
+    for (var i = 0; i < shown; i++)
+    {
+      var entry = ranking[i];
+      var row = _leaderboard.Rows[i];
+      var timed = entry.Status == QualifyingStatus.Timed;
+
+      row.Cells["Pos"].Value = entry.GatePick.ToString();
+      row.Cells["Number"].Value = entry.Rider.RiderNumber;
+      row.Cells["Rider"].Value = RiderNameOnly(entry.Rider);
+      row.Cells["Laps"].Value = entry.TimedLaps.ToString();
+      row.Cells["LastLap"].Value = timed
+        ? entry.BestLapTime?.ToString(@"m\:ss\.f") ?? "-"
+        : "NO TIME";
+      row.Cells["Gap"].Value = timed && entry.GapToPole.HasValue
+        ? $"+{entry.GapToPole.Value.TotalSeconds:F2}"
+        : timed ? "-" : "";
+
+      row.DefaultCellStyle.BackColor = timed
+        ? i switch
+        {
+          0 => Color.Gold,
+          1 => Color.Gainsboro,
+          2 => Color.FromArgb(233, 205, 175),
+          _ => Color.White
+        }
+        : Color.WhiteSmoke;
+      row.DefaultCellStyle.ForeColor = timed ? Color.Black : Color.Gray;
+    }
+
+    var remaining = ranking.Count - shown;
+    _leaderboardFooter.Text = remaining > 0
+      ? $"+ {remaining} more - see the Qualifying tab"
+      : "";
+  }
+
+  private void SetLeaderboardHeaders(bool qualifying)
+  {
+    _leaderboard.Columns["Pos"]!.HeaderText = qualifying ? "Pick" : "Pos";
+    _leaderboard.Columns["LastLap"]!.HeaderText = qualifying ? "Best lap" : "Last lap";
+    _leaderboard.Columns["Gap"]!.HeaderText = qualifying ? "Gap to pole" : "Gap";
   }
 
   private static string RiderNameOnly(RiderInfo rider)

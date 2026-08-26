@@ -71,3 +71,6 @@ reports/
 
 # Output of the load harness
 stress_sent.jsonl
+
+# Python bytecode from the simulator scripts
+__pycache__/

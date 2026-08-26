@@ -90,4 +90,27 @@ public class LapStatisticsTests
 
     Assert.Equal(38, rider.BestLapTime!.Value.TotalSeconds, 3);
   }
+
+  [Fact]
+  public void BestLapReturnsTheEarlierOfTwoEqualLaps()
+  {
+    // The qualifying tie-break reads "whoever set it first" straight off this
+    // property, and it is one comparison operator away from being wrong.
+    var rider = RiderBuilder.Rider("R", "1").Lap(30).Lap(40).Lap(45).Lap(40).Build();
+
+    var best = rider.BestLap;
+
+    Assert.NotNull(best);
+    Assert.Equal(2, best!.LapNumber);
+    Assert.Equal(TimeSpan.FromSeconds(40), best.LapTime);
+  }
+
+  [Fact]
+  public void BestLapIsNullWhenOnlyTheOutLapWasRecorded()
+  {
+    var rider = RiderBuilder.Rider("R", "1").Lap(35).Build();
+
+    Assert.Null(rider.BestLap);
+    Assert.Null(rider.BestLapTime);
+  }
 }

@@ -15,6 +15,7 @@ public partial class Form1
 
   private ToolStripMenuItem _menuStartRace = null!;
   private ToolStripMenuItem _menuEndRace = null!;
+  private ToolStripMenuItem _menuGatePick = null!;
   private ToolStripMenuItem _menuStartReader = null!;
   private ToolStripMenuItem _menuStopReader = null!;
   private ToolStripMenuItem _menuUndo = null!;
@@ -46,6 +47,7 @@ public partial class Form1
     numericUpDownDnfTimeout.Value = Math.Clamp(
       _settings.DnfTimeoutMinutes, numericUpDownDnfTimeout.Minimum, numericUpDownDnfTimeout.Maximum);
     dnfTimeoutMinutes = _settings.DnfTimeoutMinutes;
+    sessionType = _settings.SessionType;
     radioButtonStartManual.Checked = _settings.ManualStart;
     radioButtonStartOnFirstTag.Checked = !_settings.ManualStart;
 
@@ -91,6 +93,7 @@ public partial class Form1
     _settings.AdditionalLaps = additionalLapsAfterTimeExpiry;
     _settings.ManualStart = manualStartMode;
     _settings.DnfTimeoutMinutes = dnfTimeoutMinutes;
+    _settings.SessionType = sessionType;
     _settings.Save();
   }
 
@@ -176,6 +179,7 @@ public partial class Form1
     _menuStartRace = Item("Start race", Keys.F5, buttonStartRace_Click);
     _menuEndRace = Item("End race now...", Keys.Control | Keys.E, (s, e) => EndRaceNow());
     var results = Item("Results...", Keys.Control | Keys.P, buttonGenerateReport_Click);
+    _menuGatePick = Item("Gate pick order...", Keys.None, (s, e) => ShowQualifyingReport());
     var summary = Item("Rider summary", Keys.None, buttonShowSummary_Click);
     var clear = Item("Delete race data...", Keys.None, buttonClearRiders_Click);
     var exit = Item("Exit", Keys.None, (s, e) => Close());
@@ -184,7 +188,7 @@ public partial class Form1
     {
       newRace, import, new ToolStripSeparator(),
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
-      results, summary, new ToolStripSeparator(),
+      results, _menuGatePick, summary, new ToolStripSeparator(),
       clear, exit
     });
 
@@ -308,7 +312,13 @@ public partial class Form1
   private void UpdateCommandStates()
   {
     _menuStartRace.Enabled = manualStartMode && !raceStarted && !raceFinished;
+    _menuStartRace.Text = IsTimedSession ? "Start session" : "Start race";
     _menuEndRace.Enabled = raceStarted && !raceFinished;
+    _menuEndRace.Text = IsTimedSession ? "End session now..." : "End race now...";
+
+    // Shown only for a qualifying session: after a race there is no gate pick
+    // order, and offering one beside Results... invites printing the wrong sheet.
+    _menuGatePick.Visible = IsQualifying;
     _menuStartReader.Enabled = !isListening;
     _menuStopReader.Enabled = isListening;
 

@@ -3,6 +3,12 @@ namespace CrossMgrInterface;
 /// <summary>What the operator settled on. Applied only when the wizard finishes.</summary>
 public sealed class NewRaceSetup
 {
+  /// <summary>
+  /// Practice, qualifying or a race. Defaults to Race so a setup object built
+  /// before the operator reaches the first step still describes a race.
+  /// </summary>
+  public SessionType SessionType { get; init; } = SessionType.Race;
+
   public string RaceName { get; init; } = "";
   public int DurationMinutes { get; init; } = 20;
   public int AdditionalLaps { get; init; } = 1;
@@ -39,34 +45,47 @@ public sealed class NewRaceWizard : Form
   private int _current;
 
   // Step 1
-  private readonly TextBox _name = new();
+  private readonly RadioButton _formatRace = new();
+  private readonly RadioButton _formatQualifying = new();
+  private readonly RadioButton _formatPractice = new();
 
   // Step 2
+  private readonly TextBox _name = new();
+
+  // Step 3
   private readonly Label _importSummary = new();
   private readonly DataGridView _preview = new();
   private readonly Label _skipped = new();
   private string? _importedFile;
   private int _importedCount;
 
-  // Step 3
+  // Step 4
   private readonly NumericUpDown _duration = new();
   private readonly NumericUpDown _extraLaps = new();
 
-  // Step 4
+  /// <summary>The extra-laps prompt, spinner, unit label and hint, hidden as a
+  /// group for a timed session where the clock is a flag rather than a target.</summary>
+  private readonly List<Control> _extraLapControls = new();
+
+  /// <summary>Shown in their place, explaining what the flag does instead.</summary>
+  private Label? _flagHint;
+
+  // Step 5
   private readonly RadioButton _startOnFirstTag = new();
   private readonly RadioButton _startManually = new();
 
-  // Step 5
+  // Step 6
   private readonly Label _summary = new();
   private readonly CheckBox _startReader = new();
 
   public NewRaceSetup Result { get; private set; } = new();
 
-  public NewRaceWizard(Func<string, ImportResult> import, int existingRiderCount, bool readerRunning)
+  public NewRaceWizard(Func<string, ImportResult> import, int existingRiderCount, bool readerRunning,
+    SessionType sessionType = SessionType.Race)
   {
     _import = import;
 
-    Text = "Set up a race";
+    Text = "Set up a session";
     FormBorderStyle = FormBorderStyle.FixedDialog;
     StartPosition = FormStartPosition.CenterParent;
     MinimizeBox = false;
@@ -82,6 +101,9 @@ public sealed class NewRaceWizard : Form
 
     _steps = new[]
     {
+      // First, not last: the format decides what the later steps ask and what
+      // the name should be prefilled with.
+      BuildFormatStep(sessionType),
       BuildNameStep(),
       BuildRidersStep(existingRiderCount),
       BuildLengthStep(),
@@ -122,13 +144,98 @@ public sealed class NewRaceWizard : Form
 
   // ---- Steps ---------------------------------------------------------------
 
+  /// <summary>
+  /// What kind of session this is. First, because it changes what the later
+  /// steps ask: a timed session has no extra-laps setting to offer, and its
+  /// default name is not "Moto 1".
+  /// </summary>
+  private Panel BuildFormatStep(SessionType sessionType)
+  {
+    var panel = new Panel();
+
+    var prompt = new Label
+    {
+      Text = "What is this session?",
+      Location = new Point(0, 8),
+      Size = new Size(700, 26),
+      Font = new Font(Font, FontStyle.Bold)
+    };
+
+    Configure(_formatRace, "Race", 46,
+      "Scored on laps completed, then on time. Finishes on a laps target.");
+    Configure(_formatQualifying, "Timed qualifying", 116,
+      "Scored on best lap. The gate pick order for the race comes out of this.");
+    Configure(_formatPractice, "Free practice", 186,
+      "Timed the same way, but no timing sheet is produced.");
+
+    (sessionType switch
+    {
+      SessionType.TimedQualifying => _formatQualifying,
+      SessionType.FreePractice => _formatPractice,
+      _ => _formatRace
+    }).Checked = true;
+
+    panel.Controls.AddRange(new Control[] { prompt, _formatRace, _formatQualifying, _formatPractice });
+    return panel;
+
+    void Configure(RadioButton radio, string text, int top, string hint)
+    {
+      radio.Text = text;
+      radio.Location = new Point(0, top);
+      radio.Size = new Size(400, 26);
+      radio.Font = new Font(Font, FontStyle.Bold);
+      radio.CheckedChanged += (_, _) => ApplyFormatToSteps();
+
+      panel.Controls.Add(new Label
+      {
+        Text = hint,
+        Location = new Point(20, top + 26),
+        Size = new Size(660, 36),
+        ForeColor = Color.DimGray
+      });
+    }
+  }
+
+  /// <summary>True unless the operator chose a race.</summary>
+  private bool IsTimedSession => !_formatRace.Checked;
+
+  /// <summary>
+  /// Keeps the later steps honest about the chosen format: a timed session ends
+  /// on a chequered flag, so there is no extra-laps setting to offer and the
+  /// default name should not read "Moto 1".
+  /// </summary>
+  private void ApplyFormatToSteps()
+  {
+    foreach (var control in _extraLapControls) control.Visible = !IsTimedSession;
+    if (_flagHint != null) _flagHint.Visible = IsTimedSession;
+
+    // Only while the operator has not typed over it, so a name they chose is
+    // never silently replaced when they step back and change the format.
+    if (_defaultNames.Contains(_name.Text))
+      _name.Text = DefaultName();
+  }
+
+  private string DefaultName() => _formatQualifying.Checked
+    ? $"Qualifying - {DateTime.Now:dd.MM.yyyy}"
+    : _formatPractice.Checked
+      ? $"Practice - {DateTime.Now:dd.MM.yyyy}"
+      : $"Moto 1 - {DateTime.Now:dd.MM.yyyy}";
+
+  /// <summary>The three names this wizard offers, so a typed-over name is left alone.</summary>
+  private readonly HashSet<string> _defaultNames = new()
+  {
+    $"Moto 1 - {DateTime.Now:dd.MM.yyyy}",
+    $"Qualifying - {DateTime.Now:dd.MM.yyyy}",
+    $"Practice - {DateTime.Now:dd.MM.yyyy}"
+  };
+
   private Panel BuildNameStep()
   {
     var panel = new Panel();
 
     var prompt = new Label
     {
-      Text = "What is this race called?",
+      Text = "What is this session called?",
       Location = new Point(0, 8),
       Size = new Size(700, 26),
       Font = new Font(Font, FontStyle.Bold)
@@ -136,7 +243,7 @@ public sealed class NewRaceWizard : Form
 
     _name.Location = new Point(0, 42);
     _name.Width = 420;
-    _name.Text = $"Moto 1 - {DateTime.Now:dd.MM.yyyy}";
+    _name.Text = DefaultName();
 
     var hint = new Label
     {
@@ -199,7 +306,7 @@ public sealed class NewRaceWizard : Form
 
     var prompt = new Label
     {
-      Text = "How long is the race?",
+      Text = "How long is the session?",
       Location = new Point(0, 8),
       Size = new Size(700, 26),
       Font = new Font(Font, FontStyle.Bold)
@@ -235,10 +342,26 @@ public sealed class NewRaceWizard : Form
       ForeColor = Color.DimGray
     };
 
+    // A timed session ends on the flag, so there is no extra-laps rule to set.
+    var flagHint = new Label
+    {
+      Text = "When the clock hits zero the flag comes out. Everyone finishes the lap " +
+             "they are on, and that lap still counts.",
+      Location = new Point(0, 96),
+      Size = new Size(680, 44),
+      ForeColor = Color.DimGray
+    };
+
+    _extraLapControls.AddRange(new Control[] { extraPrompt, _extraLaps, lapsLabel, hint });
+    _flagHint = flagHint;
+
     panel.Controls.AddRange(new Control[]
     {
-      prompt, _duration, minutesLabel, extraPrompt, _extraLaps, lapsLabel, hint
+      prompt, _duration, minutesLabel, extraPrompt, _extraLaps, lapsLabel, hint, flagHint
     });
+
+    // The flag hint occupies the space the extra-laps controls vacate.
+    ApplyFormatToSteps();
     return panel;
   }
 
@@ -336,7 +459,7 @@ public sealed class NewRaceWizard : Form
     for (var i = 0; i < _steps.Length; i++)
       _steps[i].Visible = i == _current;
 
-    var titles = new[] { "Name", "Riders", "Length", "Start", "Ready" };
+    var titles = new[] { "Session", "Name", "Riders", "Length", "Start", "Ready" };
     _stepLabel.Text = $"Step {_current + 1} of {_steps.Length}  -  {titles[_current]}";
 
     _back.Enabled = _current > 0;
@@ -355,9 +478,17 @@ public sealed class NewRaceWizard : Form
 
     Result = new NewRaceSetup
     {
+      SessionType = _formatQualifying.Checked
+        ? SessionType.TimedQualifying
+        : _formatPractice.Checked
+          ? SessionType.FreePractice
+          : SessionType.Race,
       RaceName = _name.Text.Trim(),
       DurationMinutes = (int)_duration.Value,
-      AdditionalLaps = (int)_extraLaps.Value,
+      // Forced to zero for a timed session. The state machine ignores the value
+      // there anyway, but a stale one would be persisted to settings and shown
+      // back on the Race Settings tab as though it applied.
+      AdditionalLaps = IsTimedSession ? 0 : (int)_extraLaps.Value,
       ManualStart = _startManually.Checked,
       StartReader = _startReader.Checked && _startReader.Enabled,
       ImportedFile = _importedFile,
@@ -379,10 +510,21 @@ public sealed class NewRaceWizard : Form
       ? "will be connected when you finish"
       : "already connected";
 
+    var format = _formatQualifying.Checked
+      ? "Timed qualifying - ranked by best lap"
+      : _formatPractice.Checked
+        ? "Free practice - no timing sheet"
+        : "Race - ranked by laps, then time";
+
+    var length = IsTimedSession
+      ? $"{_duration.Value} minutes, then the flag"
+      : $"{_duration.Value} minutes, then {_extraLaps.Value} more lap(s)";
+
     _summary.Text =
-      $"Race:      {_name.Text.Trim()}\n\n" +
+      $"Session:   {format}\n\n" +
+      $"Name:      {_name.Text.Trim()}\n\n" +
       $"Riders:    {riders}\n\n" +
-      $"Length:    {_duration.Value} minutes, then {_extraLaps.Value} more lap(s)\n\n" +
+      $"Length:    {length}\n\n" +
       $"Start:     {start}\n\n" +
       $"Reader:    {reader}";
   }

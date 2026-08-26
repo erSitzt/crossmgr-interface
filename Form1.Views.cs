@@ -32,6 +32,7 @@ public partial class Form1
     _refresh.Register(new LapChartView(this));
     _refresh.Register(new LapProgressionView(this));
     _refresh.Register(new TrackMapViewAdapter(this));
+    _refresh.Register(new QualifyingViewAdapter(this));
 
     _refresh.Start();
   }
@@ -153,6 +154,21 @@ public partial class Form1
       if ((DateTime.Now - _form.lastProgressLineUpdate).TotalSeconds < 5) return;
       _form.RefreshLapChart();
     }
+  }
+
+  private sealed class QualifyingViewAdapter : IRaceView
+  {
+    private readonly Form1 _form;
+    public QualifyingViewAdapter(Form1 form) => _form = form;
+
+    public RaceViewKind Kind => RaceViewKind.Qualifying;
+    public TabPage? HostTab => _form.tabPageQualifying;
+
+    // A best lap that has been set does not change with the clock; only a new
+    // lap moves this sheet, and that already marks it dirty.
+    public bool NeedsHeartbeat => false;
+
+    public void Render() => _form.RenderQualifying();
   }
 
   private sealed class LapProgressionView : IRaceView

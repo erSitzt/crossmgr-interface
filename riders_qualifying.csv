@@ -1,0 +1,11 @@
+tagid,number,name,team,class
+QUAL001,11,Anna Berger,Team Nord,MX1
+QUAL002,22,Ben Fischer,Team Nord,MX1
+QUAL003,33,Carla Hoff,Team Sued,MX1
+QUAL004,44,David Kern,Team Sued,MX1
+QUAL005,55,Elif Yilmaz,Team Ost,MX2
+QUAL006,66,Frank Weber,Team Ost,MX2
+QUAL007,77,Greta Lang,Team West,MX2
+QUAL008,88,Hugo Reiter,Team West,MX2
+QUAL009,9,Ida Vogt,Team Nord,MX1
+QUAL010,10,Jonas Ritter,Team Ost,MX2

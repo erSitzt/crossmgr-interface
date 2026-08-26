@@ -32,6 +32,22 @@ public partial class Form1 : Form
   private DateTime lastTagTime = DateTime.MinValue;
   private int? currentRaceId = null;
   private bool manualStartMode = false;
+
+  /// <summary>
+  /// Practice, qualifying or a race. Chosen in setup; it is not race state, so
+  /// ClearRiderData deliberately leaves it alone.
+  /// </summary>
+  private SessionType sessionType = SessionType.Race;
+
+  /// <summary>
+  /// The clock is a chequered flag rather than a laps target: at time expiry
+  /// every rider finishes the lap they are on and that lap counts, with no
+  /// extra laps and no wait for the leader. True for both practice formats.
+  /// </summary>
+  private bool IsTimedSession => sessionType != SessionType.Race;
+
+  /// <summary>Gate pick order is derived, and the Qualifying tab is shown.</summary>
+  private bool IsQualifying => sessionType == SessionType.TimedQualifying;
   private bool raceStarted = false;
   private bool raceFinished = false;
   private bool raceTimeExpired = false; // Track when race time has expired but ongoing lap not yet completed
@@ -156,7 +172,14 @@ public partial class Form1 : Form
     // question of the day and the person being asked is exactly the volunteer
     // running this view; the advanced tabs are diagnostics, and this is not. It
     // comes after Riders because tab order puts what you need in a hurry first.
-    var desired = new List<TabPage> { tabPageRaceDay, tabPageRiders, tabPageTrack };
+    var desired = new List<TabPage> { tabPageRaceDay, tabPageRiders };
+
+    // Only during a qualifying session. In a race there is no gate pick order
+    // to show, and an empty tab reading "ranked by best lap" beside a race
+    // leaderboard is an invitation to read the wrong sheet.
+    if (IsQualifying && tabPageQualifying != null) desired.Add(tabPageQualifying);
+
+    desired.Add(tabPageTrack);
 
     if (advancedMode)
     {
@@ -210,12 +233,18 @@ public partial class Form1 : Form
     InitializeChrome();
 
     // After InitializeChrome, which is what loads _settings - the track view
-    // needs LastTrackId to restore the circuit that was last on screen.
+    // needs LastTrackId to restore the circuit that was last on screen, and the
+    // qualifying tab is only shown at all when _settings says this is a
+    // qualifying session.
     InitializeTrackView();
+    InitializeQualifyingView();
     InitializeRefreshCoordinator();
     InitializeCorrections();
     _lapProgressionManager.RefreshRequested += () => _refresh.RenderNow(RaceViewKind.LapProgression);
-    RebuildTabs();
+
+    // Applies the session type remembered from last time - and rebuilds the tabs
+    // as it does, so this stands in for the plain RebuildTabs that was here.
+    ApplySessionTypeToUi();
 
     // Volunteers land on the calm screen, not on a protocol trace.
     tabControl.SelectedTab = tabPageRaceDay;
@@ -904,7 +933,7 @@ public partial class Form1 : Form
       raceStarted = true;
 
       // Create new race in database
-      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName);
+      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType);
 
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
@@ -929,27 +958,23 @@ public partial class Form1 : Form
         leaderLapsAtTimeExpiry = currentLeader.TotalLaps;
         raceTimeExpired = true;
 
-        var leaderDisplay = GetRiderDisplayText(currentLeader);
-        messagesToAdd.Add(($"⏰ Race time expired! Leader {leaderDisplay} currently has {leaderLapsAtTimeExpiry} laps completed.", true));
-
-        if (additionalLapsAfterTimeExpiry == 0)
+        if (IsTimedSession)
         {
-          // When no additional laps are configured, each rider must only complete their current lap
-          messagesToAdd.Add(($"🏁 Race will finish when all riders complete their current lap (no additional laps).", true));
+          messagesToAdd.Add(("⏰ Session time expired.", true));
+        }
+        else
+        {
+          var leaderDisplay = GetRiderDisplayText(currentLeader);
+          messagesToAdd.Add(($"⏰ Race time expired! Leader {leaderDisplay} currently has {leaderLapsAtTimeExpiry} laps completed.", true));
+        }
 
-          // Immediately set final allowed laps for all riders to their current lap + 1
-          // This way each rider can only complete the lap they are currently on
-          foreach (var rider in riders.Values.Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID)))
-          {
-            rider.FinalAllowedLap = rider.TotalLaps + 1;
-          }
-
-          // Transition directly to final laps phase
-          waitingForFinalLaps = true;
-          finalLapsStartTime = DateTime.Now;
-          raceTimeExpired = false;
-
-          messagesToAdd.Add(($"🏁 Final laps phase started - each rider must finish their current lap only.", true));
+        // A timed session ends on the flag, not on a laps target, so it always
+        // takes this branch: no extra laps, no waiting for the leader. Setting
+        // waitingForFinalLaps here also clears raceTimeExpired again, which is
+        // what makes the extra-laps transition further down unreachable.
+        if (IsTimedSession || additionalLapsAfterTimeExpiry == 0)
+        {
+          BeginFinalLapPhase(messagesToAdd);
         }
         else
         {
@@ -1004,8 +1029,7 @@ public partial class Form1 : Form
         });
       }
 
-      _refresh.Invalidate(RaceViewKind.LapProgression | RaceViewKind.Riders |
-                          RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
+      _refresh.Invalidate(RaceViewKind.Standings | RaceViewKind.LapProgression);
 
       return firstLap;
     }
@@ -1151,9 +1175,7 @@ public partial class Form1 : Form
       // Check for position changes and lapping events
       Task.Run(() => CheckForPositionChangesAndLapping(tagID));
 
-      _refresh.Invalidate(
-
-        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
+      _refresh.Invalidate(RaceViewKind.Standings);
 
 
       return newLap;
@@ -1266,6 +1288,8 @@ public partial class Form1 : Form
   {
     lock (ridersLock)
     {
+      // sessionType is deliberately not reset. It is setup, not race state:
+      // an operator clearing data to re-run qualifying is still in qualifying.
       riders.Clear();
       raceStartTime = null;
       raceEndTime = null;
@@ -1280,8 +1304,7 @@ public partial class Form1 : Form
       targetLapsToFinishRace = 0;
       lastTagID = "None";
       lastTagTime = DateTime.MinValue;
-      _refresh.Invalidate(
-        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
+      _refresh.Invalidate(RaceViewKind.Standings);
       currentRaceId = null;
 
       // Reset position tracking
@@ -1813,8 +1836,7 @@ public partial class Form1 : Form
         AddMessage($"📋 Updated {updatedCount} existing riders with imported data");
 
         // Refresh displays to show updated rider information
-        _refresh.Invalidate(
-          RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
+        _refresh.Invalidate(RaceViewKind.Standings);
       }
     }
   }
@@ -2764,6 +2786,13 @@ public partial class Form1 : Form
     CheckReaderHealth();
     UpdateStatusBar();
 
+    // In a timed session the clock raises the flag. A race waits for the next
+    // crossing instead, because it needs the leader's lap count to set a target.
+    if (IsTimedSession)
+    {
+      CheckTimedSessionExpiry();
+    }
+
     // Check for DNF timeouts if we're in final laps phase
     if (waitingForFinalLaps)
     {
@@ -3417,7 +3446,7 @@ public partial class Form1 : Form
 
     if (raceFinished)
     {
-      labelRaceStatus.Text = "Race: FINISHED";
+      labelRaceStatus.Text = IsTimedSession ? "Session: OVER" : "Race: FINISHED";
       labelRaceStatus.ForeColor = Color.Blue;
     }
     else if (waitingForFinalLaps)
@@ -3427,7 +3456,11 @@ public partial class Form1 : Form
                                                        (r.PredictedLapTime.HasValue ||
                                                         (DateTime.Now - r.LastCrossing).TotalMinutes < 2));
 
-      labelRaceStatus.Text = $"Race: LEADER FINISHED - {ridersStillActive} riders completing final lap";
+      // In a timed session no leader has finished - the clock ran out. Saying
+      // otherwise is the one place this label states something untrue.
+      labelRaceStatus.Text = IsTimedSession
+        ? $"Session: CHEQUERED FLAG - {ridersStillActive} riders finishing their lap"
+        : $"Race: LEADER FINISHED - {ridersStillActive} riders completing final lap";
       labelRaceStatus.ForeColor = Color.DarkBlue;
     }
     else if (raceTimeExpired)
@@ -3477,7 +3510,7 @@ public partial class Form1 : Form
       raceStarted = true;
 
       // Create new race in database
-      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName);
+      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType);
 
       // Update race start time for all existing riders
       lock (ridersLock)
@@ -3497,13 +3530,91 @@ public partial class Form1 : Form
       oneMinuteWarningShown = false;
 
       // Update displays to reflect new total times
-      _refresh.Invalidate(
-        RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
+      _refresh.Invalidate(RaceViewKind.Standings);
     }
+  }
+
+  /// <summary>
+  /// Chequered flag. Every rider still on track finishes the lap they are on
+  /// and that lap counts; nothing after it does. This is what a timed session
+  /// does at time expiry, and what a race does when it is configured with no
+  /// extra laps.
+  ///
+  /// The caller must hold <see cref="ridersLock"/>.
+  /// </summary>
+  private void BeginFinalLapPhase(List<(string, bool)> messagesToAdd)
+  {
+    // Counted from crossing times rather than from TotalLaps so the allowance
+    // is exact whichever of the clock timer and the network thread reaches the
+    // lock first. The lock serialises the two but does not order them, so a
+    // rider whose crossing lands in the same second as expiry would otherwise
+    // be granted a whole extra lap.
+    var flagAt = raceEndTime ?? DateTime.Now;
+
+    foreach (var rider in riders.Values.Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID)))
+    {
+      rider.FinalAllowedLap = rider.LapsCompletedBy(flagAt) + 1;
+    }
+
+    waitingForFinalLaps = true;
+    finalLapsStartTime = DateTime.Now;
+    raceTimeExpired = false;
+
+    messagesToAdd.Add((IsTimedSession
+      ? "🏁 Chequered flag - every rider finishes the lap they are on, and it counts."
+      : "🏁 Final laps phase started - each rider must finish their current lap only.", true));
+  }
+
+  /// <summary>
+  /// Raises the flag from the clock in a timed session.
+  ///
+  /// The expiry check inside ProcessNormalCrossingInternal only runs when a
+  /// crossing arrives, and is nested inside a leader lookup. In a race that is
+  /// invisible. In a timed session it hangs: if the last rider on track crosses
+  /// a second before expiry and everyone then pulls in, no further crossing
+  /// arrives, the final-lap phase never starts, the grace never begins, and the
+  /// Race Day tile sits on a running clock at 00:00 forever.
+  ///
+  /// Deliberately does not require a leader - a session where nobody has
+  /// crossed at all must still be able to end.
+  /// </summary>
+  private void CheckTimedSessionExpiry()
+  {
+    if (!raceStarted || raceFinished || waitingForFinalLaps) return;
+    if (!raceEndTime.HasValue || DateTime.Now <= raceEndTime.Value) return;
+
+    var messagesToAdd = new List<(string, bool)>();
+
+    lock (ridersLock)
+    {
+      // Re-check under the lock: a crossing may have raised the flag already.
+      if (waitingForFinalLaps || raceFinished) return;
+      messagesToAdd.Add(("⏰ Session time expired.", true));
+      BeginFinalLapPhase(messagesToAdd);
+    }
+
+    // Same convention as the crossing path: emitted outside the lock.
+    foreach (var (message, isRaceEvent) in messagesToAdd)
+    {
+      if (isRaceEvent)
+        AddRaceEvent(message);
+      else
+        AddTagEvent(message);
+    }
+
+    RaiseNotice(NoticeLevel.Critical, "Chequered flag - finish the lap you are on");
+    UpdateRaceStartControls();
+    _refresh.Invalidate(RaceViewKind.All);
   }
 
   private void FinishRace()
   {
+    // Reaching this in a timed session means the gate in the expiry block
+    // leaked and the race finishing rules are running over a practice session.
+    // Without this line the only symptom would be a wrong sheet.
+    if (IsTimedSession)
+      AddDiagnostic("FinishRace reached in a timed session - the extra-laps gate leaked.");
+
     // Don't immediately finish - allow other riders to complete their current lap
     waitingForLeaderFinish = false;
     waitingForFinalLaps = true;
@@ -3551,8 +3662,7 @@ public partial class Form1 : Form
     UpdateRaceStartControls();
 
     // Force final update of displays
-    _refresh.Invalidate(
-      RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
+    _refresh.Invalidate(RaceViewKind.Standings);
   }
 
   private void CheckIfAllFinalLapsCompleted()
@@ -3567,6 +3677,12 @@ public partial class Form1 : Form
       // collection rather than enumerating it while crossings may be arriving.
       field = riders.Values.ToList();
     }
+
+    // One deadline for the whole pass. A timed session stretches it to cover a
+    // flag lap - see ChequeredFlag.Grace for why the configured value alone is
+    // not safe there.
+    var grace = TimeSpan.FromMinutes(dnfTimeoutMinutes);
+    if (IsTimedSession) grace = ChequeredFlag.Grace(grace, RaceProgress.MedianPace(field));
 
     foreach (var rider in field)
     {
@@ -3585,23 +3701,33 @@ public partial class Form1 : Form
         var timeSinceLeaderFinished = finalLapsStartTime.HasValue ?
           DateTime.Now - finalLapsStartTime.Value : TimeSpan.Zero;
 
-        // If less than timeout period since leader finished, rider might still finish their lap
-        if (timeSinceLeaderFinished.TotalMinutes < dnfTimeoutMinutes)
+        // Still inside the grace - the rider may yet come round.
+        if (timeSinceLeaderFinished < grace)
         {
           allRidersFinished = false;
           // Don't break - continue checking other riders for DNF timeout
         }
         else
         {
-          // Rider has timed out - mark as DNF
+          // Rider has timed out. In a timed session this means "no longer on
+          // track", not "did not finish": the qualifying order ignores IsDNF
+          // entirely and ranks on the best lap they had already set.
           rider.IsDNF = true;
           rider.DNFTime = DateTime.Now;
-          AddMessage($"🚫 Rider {rider.Label} marked as DNF (Did Not Finish) - {timeSinceLeaderFinished.TotalMinutes:F1} min since leader finished, failed to complete final lap");
-          AddRaceEvent($"DNF: {rider.Label} - Timeout after {timeSinceLeaderFinished.TotalMinutes:F1} minutes");
+          if (IsTimedSession)
+          {
+            rider.StatusReason = "Did not complete the lap after the flag";
+            AddMessage($"🏁 {rider.Label} did not complete the lap after the flag - {timeSinceLeaderFinished.TotalMinutes:F1} min since the flag. Any time already set still counts.");
+            AddRaceEvent($"Off track: {rider.Label} - did not complete the lap after the flag");
+          }
+          else
+          {
+            AddMessage($"🚫 Rider {rider.Label} marked as DNF (Did Not Finish) - {timeSinceLeaderFinished.TotalMinutes:F1} min since leader finished, failed to complete final lap");
+            AddRaceEvent($"DNF: {rider.Label} - Timeout after {timeSinceLeaderFinished.TotalMinutes:F1} minutes");
+          }
 
           // Update displays to show DNF status
-          _refresh.Invalidate(
-            RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
+          _refresh.Invalidate(RaceViewKind.Standings);
         }
       }
     }
@@ -3632,35 +3758,56 @@ public partial class Form1 : Form
     var dnfRiders = riders.Values.Where(r => r.IsDNF && !ignoredTags.Contains(r.TagID)).ToList();
     var finishedRiders = riders.Values.Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID)).Count();
 
-    AddMessage($"🏁 RACE COMPLETELY FINISHED! All riders have completed their final laps or timed out.");
-    RaiseNotice(NoticeLevel.Critical, "Race finished - results are final");
-    AddMessage($"🏁 Final race duration: {actualRaceDuration:mm\\:ss}");
-
-    if (dnfRiders.Any())
+    if (IsTimedSession)
     {
-      AddMessage($"🚫 DNF Summary: {dnfRiders.Count} rider(s) marked as Did Not Finish:");
-      foreach (var dnfRider in dnfRiders)
-      {
-        var raceLeaderFinishTime = dnfRider.DNFTime?.AddMinutes(-dnfTimeoutMinutes) ?? DateTime.Now;
-        var timeAtDNF = dnfRider.DNFTime.HasValue ?
-          (dnfRider.DNFTime.Value - raceLeaderFinishTime).TotalMinutes : 0;
-        AddMessage($"   • {dnfRider.Label}: {dnfRider.TotalLaps} laps completed, DNF after {timeAtDNF:F1} min timeout");
-      }
-      AddMessage($"✅ {finishedRiders} rider(s) completed the race successfully.");
+      // Deliberately not a DNF summary. Everyone who was not still circulating
+      // when the grace closed is marked IsDNF, which here is nearly the whole
+      // field and means only "had already pulled in" - reporting seven of eight
+      // riders as Did Not Finish describes a disaster that did not happen.
+      var wentOut = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
+      var withATime = wentOut.Count(r => r.BestLap != null);
+
+      AddMessage("🏁 SESSION OVER. Every rider has finished the lap they were on.");
+      RaiseNotice(NoticeLevel.Critical, IsQualifying
+        ? "Session over - the gate pick order is final"
+        : "Session over");
+      AddMessage($"🏁 Session length: {actualRaceDuration:mm\\:ss}");
+      AddMessage($"⏱️ {withATime} of {wentOut.Count} riders who went out set a time.");
+
+      if (IsQualifying)
+        AddMessage("🏁 The gate pick order is final. Print it from Race > Gate pick order...");
     }
     else
     {
-      AddMessage($"✅ All {finishedRiders} riders completed the race successfully - no DNF!");
-    }
+      AddMessage($"🏁 RACE COMPLETELY FINISHED! All riders have completed their final laps or timed out.");
+      RaiseNotice(NoticeLevel.Critical, "Race finished - results are final");
+      AddMessage($"🏁 Final race duration: {actualRaceDuration:mm\\:ss}");
 
-    AddMessage($"🏁 Race results are now final. Additional tag reads will be ignored.");
+      if (dnfRiders.Any())
+      {
+        AddMessage($"🚫 DNF Summary: {dnfRiders.Count} rider(s) marked as Did Not Finish:");
+        foreach (var dnfRider in dnfRiders)
+        {
+          var raceLeaderFinishTime = dnfRider.DNFTime?.AddMinutes(-dnfTimeoutMinutes) ?? DateTime.Now;
+          var timeAtDNF = dnfRider.DNFTime.HasValue ?
+            (dnfRider.DNFTime.Value - raceLeaderFinishTime).TotalMinutes : 0;
+          AddMessage($"   • {dnfRider.Label}: {dnfRider.TotalLaps} laps completed, DNF after {timeAtDNF:F1} min timeout");
+        }
+        AddMessage($"✅ {finishedRiders} rider(s) completed the race successfully.");
+      }
+      else
+      {
+        AddMessage($"✅ All {finishedRiders} riders completed the race successfully - no DNF!");
+      }
+
+      AddMessage($"🏁 Race results are now final. Additional tag reads will be ignored.");
+    }
 
     // Update race status
     UpdateRaceStartControls();
 
     // Force final update of displays
-    _refresh.Invalidate(
-      RaceViewKind.Riders | RaceViewKind.LapChart | RaceViewKind.RaceDay | RaceViewKind.Track);
+    _refresh.Invalidate(RaceViewKind.Standings);
   }
 
   private void InitializeLogging()
@@ -3854,6 +4001,12 @@ public partial class Form1 : Form
   {
     // Don't check for position changes if race hasn't started or is finished
     if (!raceStarted || raceFinished)
+      return;
+
+    // Track position means nothing in a timed session - riders leave the gate
+    // when they please and are scored on their best lap, so "PASSED" and
+    // "LAPPED" would be pure noise in the event feed.
+    if (IsTimedSession)
       return;
 
     // The snapshot has to be taken *inside* positionCheckLock, not before it.
@@ -4281,6 +4434,9 @@ public partial class Form1 : Form
       raceStartTime = raceToRestore.StartTime;
       raceEndTime = raceToRestore.EndTime;
       raceDuration = raceToRestore.Duration;
+      // Races recorded before session types existed read back as Race, which
+      // is what they were.
+      sessionType = raceToRestore.SessionType;
       raceFinished = raceToRestore.IsFinished;
       raceTimeExpired = raceToRestore.IsTimeExpired;
       waitingForLeaderFinish = raceToRestore.WaitingForLeaderFinish;
@@ -4319,6 +4475,11 @@ public partial class Form1 : Form
       // Restore position tracking
       lastKnownPositions = _raceDb.GetLastKnownPositions();
       lastKnownLapCounts = _raceDb.GetLastKnownLapCounts();
+
+      // Before the repaint: this rebuilds the tabs, which is what brings the
+      // Qualifying tab back for a recovered qualifying session. Nothing else on
+      // this path calls RebuildTabs.
+      ApplySessionTypeToUi();
 
       _refresh.Invalidate(RaceViewKind.All);
 

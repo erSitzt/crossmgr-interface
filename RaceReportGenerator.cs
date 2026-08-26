@@ -285,37 +285,16 @@ public class RaceReportGenerator
     }
   }
 
-  /// <summary>
-  /// Gets unique classes from rider data
-  /// </summary>
-  private List<string> GetUniqueClasses(Dictionary<string, RiderInfo> riders)
-  {
-    return riders.Values
-      .Where(r => !string.IsNullOrEmpty(r.Category))
-      .Select(r => r.Category)
-      .Distinct()
-      .OrderBy(c => c)
-      .ToList();
-  }
+  // Shared with the gate pick sheet so a meeting is split into files the same
+  // way whichever report is being printed. See ReportHelpers.
+  private List<string> GetUniqueClasses(Dictionary<string, RiderInfo> riders) =>
+    ReportHelpers.GetUniqueClasses(riders);
 
-  /// <summary>
-  /// Filters riders by specific class
-  /// </summary>
-  private Dictionary<string, RiderInfo> FilterRidersByClass(Dictionary<string, RiderInfo> riders, string className)
-  {
-    return riders
-      .Where(kvp => kvp.Value.Category == className)
-      .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-  }
+  private Dictionary<string, RiderInfo> FilterRidersByClass(Dictionary<string, RiderInfo> riders, string className) =>
+    ReportHelpers.FilterRidersByClass(riders, className);
 
-  /// <summary>
-  /// Sanitizes a filename by removing invalid characters
-  /// </summary>
-  private string SanitizeFileName(string fileName)
-  {
-    var invalidChars = Path.GetInvalidFileNameChars();
-    return string.Join("_", fileName.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries));
-  }
+  private string SanitizeFileName(string fileName) =>
+    ReportHelpers.SanitizeFileName(fileName);
 
   private RaceReportData PrepareReportData(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
     DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle,

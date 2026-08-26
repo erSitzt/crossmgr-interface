@@ -18,7 +18,19 @@ public enum RaceViewKind
   /// is part of All - anything big enough to repaint everything moves riders too.</summary>
   Track = 1 << 5,
 
-  All = Riders | Statistics | LapChart | LapProgression | RaceDay | Track
+  /// <summary>The gate pick order. Only present during a qualifying session.</summary>
+  Qualifying = 1 << 6,
+
+  /// <summary>
+  /// The views that move when a lap is recorded.
+  ///
+  /// A named group rather than the same four flags spelled out at every call
+  /// site, which is how the qualifying sheet would otherwise have been left out
+  /// of one of them and quietly gone stale.
+  /// </summary>
+  Standings = Riders | LapChart | RaceDay | Track | Qualifying,
+
+  All = Riders | Statistics | LapChart | LapProgression | RaceDay | Track | Qualifying
 }
 
 /// <summary>

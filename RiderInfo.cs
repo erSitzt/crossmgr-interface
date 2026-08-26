@@ -86,6 +86,24 @@ public class RiderInfo
   }
 
   public int TotalLaps => Laps.Count;
+
+  /// <summary>
+  /// Laps whose crossing landed at or before <paramref name="moment"/>.
+  ///
+  /// Used to work out what a rider is allowed to complete after the chequered
+  /// flag. Counted from crossing times rather than read off TotalLaps because
+  /// the clock timer and the network thread both reach that decision through
+  /// the same lock, which serialises them but does not order them - so a rider
+  /// whose crossing lands in the same second as the flag would otherwise be
+  /// granted a whole extra lap depending on which thread got there first.
+  /// </summary>
+  public int LapsCompletedBy(DateTime moment)
+  {
+    var count = 0;
+    foreach (var lap in Laps)
+      if (lap.CrossingTime <= moment) count++;
+    return count;
+  }
   /// <summary>
   /// Quickest completed lap, ignoring the first.
   ///
@@ -96,8 +114,34 @@ public class RiderInfo
   /// best lap on the results sheet. The rest of the application already excludes
   /// the first lap from pace calculations; this now matches.
   /// </summary>
-  public TimeSpan? BestLapTime =>
-    Laps.Skip(1).Where(l => l.LapTime.HasValue).Min(l => l.LapTime);
+  public TimeSpan? BestLapTime => BestLap?.LapTime;
+
+  /// <summary>
+  /// The lap that <see cref="BestLapTime"/> refers to, or null if none is timed.
+  ///
+  /// Qualifying needs the lap itself and not just its duration: the gate pick
+  /// tie-break is "whoever set it first", and the sheet reports which lap it
+  /// was. The strict less-than below is what implements that tie-break - on two
+  /// equal times the earlier lap is kept, so do not relax it to &lt;=.
+  /// </summary>
+  public RiderLap? BestLap
+  {
+    get
+    {
+      RiderLap? best = null;
+
+      // Starts at 1 rather than 0: lap 1 is the run from the start to the first
+      // crossing, for the reason spelled out on BestLapTime above.
+      for (var i = 1; i < Laps.Count; i++)
+      {
+        var lap = Laps[i];
+        if (!lap.LapTime.HasValue) continue;
+        if (best is null || lap.LapTime.Value < best.LapTime!.Value) best = lap;
+      }
+
+      return best;
+    }
+  }
 
   /// <summary>Mean of the completed laps, ignoring the first for the same reason.</summary>
   public TimeSpan? AverageLapTime

@@ -47,6 +47,13 @@ public sealed class AppSettings
   public bool ManualStart { get; set; }
   public int DnfTimeoutMinutes { get; set; } = 2;
 
+  /// <summary>
+  /// Practice, qualifying or a race. Part of race setup for the same reason as
+  /// the rest of this block: a club runs a block of the same format, so the
+  /// wizard should come back offering what was chosen last time.
+  /// </summary>
+  public SessionType SessionType { get; set; }
+
   /// <summary>Which of position, start number and name are written beside each rider dot.</summary>
   public MapLabelParts TrackLabelParts { get; set; } = MapLabelParts.Position | MapLabelParts.Number;
 

@@ -60,5 +60,17 @@ internal sealed class RiderBuilder
     return this;
   }
 
+  public RiderBuilder Dns()
+  {
+    _rider.IsDNS = true;
+    return this;
+  }
+
+  public RiderBuilder Category(string category)
+  {
+    _rider.Category = category;
+    return this;
+  }
+
   public RiderInfo Build() => _rider;
 }

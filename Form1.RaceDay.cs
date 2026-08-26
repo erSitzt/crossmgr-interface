@@ -17,7 +17,16 @@ public partial class Form1
 
     // Every action reuses the handler that already exists behind the old button.
     _raceDayView.StartRaceClicked += (s, e) => buttonStartRace_Click(s, e);
-    _raceDayView.ResultsClicked += (s, e) => buttonGenerateReport_Click(s, e);
+    // The button relabels itself to "Gate pick order..." for a timed session,
+    // so it has to lead there too. Sending it to the race report instead prints
+    // a race classification of a qualifying session, in which every rider shows
+    // DNF - the flag's grace marks everyone who was not still circulating, and
+    // in a timed session that means nothing worse than "had already pulled in".
+    _raceDayView.ResultsClicked += (s, e) =>
+    {
+      if (IsQualifying) ShowQualifyingReport();
+      else buttonGenerateReport_Click(s, e);
+    };
     _raceDayView.FixLapsClicked += (s, e) => OpenLapCorrectionForMostUrgentRider();
     _raceDayView.EndRaceNowClicked += (s, e) => EndRaceNow();
     _raceDayView.SetupClicked += (s, e) => RunNewRaceWizard();
@@ -53,11 +62,16 @@ public partial class Form1
         ? _riderDataImporter.ImportFromCsvDetailed(file)
         : _riderDataImporter.ImportFromExcelDetailed(file),
       _riderDataImporter.Count,
-      isListening);
+      isListening,
+      sessionType);
 
     if (wizard.ShowDialog(this) != DialogResult.OK) return;
 
     var setup = wizard.Result;
+
+    // Before the settings handlers below: buttonSetAdditionalLaps_Click and the
+    // start-mode radios both read the session type as they go.
+    sessionType = setup.SessionType;
     raceName = setup.RaceName;
     Text = string.IsNullOrEmpty(raceName)
       ? "CrossMgr RFID Interface"
@@ -88,11 +102,23 @@ public partial class Form1
       StartTcpListener(readerPort);
     }
 
-    AddMessage($"🏁 Ready: {raceName} - {setup.DurationMinutes} minutes, " +
+    ApplySessionTypeToUi();
+    RememberRaceSetup();
+
+    var format = sessionType switch
+    {
+      SessionType.TimedQualifying => "timed qualifying",
+      SessionType.FreePractice => "free practice",
+      _ => "race"
+    };
+
+    AddMessage($"🏁 Ready: {raceName} ({format}) - {setup.DurationMinutes} minutes, " +
                $"{(setup.ManualStart ? "manual start" : "starts on the first rider")}");
 
     RaiseNotice(NoticeLevel.Info, setup.ManualStart
-      ? "Set up. Press START RACE when the gate drops."
+      ? IsTimedSession
+        ? "Set up. Press START SESSION when the gate opens."
+        : "Set up. Press START RACE when the gate drops."
       : "Set up. The clock starts on the first rider.");
 
     tabControl.SelectedTab = tabPageRaceDay;
@@ -129,7 +155,19 @@ public partial class Form1
       lastTagTime,
       raceStarted && !raceFinished);
 
-    _raceDayView.SetLeaderboard(sorted);
+    // A timed session is ranked on best lap, not on laps completed. Feeding the
+    // race board here would show a sort order that is not a ranking, on the one
+    // screen the operator watches all session.
+    //
+    // Ranks the snapshot already taken above rather than calling
+    // BuildQualifyingField, which would clone the whole field a second time on
+    // every heartbeat. The board shows the top of the order, and riders who
+    // never went out have no time and so are never in it - so the picks shown
+    // here are the same ones the sheet prints.
+    if (IsQualifying)
+      _raceDayView.SetQualifyingLeaderboard(QualifyingRanking.Rank(sorted));
+    else
+      _raceDayView.SetLeaderboard(sorted);
 
     _raceDayView.SetChecklist(
       raceName,
@@ -154,18 +192,33 @@ public partial class Form1
   private (RaceDayState State, string Detail) DescribeRaceState(List<RiderInfo> sorted, int riderCount)
   {
     if (raceFinished)
-      return (RaceDayState.Finished, "Results are final - press Results...");
+      return (RaceDayState.Finished, IsTimedSession
+        ? "Session over - press Gate pick order..."
+        : "Results are final - press Results...");
 
     if (!raceStarted)
     {
       return manualStartMode
-        ? (RaceDayState.ReadyToStart, "Press START RACE when the gate drops")
+        ? (RaceDayState.ReadyToStart, IsTimedSession
+            ? "Press START SESSION when the gate opens"
+            : "Press START RACE when the gate drops")
         : (RaceDayState.WaitingForFirstRider, "The clock starts on the first transponder read");
     }
 
     if (waitingForFinalLaps)
     {
       var stillOut = sorted.Count(r => !r.IsDNF && !r.IsDNS && r.TotalLaps < r.FinalAllowedLap);
+
+      // The count is the same either way - past the flag, "has not reached
+      // FinalAllowedLap" is exactly "has not come round since" - but the words
+      // are not: in a timed session the lap they are on still counts.
+      if (IsTimedSession)
+      {
+        return (RaceDayState.Finishing, stillOut == 1
+          ? "1 rider still out - their lap still counts"
+          : $"{stillOut} riders still out - their lap still counts");
+      }
+
       return (RaceDayState.Finishing,
         stillOut == 1
           ? "1 rider still out on their last lap"
@@ -207,13 +260,18 @@ public partial class Form1
         r.FinalAllowedLap != int.MaxValue && r.TotalLaps < r.FinalAllowedLap);
     }
 
-    var warning = stillOut > 0
-      ? $"\n\n{stillOut} rider(s) have not finished their last lap and will be scored DNF."
-      : "";
+    // In a timed session nobody is "scored DNF" - any time they already set
+    // still stands. What they lose is the lap they are riding right now.
+    var warning = stillOut == 0
+      ? ""
+      : IsTimedSession
+        ? $"\n\n{stillOut} rider(s) are still out. The lap they are on will not count; " +
+          "any time they have already set still does."
+        : $"\n\n{stillOut} rider(s) have not finished their last lap and will be scored DNF.";
 
     var answer = MessageBox.Show(this,
-      $"End the race now?{warning}",
-      "End race",
+      IsTimedSession ? $"End the session now?{warning}" : $"End the race now?{warning}",
+      IsTimedSession ? "End session" : "End race",
       MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
 
     if (answer != DialogResult.Yes) return;
@@ -226,11 +284,15 @@ public partial class Form1
       {
         rider.IsDNF = true;
         rider.DNFTime = DateTime.Now;
-        rider.StatusReason = "Race ended by the operator";
+        rider.StatusReason = IsTimedSession
+          ? "Session ended by the operator"
+          : "Race ended by the operator";
       }
     }
 
-    AddMessage("🏁 Race ended by the operator.");
+    AddMessage(IsTimedSession
+      ? "🏁 Session ended by the operator."
+      : "🏁 Race ended by the operator.");
     CompletelyFinishRace();
     _refresh.RenderNow(RaceViewKind.All);
   }
