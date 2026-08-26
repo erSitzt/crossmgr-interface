@@ -3897,81 +3897,143 @@ public partial class Form1 : Form
   /// <summary>
   /// Check for passing and lapping events using lap difference analysis
   /// </summary>
+  /// <summary>
+  /// At most three riders are named before the announcement becomes a count.
+  /// A leader lapping forty backmarkers is forty true statements and one
+  /// unreadable event log.
+  /// </summary>
+  private const int MaxNamedLappedRiders = 3;
+
+  /// <summary>
+  /// Only lapping by a rider this high up is announced.
+  ///
+  /// The remaining events after the lap-count bug was fixed were all true, but
+  /// most were not worth reading: in a 250-rider field the natural spread means
+  /// the midfield laps the tail constantly, and P150 lapping P200 changes
+  /// nothing anybody acts on. Lapping matters for race management when it is the
+  /// front of the race catching backmarkers - blue flags, and who is on the lead
+  /// lap at the finish.
+  /// </summary>
+  private const int LappingAnnouncementPositions = 10;
+
   private void CheckForPassingAndLappingEvents(List<RiderInfo> currentStandings, string crossingRiderTagID)
   {
-    // For each other rider, check if there's a passing or lapping event involving the crossing rider
+    // Built once. CheckPassingEvent used to FindIndex twice for every comparison,
+    // so a 250-rider field cost about sixty thousand list scans per crossing.
+    var order = new Dictionary<string, int>(currentStandings.Count);
+    for (var i = 0; i < currentStandings.Count; i++) order[currentStandings[i].TagID] = i;
+
+    if (!order.TryGetValue(crossingRiderTagID, out var crossingIndex)) return;
+
+    // Everything below works from the standings snapshot. The previous version
+    // indexed the live riders dictionary here, outside ridersLock, while the
+    // network thread was writing to it.
+    var crossingRider = currentStandings[crossingIndex];
+
+    var now = DateTime.Now;
+    var medianPace = RaceProgress.MedianPace(currentStandings);
+    var crossingProgress = RaceProgress.Of(crossingRider, now, medianPace);
+    var crossingPosition = crossingIndex + 1;
+
+    var lapped = new List<RiderInfo>();
+    var lappedBy = new List<RiderInfo>();
+
     foreach (var otherRider in currentStandings)
     {
       if (otherRider.TagID == crossingRiderTagID) continue;
 
-      var crossingRider = riders[crossingRiderTagID];
-      var otherRiderInfo = riders[otherRider.TagID];
-
-      // Determine if riders are on the same lap
-      bool sameCurrentLap = crossingRider.TotalLaps == otherRiderInfo.TotalLaps;
-
-      if (sameCurrentLap)
+      if (otherRider.TotalLaps == crossingRider.TotalLaps)
       {
-        // Same lap = check for passing events only
-        CheckPassingEvent(crossingRiderTagID, otherRider.TagID, currentStandings);
+        CheckPassingEvent(crossingRiderTagID, otherRider.TagID, currentStandings, order);
+        continue;
       }
-      else
+
+      var otherProgress = RaceProgress.Of(otherRider, now, medianPace);
+      var otherPosition = order[otherRider.TagID] + 1;
+
+      // Both directions, and the second one is the one that actually fires.
+      //
+      // A rider who has just crossed sits at exactly a whole lap of progress, so
+      // their lead over a backmarker computes as one lap MINUS however far round
+      // that backmarker is - always just under a lap, never over it. Checking
+      // only "did the crossing rider lap anybody" would therefore almost never
+      // report anything. The lapping becomes visible at the BACKMARKER's next
+      // crossing, when it is their progress that is the whole number.
+      // The state is updated either way, so a lapping that goes unannounced still
+      // counts against the next one - the filter suppresses the message, not the
+      // bookkeeping.
+      if (HasJustLapped(crossingRider, crossingProgress, otherRider, otherProgress))
       {
-        // Different laps = check for lapping events only
-        CheckLappingEvent(crossingRiderTagID, otherRider.TagID, currentStandings);
+        if (crossingPosition <= LappingAnnouncementPositions) lapped.Add(otherRider);
+      }
+      else if (HasJustLapped(otherRider, otherProgress, crossingRider, crossingProgress))
+      {
+        if (otherPosition <= LappingAnnouncementPositions) lappedBy.Add(otherRider);
       }
     }
+
+    AnnounceLapping(crossingRider, lapped, lappedBy);
   }
+
+  /// <summary>
+  /// True the first time the crossing rider reaches a new whole-lap lead over
+  /// this rider.
+  ///
+  /// Measured in track progress rather than lap count, which is the entire fix:
+  /// a rider who has just crossed has one more lap recorded than everybody still
+  /// approaching the line, and reporting that as lapping produced roughly nine
+  /// false events per crossing.
+  /// </summary>
+  private bool HasJustLapped(RiderInfo leader, double leaderProgress, RiderInfo other, double otherProgress)
+  {
+    var lead = RaceProgress.WholeLapLead(leaderProgress, otherProgress);
+    var previous = GetPreviousLapDifference(leader.TagID, other.TagID, 0);
+
+    // A HIGH-WATER MARK, never allowed to fall.
+    //
+    // Progress depends on a pace estimate that shifts every lap, so a pair sitting
+    // near the one-lap boundary drifts back and forth across it - and storing the
+    // current value would re-announce the same lapping every time it wobbled back.
+    // Having been lapped does not become untrue, so the recorded lead only ever
+    // rises, and the next announcement needs a genuine second lap.
+    //
+    // Stored per ordered pair, so "A leads B" and "B leads A" keep separate
+    // history and neither direction can suppress the other.
+    StoreLapDifference(leader.TagID, other.TagID, Math.Max(lead, previous));
+
+    return lead >= 1 && lead > previous;
+  }
+
+  private void AnnounceLapping(RiderInfo crossingRider, List<RiderInfo> lapped, List<RiderInfo> lappedBy)
+  {
+    var who = GetRiderDisplayText(crossingRider);
+
+    if (lapped.Count > 0)
+      AddRaceEvent($"🔄 {who} has LAPPED {Describe(lapped)}");
+
+    if (lappedBy.Count > 0)
+      AddRaceEvent($"🔄 {who} has been LAPPED by {Describe(lappedBy)}");
+  }
+
+  /// <summary>Names a few riders, or counts them once naming stops being readable.</summary>
+  private string Describe(List<RiderInfo> riders) =>
+    riders.Count <= MaxNamedLappedRiders
+      ? string.Join(", ", riders.Select(GetRiderDisplayText))
+      : $"{riders.Count} riders";
 
   /// <summary>
   /// Check for a lapping event between two specific riders
   /// </summary>
-  private void CheckLappingEvent(string crossingRiderTagID, string otherRiderTagID, List<RiderInfo> currentStandings)
-  {
-    var crossingRider = riders[crossingRiderTagID];
-    var otherRider = riders[otherRiderTagID];
-
-    // Calculate current lap difference (crossing rider - other rider)
-    int currentLapDiff = crossingRider.TotalLaps - otherRider.TotalLaps;
-
-    // Don't check lapping if riders are on the same lap - that's a passing event, not lapping
-    if (currentLapDiff == 0)
-    {
-      // Store the lap difference and return - passing logic will handle same-lap events
-      StoreLapDifference(crossingRiderTagID, otherRiderTagID, currentLapDiff);
-      return;
-    }
-
-    // Get previous lap difference
-    int previousLapDiff = GetPreviousLapDifference(crossingRiderTagID, otherRiderTagID, currentLapDiff);
-
-    // Lapping occurs when crossing rider gains a lap advantage (goes from same/behind to ahead)
-    // The crossing rider must have MORE laps than the other rider to lap them
-    if (currentLapDiff >= 1 && previousLapDiff < currentLapDiff)
-    {
-      // Lapping event detected - crossing rider has gained a lap advantage
-      if (currentLapDiff == 1)
-      {
-        AddRaceEvent($"🔄 {GetRiderDisplayText(crossingRiderTagID)} has LAPPED {GetRiderDisplayText(otherRiderTagID)}!");
-      }
-      else if (currentLapDiff > 1)
-      {
-        AddRaceEvent($"🔄 {GetRiderDisplayText(crossingRiderTagID)} has LAPPED {GetRiderDisplayText(otherRiderTagID)} (now {currentLapDiff} laps ahead)!");
-      }
-    }
-
-    // Store the current lap difference for next comparison
-    StoreLapDifference(crossingRiderTagID, otherRiderTagID, currentLapDiff);
-  }
 
   /// <summary>
   /// Check for a passing event between two specific riders (same lap only)
   /// </summary>
-  private void CheckPassingEvent(string crossingRiderTagID, string otherRiderTagID, List<RiderInfo> currentStandings)
+  private void CheckPassingEvent(
+    string crossingRiderTagID, string otherRiderTagID,
+    List<RiderInfo> currentStandings, Dictionary<string, int> order)
   {
-    int crossingIndex = currentStandings.FindIndex(r => r.TagID == crossingRiderTagID);
-    int otherIndex = currentStandings.FindIndex(r => r.TagID == otherRiderTagID);
-    if (crossingIndex < 0 || otherIndex < 0) return;
+    if (!order.TryGetValue(crossingRiderTagID, out var crossingIndex)) return;
+    if (!order.TryGetValue(otherRiderTagID, out var otherIndex)) return;
 
     // Only riders on the same lap can pass one another.
     //
