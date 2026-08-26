@@ -59,6 +59,14 @@ public partial class Form1
     radioButtonStartManual.Checked = _settings.ManualStart;
     radioButtonStartOnFirstTag.Checked = !_settings.ManualStart;
 
+    // The field as well as the radio. Form1_Load wires CheckedChanged long after
+    // this runs, so setting Checked here fires nothing - which left the radio
+    // showing "I will press Start Race myself" while manualStartMode was still
+    // false. That disabled the Start Race button, and, far worse, meant the race
+    // would have auto-started on the first transponder read despite the screen
+    // saying otherwise.
+    manualStartMode = _settings.ManualStart;
+
     BuildMenu();
     BuildStatusBar();
 

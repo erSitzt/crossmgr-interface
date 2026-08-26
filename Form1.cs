@@ -282,6 +282,12 @@ public partial class Form1 : Form
     AddMessage("🔍 Tag filter: Disabled (all tags will be processed)");
     AddMessage($"⚙️ DNF timeout: {dnfTimeoutMinutes} minutes after leader finishes");
 
+    // On record at startup, because a start mode that disagreed with the radio
+    // was invisible in the log until someone noticed the button was disabled.
+    AddMessage(manualStartMode
+      ? "⚙️ Start mode: manual - the clock starts when you press Start Race"
+      : "⚙️ Start mode: automatic - the clock starts on the first transponder read");
+
     // Enable double buffering for the lap chart panel to reduce flickering
     typeof(Panel).InvokeMember("DoubleBuffered",
       BindingFlags.SetProperty | BindingFlags.Instance | BindingFlags.NonPublic,
