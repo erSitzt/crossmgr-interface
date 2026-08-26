@@ -204,7 +204,11 @@ public partial class Form1
   /// </summary>
   private void ApplySessionTypeToUi()
   {
-    _raceDayView.Qualifying = IsTimedSession;
+    // Two flags, not one: free practice is timed - so it gets the session
+    // wording - but produces no gate pick order, so its results button must
+    // keep saying Results... and keep opening the race report.
+    _raceDayView.TimedSession = IsTimedSession;
+    _raceDayView.GatePickOrder = IsQualifying;
     RebuildTabs();
 
     // Disabled rather than hidden: the Race Settings tab is absolute-positioned,

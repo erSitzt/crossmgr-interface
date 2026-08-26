@@ -192,9 +192,11 @@ public partial class Form1
   private (RaceDayState State, string Detail) DescribeRaceState(List<RiderInfo> sorted, int riderCount)
   {
     if (raceFinished)
-      return (RaceDayState.Finished, IsTimedSession
+      return (RaceDayState.Finished, IsQualifying
         ? "Session over - press Gate pick order..."
-        : "Results are final - press Results...");
+        : IsTimedSession
+          ? "Session over - press Results... for the lap times"
+          : "Results are final - press Results...");
 
     if (!raceStarted)
     {

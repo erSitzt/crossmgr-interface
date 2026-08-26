@@ -425,29 +425,48 @@ public sealed class RaceDayView
     value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"mm\:ss");
 
   /// <summary>
-  /// Retitles the state words and the action buttons for a practice session.
+  /// Retitles the state words and the start/end buttons for a practice session.
   ///
-  /// "Last laps", "Finishing" and "Results" are race words. A timed session
-  /// ends on a flag, not on a finish, and what comes out of it is a gate pick
-  /// order rather than a result.
+  /// "Last laps" and "Finishing" are race words: a timed session ends on a flag,
+  /// not on somebody finishing. True for free practice as well as qualifying.
   /// </summary>
-  public bool Qualifying
+  public bool TimedSession
   {
-    get => _qualifying;
+    get => _timedSession;
     set
     {
-      if (_qualifying == value) return;
-      _qualifying = value;
+      if (_timedSession == value) return;
+      _timedSession = value;
       ApplySessionWording();
     }
   }
-  private bool _qualifying;
+  private bool _timedSession;
+
+  /// <summary>
+  /// Whether this session produces a gate pick order, which only qualifying
+  /// does - free practice is timed but yields no sheet.
+  ///
+  /// Deliberately separate from <see cref="TimedSession"/>. Driving the results
+  /// button from that one instead labelled it "Gate pick order..." during free
+  /// practice while it still opened the race results report.
+  /// </summary>
+  public bool GatePickOrder
+  {
+    get => _gatePickOrder;
+    set
+    {
+      if (_gatePickOrder == value) return;
+      _gatePickOrder = value;
+      ApplySessionWording();
+    }
+  }
+  private bool _gatePickOrder;
 
   private void ApplySessionWording()
   {
-    _startRace.Text = _qualifying ? "START SESSION" : "START RACE";
-    _endRace.Text = _qualifying ? "End session now" : "End race now";
-    _results.Text = _qualifying ? "Gate pick order..." : "Results...";
+    _startRace.Text = _timedSession ? "START SESSION" : "START RACE";
+    _endRace.Text = _timedSession ? "End session now" : "End race now";
+    _results.Text = _gatePickOrder ? "Gate pick order..." : "Results...";
   }
 
   public void SetState(RaceDayState state, string detail)
@@ -456,10 +475,10 @@ public sealed class RaceDayView
     {
       RaceDayState.WaitingForFirstRider => ("Waiting for first rider", Color.DimGray),
       RaceDayState.ReadyToStart => ("Ready to start", Color.FromArgb(214, 137, 16)),
-      RaceDayState.Running => (_qualifying ? "Session running" : "Race running", Color.FromArgb(0, 130, 55)),
+      RaceDayState.Running => (_timedSession ? "Session running" : "Race running", Color.FromArgb(0, 130, 55)),
       RaceDayState.LastLaps => ("Last laps", Color.FromArgb(20, 90, 180)),
-      RaceDayState.Finishing => (_qualifying ? "Chequered flag" : "Finishing", Color.FromArgb(20, 90, 180)),
-      _ => (_qualifying ? "Session over" : "Race finished", Color.FromArgb(20, 60, 140))
+      RaceDayState.Finishing => (_timedSession ? "Chequered flag" : "Finishing", Color.FromArgb(20, 90, 180)),
+      _ => (_timedSession ? "Session over" : "Race finished", Color.FromArgb(20, 60, 140))
     };
 
     _stateDetail.Text = detail;

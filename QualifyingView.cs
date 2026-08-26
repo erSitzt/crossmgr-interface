@@ -147,6 +147,13 @@ public sealed class QualifyingView
 
     // DataGridView exposes DoubleBuffered only as a protected property; the
     // riders grid and the lap chart panel use the same trick.
+    // Headers get their own font and an auto height. Without this they inherit
+    // the grid's 11pt into the default 23px header row, which clips the bottom
+    // of the header text - worse on a scaled display, where it renders taller.
+    _grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+    _grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(0, 4, 0, 4);
+    _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+
     typeof(DataGridView).InvokeMember("DoubleBuffered",
       BindingFlags.SetProperty | BindingFlags.Instance | BindingFlags.NonPublic,
       null, _grid, new object[] { true });
