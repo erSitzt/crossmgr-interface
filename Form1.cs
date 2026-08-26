@@ -296,6 +296,9 @@ public partial class Form1 : Form
     InitializeTagEventsContextMenu();
 
     // Set up race start mode controls
+    radioButtonSessionRace.CheckedChanged += SessionType_CheckedChanged;
+    radioButtonSessionQualifying.CheckedChanged += SessionType_CheckedChanged;
+    radioButtonSessionPractice.CheckedChanged += SessionType_CheckedChanged;
     radioButtonStartOnFirstTag.CheckedChanged += RaceStartMode_CheckedChanged;
     radioButtonStartManual.CheckedChanged += RaceStartMode_CheckedChanged;
     UpdateRaceStartControls();
@@ -3452,6 +3455,7 @@ public partial class Form1 : Form
     }
 
     buttonStartRace.Enabled = manualStartMode && !raceStarted && !raceFinished;
+    UpdateSessionTypeLock();
 
     if (raceFinished)
     {

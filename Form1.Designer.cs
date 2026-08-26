@@ -93,6 +93,10 @@ partial class Form1
   private System.Windows.Forms.NumericUpDown numericUpDownDnfTimeout;
   private System.Windows.Forms.Button buttonSetDnfTimeout;
   private System.Windows.Forms.Button buttonMissedReadSettings;
+  private System.Windows.Forms.GroupBox groupBoxSessionType;
+  private System.Windows.Forms.RadioButton radioButtonSessionRace;
+  private System.Windows.Forms.RadioButton radioButtonSessionQualifying;
+  private System.Windows.Forms.RadioButton radioButtonSessionPractice;
 
   private void InitializeComponent()
   {
@@ -140,6 +144,10 @@ partial class Form1
     labelDnfTimeout = new Label();
     buttonSetDnfTimeout = new Button();
     buttonMissedReadSettings = new Button();
+    groupBoxSessionType = new GroupBox();
+    radioButtonSessionRace = new RadioButton();
+    radioButtonSessionQualifying = new RadioButton();
+    radioButtonSessionPractice = new RadioButton();
     labelMinimumLapTime = new Label();
     labelAdditionalLaps = new Label();
     numericUpDownAdditionalLaps = new NumericUpDown();
@@ -584,6 +592,7 @@ partial class Form1
     tabPageRaceSettings.Controls.Add(labelAdditionalLaps);
     tabPageRaceSettings.Controls.Add(numericUpDownAdditionalLaps);
     tabPageRaceSettings.Controls.Add(buttonSetAdditionalLaps);
+    tabPageRaceSettings.Controls.Add(groupBoxSessionType);
     tabPageRaceSettings.Controls.Add(buttonMissedReadSettings);
     tabPageRaceSettings.Controls.Add(groupBoxRaceStart);
     tabPageRaceSettings.Controls.Add(labelTagFilter);
@@ -657,6 +666,48 @@ partial class Form1
     // 
     // buttonSetDnfTimeout
     // 
+    // 
+    // groupBoxSessionType
+    // 
+    groupBoxSessionType.Controls.Add(radioButtonSessionRace);
+    groupBoxSessionType.Controls.Add(radioButtonSessionQualifying);
+    groupBoxSessionType.Controls.Add(radioButtonSessionPractice);
+    groupBoxSessionType.Location = new Point(452, 268);
+    groupBoxSessionType.Name = "groupBoxSessionType";
+    groupBoxSessionType.Size = new Size(400, 167);
+    groupBoxSessionType.TabIndex = 41;
+    groupBoxSessionType.TabStop = false;
+    groupBoxSessionType.Text = "What kind of session is this?";
+    // 
+    // radioButtonSessionRace
+    // 
+    radioButtonSessionRace.AutoSize = false;
+    radioButtonSessionRace.Location = new Point(18, 36);
+    radioButtonSessionRace.Name = "radioButtonSessionRace";
+    radioButtonSessionRace.Size = new Size(370, 30);
+    radioButtonSessionRace.TabIndex = 0;
+    radioButtonSessionRace.Text = "Race - scored on laps, then time";
+    radioButtonSessionRace.UseVisualStyleBackColor = true;
+    // 
+    // radioButtonSessionQualifying
+    // 
+    radioButtonSessionQualifying.AutoSize = false;
+    radioButtonSessionQualifying.Location = new Point(18, 76);
+    radioButtonSessionQualifying.Name = "radioButtonSessionQualifying";
+    radioButtonSessionQualifying.Size = new Size(370, 30);
+    radioButtonSessionQualifying.TabIndex = 1;
+    radioButtonSessionQualifying.Text = "Timed qualifying - gate pick from best lap";
+    radioButtonSessionQualifying.UseVisualStyleBackColor = true;
+    // 
+    // radioButtonSessionPractice
+    // 
+    radioButtonSessionPractice.AutoSize = false;
+    radioButtonSessionPractice.Location = new Point(18, 116);
+    radioButtonSessionPractice.Name = "radioButtonSessionPractice";
+    radioButtonSessionPractice.Size = new Size(370, 30);
+    radioButtonSessionPractice.TabIndex = 2;
+    radioButtonSessionPractice.Text = "Free practice - timed, no sheet";
+    radioButtonSessionPractice.UseVisualStyleBackColor = true;
     // 
     // buttonMissedReadSettings
     // 

@@ -203,8 +203,86 @@ public partial class Form1
   /// so without this a recovered qualifying session comes back with no
   /// Qualifying tab and race wording on the Race Day tile.
   /// </summary>
+  /// <summary>Stops the radios writing back the value they are being set to.</summary>
+  private bool _applyingSessionType;
+
+  /// <summary>
+  /// The session type radios on the Race Settings tab.
+  ///
+  /// The wizard is the guided way in, but it resets the name, duration, riders
+  /// and start mode with it - far too much to go through because the format was
+  /// picked wrong. This changes only the format.
+  /// </summary>
+  private void SessionType_CheckedChanged(object? sender, EventArgs e)
+  {
+    if (_applyingSessionType) return;
+    if (sender is not RadioButton { Checked: true }) return;
+
+    var chosen = radioButtonSessionQualifying.Checked ? SessionType.TimedQualifying
+      : radioButtonSessionPractice.Checked ? SessionType.FreePractice
+      : SessionType.Race;
+
+    if (chosen == sessionType) return;
+
+    sessionType = chosen;
+
+    // A timed session has no extra-laps rule, so a value left over from a race
+    // would be persisted and shown as though it applied.
+    if (IsTimedSession && additionalLapsAfterTimeExpiry != 0)
+    {
+      additionalLapsAfterTimeExpiry = 0;
+      numericUpDownAdditionalLaps.Value = 0;
+    }
+
+    ApplySessionTypeToUi();
+    RememberRaceSetup();
+
+    AddMessage($"⚙️ Session type: {DescribeSessionType(chosen)}.");
+  }
+
+  /// <summary>
+  /// Locks the session type while a session is scoring.
+  ///
+  /// Changing the finishing rules out from under a running session would leave
+  /// half-applied state behind - a race that has already begun waiting for its
+  /// leader does not stop waiting because the format changed. Deleting the race
+  /// data first is a deliberate act, and unlocks this again.
+  ///
+  /// Called from every race state transition, not just from setup.
+  /// </summary>
+  private void UpdateSessionTypeLock()
+  {
+    var running = raceStarted && !raceFinished;
+    groupBoxSessionType.Enabled = !running;
+    groupBoxSessionType.Text = running
+      ? "Session type - locked while the session is running"
+      : "What kind of session is this?";
+  }
+
+  private static string DescribeSessionType(SessionType type) => type switch
+  {
+    SessionType.TimedQualifying => "timed qualifying - the gate pick order comes from the best laps",
+    SessionType.FreePractice => "free practice - timed, but no sheet is produced",
+    _ => "race - scored on laps completed, then on time"
+  };
+
   private void ApplySessionTypeToUi()
   {
+    // Reflect the type back into the radios without them writing it out again.
+    _applyingSessionType = true;
+    try
+    {
+      radioButtonSessionRace.Checked = sessionType == SessionType.Race;
+      radioButtonSessionQualifying.Checked = sessionType == SessionType.TimedQualifying;
+      radioButtonSessionPractice.Checked = sessionType == SessionType.FreePractice;
+    }
+    finally
+    {
+      _applyingSessionType = false;
+    }
+
+    UpdateSessionTypeLock();
+
     // Two flags, not one: free practice is timed - so it gets the session
     // wording - but produces no gate pick order, so its results button must
     // keep saying Results... and keep opening the race report.
