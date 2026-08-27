@@ -1,0 +1,48 @@
+name: Build and test
+
+# The app is net9.0-windows WinForms, so every job here has to run on Windows.
+# A net9.0 (non-windows) runner cannot even restore the test project.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore crossmgr-interface.sln
+
+      - name: Build
+        run: dotnet build crossmgr-interface.sln -c Release --no-restore
+
+      - name: Test
+        run: >
+          dotnet test crossmgr-interface.sln -c Release --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory TestResults
+
+      # Uploaded even when the tests fail - that is exactly when the .trx is worth
+      # reading, and the run summary only says how many failed, not which.
+      - name: Keep the test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          if-no-files-found: warn

@@ -1,0 +1,70 @@
+name: Release build
+
+# Publishing a release builds that tag and attaches a ready-to-run Windows zip
+# to it. workflow_dispatch is for re-running a build against a release that was
+# published before this workflow existed, or after a failed run.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build, e.g. v0.6.0. The build is attached to that release.'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Work out which tag to build
+        id: tag
+        shell: bash
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$tag" ]; then
+            echo "No tag to build." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # dotnet wants a bare version: v0.6.0 -> 0.6.0
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # A release that fails its own tests should not ship a zip.
+      - name: Test
+        run: dotnet test crossmgr-interface.sln -c Release
+
+      # Self-contained: the timing laptop is regularly on a field with no
+      # internet and no rights to install a .NET runtime. Extract and run.
+      - name: Publish
+        run: >
+          dotnet publish CrossMgrInterface.csproj -c Release -r win-x64
+          --self-contained true
+          -p:Version=${{ steps.tag.outputs.version }}
+          -o publish
+
+      - name: Zip it
+        shell: pwsh
+        run: |
+          $name = "CrossMgrInterface-${{ steps.tag.outputs.tag }}-win-x64.zip"
+          Compress-Archive -Path publish\* -DestinationPath $name
+          "asset=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        id: zip
+
+      - name: Attach it to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" "${{ steps.zip.outputs.asset }}" --clobber

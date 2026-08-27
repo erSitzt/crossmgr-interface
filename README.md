@@ -1,239 +1,172 @@
 # CrossMgr RFID Interface
 
-A C# Windows Forms application that serves as an interface for CrossMgr RFID race timing systems. The application listens for messages from RFID readers (such as Impinj readers) and provides real-time race management with lap tracking, predictions, and statistics.
+Times motocross races from transponder reads. A Windows Forms application that
+listens on the CrossMgr reader port, turns the raw tag reads into a live
+leaderboard, and produces the sheets a meeting actually needs: results, gate
+pick order, and a transponder check.
+
+It is built to be run by a volunteer in a timing tent, on a laptop that may have
+no internet, by someone who did not install it and cannot debug it. That
+constraint shapes most of what follows.
+
+## What it does
+
+- **Three session types.** A **race** is scored on laps and finishes on a laps
+  target. **Free practice** and **timed qualifying** are scored on the clock:
+  when it runs out the flag comes out, every rider finishes the lap they are on,
+  and that lap counts. Only qualifying produces a gate pick order.
+- **Live race day view.** Positions, gaps, lap counts and the race clock, in a
+  layout meant to be read across a tent rather than leant over.
+- **Track map.** The circuit drawn on an OpenStreetMap basemap with rider dots
+  moving round it in real time, so "where is everyone?" has an answer. Tiles are
+  cached to disk, so the map still works on a field with no signal.
+- **Transponder check.** Finds the tags that are *not* being read, before the
+  session that matters.
+- **Corrections.** A missed read, a double read, an unknown transponder, a rider
+  who should not be counted — each is fixable during the session, with undo.
+- **Rider lists and classes.** Import riders from CSV; filter and report by
+  class.
+- **Crash recovery.** The race is written to a local database as it happens. If
+  the laptop restarts mid-session, the race, the rider list and the reader
+  connection all come back.
+
+## Getting it
+
+Download the `CrossMgrInterface-vX.Y.Z-win-x64.zip` from the
+[latest release](../../releases/latest), extract it anywhere, and run
+`CrossMgrInterface.exe`. The build is self-contained — no .NET install, no
+administrator rights.
+
+## Running a session
+
+1. **Race → New race…** (`Ctrl+N`) walks through session type, length, and when
+   the clock starts. To change the session type later, you do not need the
+   wizard again.
+2. **Race → Import riders…** (`Ctrl+I`) loads the rider list. Without it,
+   riders show as raw transponder IDs, which still times the race correctly but
+   makes every sheet unreadable.
+3. **Reader → Start reader connection** opens the port the transponder reader
+   connects to (53135 by default). If the reader was connected when the
+   application last closed, it reconnects by itself.
+4. Run the session. The clock starts on the first crossing, or on
+   **Race → Start race** (`F5`) if you chose to start it yourself.
+5. **Race → Results…** (`Ctrl+P`) prints or exports to Excel; qualifying also
+   offers **Gate pick order…**.
+
+Press `F1` for the in-application quick start.
+
+## The tabs
+
+By default the application shows the calm view — the tabs a volunteer needs:
+
+| Tab | What it is for |
+|---|---|
+| **Race Day** | The live view: positions, gaps, clock, flag state. |
+| **Riders** | The grid. Where corrections are made (right-click a rider). |
+| **Qualifying** | Best laps and the gate pick order they produce. Qualifying sessions only. |
+| **Transponders** | Which tags are being read and which are missing. Timed sessions only. |
+| **Track** | The circuit map with live rider positions. |
+
+**View → Show advanced tabs** (`Ctrl+Shift+A`) adds the diagnostics: the reader
+feed, raw tag events, race statistics, the lap chart, lap progression, and the
+full race settings. The choice is remembered.
+
+`Ctrl+1`, `Ctrl+2` and `Ctrl+3` jump to Race Day, Riders and the track map.
+
+## Fixing things during a session
+
+Transponder timing goes wrong in a small number of predictable ways, and all of
+them are fixable from the riders grid — right-click a rider, or **Riders → Fix
+laps…** (`F2`), which opens the rider most in need of it.
+
+- **A missed read** shows up as one lap of roughly double the usual time,
+  flagged `CHECK`. The lap can be split in two.
+- **A read too soon after the last one** is rejected as not-a-lap and shown as a
+  grey row. If it was real, it can be counted.
+- **An unknown transponder** can be identified — named, or merged onto a rider
+  already in the race.
+- **A rider who should not be scored** can be stopped, and started again later.
+- Laps can be added, edited, deleted, and a rider marked DNF.
+
+**Riders → Undo last change** (`Ctrl+Z`) reverses the last correction.
+
+Missed-read detection is configurable (**Race Settings → Missed read
+detection…**), as is the threshold below which a lap is too fast to be real.
+
+## Rider lists
+
+CSV, with a header row. Column names are matched loosely, so most exports from a
+club's entry system work as-is:
+
+| Field | Accepted column names |
+|---|---|
+| Transponder | `tagid`, `tag`, `id` |
+| Name | `name`, `fullname`, `rider`, or `firstname`/`first` + `lastname`/`last`/`surname` |
+| Number | `number`, `ridernumber`, `bib` |
+| Class | `category`, `class`, `division` |
 
-## Features
+A row with no transponder ID is skipped and reported. A file with no recognisable
+transponder column is refused, and the import names the columns it did find
+instead — a partly-unreadable rider list used to import silently and the missing
+riders only surfaced mid-race.
 
-### Core RFID Protocol Support
+## Where it keeps things
 
-- **TCP Server**: Listens on configurable port for RFID reader connections
-- **CrossMgr Protocol**: Full support for GT (GetTime), S0000 (Setup), and DA (Data) messages
-- **Multiple Readers**: Handles multiple concurrent RFID reader connections
-- **Real-time Processing**: Live tag read processing with timestamps
+Everything lives under `%LOCALAPPDATA%\CrossMgrInterface\`:
 
-### Race Management
+| Path | What |
+|---|---|
+| `races.db` | The race database. |
+| `settings.json` | Reader port, advanced mode, last rider list, and so on. |
+| `tracks.json` | Surveyed circuits. A plain file, so a club can email one to the next club using the same venue. |
+| `tiles\` | Cached map tiles, kept indefinitely. |
+| `logs\` | Rolling text logs: every race event, every correction, window layout, and a render-cost summary every 30 seconds. |
 
-- **Race Duration**: Configurable race duration (default: 20 minutes, range: 1-180 minutes)
-- **Race Start Modes**:
-  - **Automatic Start**: Race automatically starts on first tag read (default)
-  - **Manual Start**: Operator controls race start with "Start Race" button
-- **First Lap Timing**: Proper first lap time calculation from race start
-- **End Time Tracking**: Displays race end time and remaining time
-- **Race Warnings**: Automatic warnings at 5 minutes and 1 minute remaining
-- **Race Reset**: Clear all data and reset race state
-- **Tag Prefix Filter**: Filter tags by prefix to only process expected rider tags
+**Help → Open log folder** opens the last of these. The log is usually faster to
+read than watching the screen.
 
-### Lap Tracking & Predictions
+## Reader protocol
 
-- **Individual Lap Tracking**: Each rider's lap times, best lap, average lap
-- **Lap Prediction**: Weighted average of recent laps predicts next lap time
-- **Next Crossing Prediction**: Estimated time for each rider's next finish line crossing
-- **Total Lap Prediction**: Predicts total laps for the race leader based on remaining time
-- **Overdue Detection**: Highlights riders who are overdue for their predicted crossing
+The application implements the CrossMgr side of the timing protocol used by
+Impinj and similar readers. It listens; the reader connects.
 
-### User Interface
+| Message | Meaning |
+|---|---|
+| `GT` | Time sync request. Answered with `GT{HHmmssfff} date={YYYYMMDD}`. |
+| `S0000` | Setup, sent before tag reads begin. |
+| `DA{tag} {time} 10 {count} C7 date={date}` | A tag read. |
 
-#### Live Feed Tab
+Example: `DA10000001 17:50:37.786398 10  00006      C7 date=20250709`
 
-- Real-time message display with timestamps
-- Protocol handshake logging
-- Tag read notifications with lap information
-- Connection status and client management
+A transponder prefix filter is available for venues where other tags are in
+range.
 
-#### Riders Tab
+## Building from source
 
-- Real-time rider standings sorted by position
-- Lap count, best lap time, average lap time
-- Last crossing time and predicted next crossing
-- Overdue status highlighting
-
-#### Race Statistics Tab
-
-- Current race time and total riders/laps
-- Last tag read information
-- Next expected crossing prediction
-- Race end time and time remaining
-- Predicted total laps for race leader
-
-#### Lap Chart Tab
-
-- Visual lap chart showing all riders' progress
-- Horizontal timeline with completed and predicted laps
-- Color-coded rider positions (1st=Gold, 2nd=Silver, 3rd=Bronze)
-- Interactive features: click rider for lap times, hover for details
-- Real-time progress indicator and time scale
-
-#### Race Settings Tab
-
-All race configuration options are consolidated in this dedicated tab:
-
-- **Race Duration**: Set race length (1-180 minutes)
-- **Tag Filter**: Configure tag prefix filtering with enable/disable toggle
-- **Race Start Mode**: Choose between automatic start on first tag or manual start
-- **Race Start Controls**: Manual start button and race status display
-
-#### Race Start Controls
-
-The interface provides flexible race start options:
-
-**Start on First Tag Read (Default)**
-
-- Race automatically begins when any RFID tag is detected
-- Simple plug-and-play operation
-- Suitable for informal races or testing
-
-**Manual Start**
-
-- Operator controls when the race begins
-- Click "Start Race" button to begin timing
-- Tags read before race start are ignored
-- Ensures synchronized start for all riders
-- Proper first lap time calculation from race start
-- Race status indicator shows current state
-
-#### Riders Tab (Leaderboard)
-
-- **Real-time Leaderboard**: Sorted by laps completed, then by total time
-- **Position Indicators**: Color-coded positions (Gold/Silver/Bronze for top 3)
-- **Comprehensive Data**: Position, Tag ID, Laps, Last/Best/Average lap times
-- **Predictions**: Predicted lap time, next crossing time, countdown to next crossing
-- **Gap Information**: Time/lap gap to leader
-- **Visual Indicators**: Red highlighting for overdue riders
-
-#### Race Statistics Tab
-
-- **Race Time**: Current elapsed race time
-- **Participation**: Total riders and total laps completed
-- **Last Activity**: Most recent tag read with time since
-- **Next Expected**: Which rider is expected to cross next and when
-- **Race End**: Scheduled race end time
-- **Time Remaining**: Countdown to race end with color coding
-- **Predicted Laps**: Estimated total laps the leader will complete
-
-## Supported Message Types
-
-### GetTime (GT)
-
-Request from RFID reader for current time synchronization.
-
-- **Request**: `GT`
-- **Response**: `GT{HHmmssfff} date={YYYYMMDD}`
-
-### Setup (S0000)
-
-Setup command sent before tag reads begin.
-
-- **Format**: `S0000`
-
-### Data/Tag Reads (DA)
-
-RFID tag detection messages.
-
-- **Format**: `DA{tagID} {time} 10 {count} C7 date={date}`
-- **Example**: `DA10000001 17:50:37.786398 10 00006 C7 date=20250709`
-
-## Usage
-
-### Starting the Server
-
-1. Set the desired TCP port (default: 53135)
-2. Click "Start" to begin listening for RFID readers
-3. Readers will connect and complete the CrossMgr handshake automatically
-
-### Setting Race Duration
-
-1. Adjust the "Race Duration (min)" value (1-180 minutes)
-2. Click "Set" to apply the new duration
-3. Duration can be changed even during an active race
-
-### Setting Tag Prefix Filter
-
-1. Enter tag prefixes in the "Tag Filter" field (e.g., "RIDER" or "RIDER,BIKE,1000")
-2. Multiple prefixes can be separated by commas
-3. Check "Filter Enabled" to activate filtering
-4. Click "Set Filter" to apply
-5. Only tags starting with the specified prefixes will be processed for lap tracking
-6. Filtered tags are logged but don't affect race statistics
-
-### Race Operation
-
-1. **Race Start**: Automatically starts on first tag read
-2. **Live Monitoring**: Switch to "Riders" tab for real-time leaderboard
-3. **Statistics**: Use "Race Statistics" tab for race overview and predictions
-4. **Reset**: Use "Clear Riders" to reset all data and start a new race
-
-## Prediction Algorithms
-
-### Lap Time Prediction
-
-- Uses weighted average of rider's last 3 laps
-- More recent laps have higher weight
-- Fallback to race-time-based estimation for new riders
-
-### Total Race Laps Prediction
-
-- Based on current leader's performance
-- Considers remaining time and predicted lap times
-- Accounts for partial laps and crossing timing
-- Updates in real-time as race progresses
-
-### Next Crossing Prediction
-
-- Predicts when each rider will next cross the finish line
-- Based on last crossing time + predicted lap time
-- Provides countdown timers and overdue detection
-
-## Configuration
-
-### Default Settings
-
-- **Port**: 53135 (standard CrossMgr port)
-- **Race Duration**: 20 minutes
-- **Update Interval**: 1 second
-- **Prediction Window**: Last 3 laps for lap time prediction
-- **Warning Times**: 5 minutes and 1 minute before race end
-
-### Customizable Parameters
-
-- TCP port (1-65535)
-- Race duration (1-180 minutes)
-- All timing predictions update dynamically
-
-## Requirements
-
-- .NET 6.0 or later
-- Windows operating system
-- TCP network connectivity to RFID readers
-- Compatible RFID readers (Impinj or CrossMgr protocol)
-
-## Building
-
-This project requires:
-
-- .NET 6.0 or later
-- Windows Forms support
+Requires the .NET 9 SDK and Windows — the project targets `net9.0-windows` and
+uses Windows Forms, so it does not build or test on Linux or macOS.
 
 ```bash
-dotnet build
-dotnet run
+dotnet build crossmgr-interface.sln -c Release
+dotnet test crossmgr-interface.sln -c Release
+dotnet run --project CrossMgrInterface.csproj
 ```
 
-## Error Handling
+See [TESTING.md](TESTING.md) for the simulation harnesses and the deliberately
+broken fixture files, which reproduce every condition the correction dialog
+handles without needing a track and 40 riders.
 
-The application includes comprehensive error handling for:
+## Continuous integration
 
-- Network connection issues
-- Invalid message formats
-- Client disconnections
-- Threading synchronization
-- UI update failures
+Two GitHub Actions workflows, both on Windows runners:
 
-All errors are logged to the Live Feed with timestamps for debugging.
-
-## Protocol Details
-
-Based on the CrossMgr RFID implementation, this interface handles the standard timing protocol used by Impinj and similar RFID readers. The application automatically responds to time synchronization requests and logs all tag read events with timestamps.
+- **Build and test** (`.github/workflows/ci.yml`) runs on every push and pull
+  request to `main`, and uploads the test results.
+- **Release build** (`.github/workflows/release.yml`) runs when a release is
+  published. It builds that tag, runs the tests, and attaches the self-contained
+  `win-x64` zip to the release. It can also be run by hand against an existing
+  tag from the Actions tab.
 
 ## License
 
-This project is provided as-is for CrossMgr timing system integration.
+Provided as-is for CrossMgr timing system integration.
