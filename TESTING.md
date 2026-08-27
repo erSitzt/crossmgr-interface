@@ -14,6 +14,7 @@ WSL2's default networking means `localhost` is not the same machine.
 |---|---|
 | `test_simulation.py` | The original simulator. 40 riders, 10 minutes, with its own missed reads and DNFs. Staggers each rider's start by their index, so it is not suitable for large fields. |
 | `scenario.py` | A small, deliberate race that produces every condition the correction dialog handles. 8 riders, ~2.5 minutes. |
+| `qualifying.py` | A timed qualifying session with a known-correct answer sheet. 10 riders, 6 minutes. The pole-setter has the *fewest* laps but the quickest one, and two riders share an identical best lap, so a gate pick order sorted on the wrong column is obvious. |
 | `stress_250.py` | Load harness: 250 riders, mass start, ~6 crossings/second for 6 minutes. Writes `stress_sent.jsonl` recording exactly what was sent, so recorded lap times can be checked for drift and dropped crossings. |
 
 ### What `scenario.py` sets up
@@ -31,6 +32,17 @@ Use it with `riders_small.csv` and a 3-minute race.
   a rider already in the race.
 - Everyone else laps cleanly, for add / edit / delete / DNF.
 
+### What `qualifying.py` sets up
+
+Use it with `riders_qualifying.csv`, session type **Timed qualifying**, and a
+6-minute session.
+
+- **Ben Fischer (#22)** takes pole on the fewest laps, because his single
+  quickest lap is the quickest of the session. A sheet sorting on laps completed
+  puts him nowhere near first.
+- **David Kern (#44)** and **Anna Berger (#11)** both set a best lap of exactly
+  42.000. David set his first, so he ranks ahead.
+
 ## Rider lists
 
 | File | Purpose |
@@ -38,6 +50,7 @@ Use it with `riders_small.csv` and a 3-minute race.
 | `sample_riders.csv` | The original 40-rider list. Matches the tags `test_simulation.py` sends. |
 | `riders_small.csv` | 8 named riders. Matches `scenario.py`. |
 | `riders_250.csv` | 250 riders across 5 classes. Matches `stress_250.py`. |
+| `riders_qualifying.csv` | 10 riders across 2 classes. Matches `qualifying.py`. |
 | `riders_flawed.csv` | **Deliberately broken.** Three usable rows and two with no transponder ID, to check that the import reports skipped rows rather than silently dropping them. |
 | `riders_nocolumn.csv` | **Deliberately broken.** No `tagid` column at all, to check that the import says so and names the columns it did find. |
 
