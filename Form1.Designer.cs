@@ -271,7 +271,7 @@ partial class Form1
     buttonClearRiders.Name = "buttonClearRiders";
     buttonClearRiders.Size = new Size(129, 38);
     buttonClearRiders.TabIndex = 9;
-    buttonClearRiders.Text = "Clear Riders";
+    buttonClearRiders.Text = "Delete session...";
     buttonClearRiders.UseVisualStyleBackColor = true;
     buttonClearRiders.Click += buttonClearRiders_Click;
     // 

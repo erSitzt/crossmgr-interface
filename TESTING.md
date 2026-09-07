@@ -17,6 +17,13 @@ WSL2's default networking means `localhost` is not the same machine.
 | `qualifying.py` | A timed qualifying session with a known-correct answer sheet. 10 riders, 6 minutes. The pole-setter has the *fewest* laps but the quickest one, and two riders share an identical best lap, so a gate pick order sorted on the wrong column is obvious. |
 | `stress_250.py` | Load harness: 250 riders, mass start, ~6 crossings/second for 6 minutes. Writes `stress_sent.jsonl` recording exactly what was sent, so recorded lap times can be checked for drift and dropped crossings. |
 
+Both race harnesses keep sending for two laps **after** the race duration. The
+application's clock starts on the first crossing and a race only notices it has
+run out on the crossing after that; the leader then rides the lap in progress
+plus the extra laps, and everyone else finishes theirs. A harness that stopped
+on the clock left the race unfinished forever, with every total time a little
+short of the duration. Set the application's race length to match the harness.
+
 ### What `scenario.py` sets up
 
 Use it with `riders_small.csv` and a 3-minute race.

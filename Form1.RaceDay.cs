@@ -40,19 +40,34 @@ public partial class Form1
   /// </summary>
   private void RunNewRaceWizard()
   {
-    int existingRiders;
-    lock (ridersLock)
+    // A session that is still scoring cannot be swapped out from under the
+    // clock. End it first - EndRaceNow asks its own question, which carries
+    // the warning about riders still out, so it is not repeated here.
+    if (raceStarted && !raceFinished)
     {
-      existingRiders = riders.Count;
+      var what = string.IsNullOrEmpty(raceName) ? "The current session" : $"'{raceName}'";
+      var answer = MessageBox.Show(this,
+        $"{what} is still running.\n\nEnd it now and set up the next session?",
+        "Set up a session", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+        MessageBoxDefaultButton.Button2);
+
+      if (answer != DialogResult.Yes) return;
+
+      EndRaceNow();
+      if (!raceFinished) return;
     }
 
-    if (existingRiders > 0)
+    // A finished session stays on record. Say so, because the old flow's only
+    // way forward was "Delete race data", and operators had learned to expect
+    // that starting the next one meant losing the last one.
+    var putAway = raceFinished || currentRaceId.HasValue;
+    if (putAway)
     {
+      var what = string.IsNullOrEmpty(raceName) ? "The finished session" : $"'{raceName}'";
       var answer = MessageBox.Show(this,
-        $"There are {existingRiders} riders from a race already in progress.\n\n" +
-        "Setting up a new race does not delete them - use Race > Delete race data first " +
-        "if you want to start clean.\n\nCarry on?",
-        "Set up a race", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        $"{what} is over and its results are kept - you can reprint them any time " +
+        "from Race > Past sessions...\n\nSet up the next session?",
+        "Set up a session", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
       if (answer != DialogResult.Yes) return;
     }
@@ -68,6 +83,17 @@ public partial class Form1
     if (wizard.ShowDialog(this) != DialogResult.OK) return;
 
     var setup = wizard.Result;
+
+    // Only now, after Finish: Cancel on the wizard changes nothing, and that
+    // has to include not throwing the finished session off the screen.
+    if (putAway)
+    {
+      var previous = raceName;
+      ResetForNextSession();
+      AddMessage(string.IsNullOrEmpty(previous)
+        ? "📁 Previous session put away. Its results stay under Race > Past sessions..."
+        : $"📁 '{previous}' put away. Its results stay under Race > Past sessions...");
+    }
 
     // Before the settings handlers below: buttonSetAdditionalLaps_Click and the
     // start-mode radios both read the session type as they go.
@@ -193,10 +219,10 @@ public partial class Form1
   {
     if (raceFinished)
       return (RaceDayState.Finished, IsQualifying
-        ? "Session over - press Gate pick order..."
+        ? "Session over - Gate pick order... to print, NEW SESSION... to carry on"
         : IsTimedSession
-          ? "Session over - press Results... for the lap times"
-          : "Results are final - press Results...");
+          ? "Session over - Results... for the lap times, NEW SESSION... to carry on"
+          : "Results are final - Results... to print, NEW SESSION... to carry on");
 
     if (!raceStarted)
     {

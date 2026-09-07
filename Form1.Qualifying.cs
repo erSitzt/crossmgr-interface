@@ -252,11 +252,17 @@ public partial class Form1
   /// </summary>
   private void UpdateSessionTypeLock()
   {
+    // Locked from the clock starting until the session is put away - a
+    // finished session that is still on screen is that session, and changing
+    // its type would relabel the results it just produced.
     var running = raceStarted && !raceFinished;
-    groupBoxSessionType.Enabled = !running;
+    var held = currentRaceId.HasValue;
+    groupBoxSessionType.Enabled = !held;
     groupBoxSessionType.Text = running
       ? "Session type - locked while the session is running"
-      : "What kind of session is this?";
+      : held
+        ? "Session type - locked; start a new session to change it"
+        : "What kind of session is this?";
   }
 
   private static string DescribeSessionType(SessionType type) => type switch
@@ -342,33 +348,8 @@ public partial class Form1
         return;
       }
 
-      var defaultTitle = string.IsNullOrWhiteSpace(raceName)
-        ? $"Gate Pick Order - {DateTime.Now:yyyy-MM-dd HH:mm}"
-        : $"{raceName} - Gate Pick Order";
-
-      using var options = new ReportOptionsDialog(defaultTitle);
-      if (options.ShowDialog(this) != DialogResult.OK) return;
-
-      var riders = field.ToDictionary(r => r.TagID, r => r);
-      var title = options.RaceTitle;
-
-      switch (options.SelectedAction)
-      {
-        case ReportAction.Preview:
-          _qualifyingReportGenerator.ShowClassBasedPrintPreview(
-            riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
-          break;
-
-        case ReportAction.Print:
-          _qualifyingReportGenerator.PrintReport(
-            riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
-          break;
-
-        case ReportAction.Export:
-          _qualifyingReportGenerator.ExportToFile(
-            riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
-          break;
-      }
+      RunGatePickReport(field.ToDictionary(r => r.TagID, r => r), GatePickTitle(raceName),
+        sessionStart, sessionEnd, sessionDuration, sessionFinished, RulesForReport());
     }
     catch (Exception ex)
     {

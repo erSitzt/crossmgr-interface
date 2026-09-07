@@ -4,6 +4,12 @@ test_simulation.py staggers each rider's start by their index, which at 250
 riders means the back of the field would not start for four minutes. This drives
 a realistic mass start instead, and records the exact moment every crossing was
 sent so the recorded times can be checked for drift and drops afterwards.
+
+It keeps sending for two laps after the race clock. The application's clock
+starts on the first crossing and a race only notices it has run out on the next
+crossing after that, and the leader then rides the lap in progress plus the
+extra laps. A harness that stops on the clock leaves the race unfinished
+forever, with every total time short of the race duration.
 """
 import json
 import random
@@ -14,7 +20,8 @@ from datetime import datetime
 
 HOST, PORT = "127.0.0.1", 53135
 RIDERS = 250
-RACE_MINUTES = 6.0        # how long to keep sending
+RACE_MINUTES = 6.0        # the race duration set in the application
+OVERRUN_LAPS = 2          # laps of the slowest pace to keep sending after the clock
 GRID_SPREAD_S = 25.0      # mass start: whole field away inside this window
 SENT_LOG = r"C:\Users\Public\CrossMgrRun\stress_sent.jsonl"
 
@@ -54,7 +61,10 @@ def main():
     time.sleep(1)
 
     start = time.time()
-    end = start + RACE_MINUTES * 60
+    # Measured from the first crossing sent, which is when the application's
+    # clock starts, not from here.
+    clock_start = None
+    overrun = OVERRUN_LAPS * max(pace.values())
     # Mass start: everyone away within GRID_SPREAD_S, front runners first.
     next_cross = {r: start + (i / len(riders)) * GRID_SPREAD_S + random.uniform(0, 2)
                   for i, r in enumerate(riders)}
@@ -64,10 +74,12 @@ def main():
     bursts = []
     out = open(SENT_LOG, "w", encoding="utf-8")
 
-    while time.time() < end:
+    while clock_start is None or time.time() < clock_start + RACE_MINUTES * 60 + overrun:
         now = time.time()
         due = [r for r in riders if next_cross[r] <= now]
         for r in due:
+            if clock_start is None:
+                clock_start = now
             lap[r] += 1
             ts = datetime.now()
             msg = (f"DA{r} {ts.strftime('%H:%M:%S.%f')[:-3]} 10 "
@@ -90,7 +102,7 @@ def main():
     out.close()
     elapsed = time.time() - start
     print(f"\nsent {sent} crossings in {elapsed:.0f}s "
-          f"= {sent/elapsed:.1f}/s", flush=True)
+          f"= {sent/elapsed:.1f}/s ({overrun:.0f}s of that after the clock)", flush=True)
     if bursts:
         print(f"burst size: max {max(bursts)}, mean {sum(bursts)/len(bursts):.1f}", flush=True)
     print(f"leaders reached lap {max(lap.values())}", flush=True)

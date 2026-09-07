@@ -37,6 +37,20 @@ public class DbRace
   /// <see cref="SessionType.Race"/>, which is what they were.</summary>
   public SessionType SessionType { get; set; }
 
+  /// <summary>
+  /// The extra-laps rule the race was run under, so a reprinted sheet can say
+  /// so. Nullable rather than zero: races recorded before this existed read
+  /// back as null, and a crash-recovered one then keeps the operator's current
+  /// setting instead of silently switching to "no extra laps".
+  /// </summary>
+  public int? AdditionalLaps { get; set; }
+
+  // The rest of what the race was scored under, for the sheet. Nullable for
+  // the same reason as AdditionalLaps. See RaceRules.
+  public int? DnfTimeoutMinutes { get; set; }
+  public double? MinimumLapSeconds { get; set; }
+  public bool? ManualStart { get; set; }
+
   public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
@@ -64,6 +78,27 @@ public class DbRider
   public DateTime? EstimatedNextCrossing { get; set; }
   public bool IsDNF { get; set; }
   public DateTime? DNFTime { get; set; }
+
+  // Operator rulings. Without these a restored race forgot every DNS and every
+  // "ended by the operator" reason, so the reprinted sheet disagreed with the
+  // one handed out on the day.
+  public bool IsDNS { get; set; }
+  public bool StatusSetByOperator { get; set; }
+  public string? StatusReason { get; set; }
+
+  /// <summary>
+  /// The operator stopped counting this transponder but kept its laps. The
+  /// ignore list itself lives in memory, so this is how it comes back.
+  /// </summary>
+  public bool IsIgnored { get; set; }
+
+  /// <summary>
+  /// On the rider list for the session but never crossed the loop. Written once
+  /// at the end of a session so a gate pick order reprinted later still lists
+  /// them last, as the one printed on the day did. Never counted as a rider
+  /// who took part, and never restored into a live race.
+  /// </summary>
+  public bool RosterOnly { get; set; }
 }
 
 public class DbLap
@@ -120,6 +155,9 @@ public class DbLapDifference
   public int LapDifference { get; set; }
   public DateTime LastUpdated { get; set; }
 }
+
+/// <summary>One row of the Past sessions list: the race and what it holds.</summary>
+public sealed record SessionSummary(DbRace Race, int Riders, int Laps);
 
 /// <summary>
 /// Database service for managing race data with LiteDB
@@ -217,7 +255,7 @@ public class RaceDataService : IDisposable
   /// clock is running, so periodic state saves have nothing to say about it.
   /// </summary>
   public int StartNewRace(DateTime startTime, TimeSpan duration, string name = "",
-    SessionType sessionType = SessionType.Race)
+    SessionType sessionType = SessionType.Race, RaceRules? rules = null)
   {
     var race = new DbRace
     {
@@ -228,9 +266,24 @@ public class RaceDataService : IDisposable
       IsFinished = false,
       IsTimeExpired = false
     };
+    if (rules != null) ApplyRules(race, rules);
 
     CurrentRaceId = _races.Insert(race);
     return CurrentRaceId;
+  }
+
+  /// <summary>
+  /// Records what the race is being scored under. Written at the start and
+  /// again on every save, because the duration and the DNF timeout can be
+  /// changed while the clock is running and the sheet must show what applied.
+  /// </summary>
+  private static void ApplyRules(DbRace race, RaceRules rules)
+  {
+    race.Duration = rules.Duration;
+    race.AdditionalLaps = rules.AdditionalLaps;
+    race.DnfTimeoutMinutes = rules.DnfTimeoutMinutes;
+    race.MinimumLapSeconds = rules.MinimumLapSeconds;
+    race.ManualStart = rules.ManualStart;
   }
 
   public void UpdateRace(Action<DbRace> updateAction)
@@ -250,40 +303,38 @@ public class RaceDataService : IDisposable
     return CurrentRaceId > 0 ? _races.FindById(CurrentRaceId) : null;
   }
 
+  public DbRace? GetRace(int raceId) => raceId > 0 ? _races.FindById(raceId) : null;
+
+  public void RenameRace(int raceId, string name)
+  {
+    var race = _races.FindById(raceId);
+    if (race == null) return;
+    race.Name = name;
+    _races.Update(race);
+  }
+
+  /// <summary>
+  /// Forgets which race is current without touching it. Every write in this
+  /// class is guarded by CurrentRaceId, so after this nothing lands in the
+  /// session that just ended.
+  /// </summary>
+  public void CloseCurrentRace() => CurrentRaceId = 0;
+
   #endregion
 
   #region Rider Management
 
-  public void UpsertRider(RiderInfo riderInfo)
+  /// <param name="ignored">Whether the operator has stopped counting this
+  /// transponder. Not on RiderInfo, because the ignore list is kept beside the
+  /// riders rather than on them.</param>
+  public void UpsertRider(RiderInfo riderInfo, bool ignored = false)
   {
     if (CurrentRaceId == 0) return;
 
     var existingRider = _riders.FindOne(r => r.RaceId == CurrentRaceId && r.TagID == riderInfo.TagID);
 
-    var dbRider = new DbRider
-    {
-      RaceId = CurrentRaceId,
-      TagID = riderInfo.TagID,
-      RiderNumber = riderInfo.RiderNumber,
-      FirstName = riderInfo.FirstName,
-      LastName = riderInfo.LastName,
-      Team = riderInfo.Team,
-      Category = riderInfo.Category,
-      Machine = riderInfo.Machine,
-      LastCrossingTime = riderInfo.LastCrossingTime,
-      FirstCrossing = riderInfo.FirstCrossing,
-      LastCrossing = riderInfo.LastCrossing,
-      RaceStartTime = riderInfo.RaceStartTime,
-      FinalAllowedLap = riderInfo.FinalAllowedLap,
-      TotalLaps = riderInfo.TotalLaps,
-      TotalTime = riderInfo.TotalTime,
-      BestLapTime = riderInfo.BestLapTime,
-      LastLapTime = riderInfo.LastLapTime,
-      PredictedLapTime = riderInfo.PredictedLapTime,
-      EstimatedNextCrossing = riderInfo.EstimatedNextCrossing,
-      IsDNF = riderInfo.IsDNF,
-      DNFTime = riderInfo.DNFTime
-    };
+    var dbRider = ToDbRider(riderInfo);
+    dbRider.IsIgnored = ignored;
 
     if (existingRider != null)
     {
@@ -294,6 +345,81 @@ public class RaceDataService : IDisposable
     {
       _riders.Insert(dbRider);
     }
+  }
+
+  private DbRider ToDbRider(RiderInfo riderInfo) => new()
+  {
+    RaceId = CurrentRaceId,
+    TagID = riderInfo.TagID,
+    RiderNumber = riderInfo.RiderNumber,
+    FirstName = riderInfo.FirstName,
+    LastName = riderInfo.LastName,
+    Team = riderInfo.Team,
+    Category = riderInfo.Category,
+    Machine = riderInfo.Machine,
+    LastCrossingTime = riderInfo.LastCrossingTime,
+    FirstCrossing = riderInfo.FirstCrossing,
+    LastCrossing = riderInfo.LastCrossing,
+    RaceStartTime = riderInfo.RaceStartTime,
+    FinalAllowedLap = riderInfo.FinalAllowedLap,
+    TotalLaps = riderInfo.TotalLaps,
+    TotalTime = riderInfo.TotalTime,
+    BestLapTime = riderInfo.BestLapTime,
+    LastLapTime = riderInfo.LastLapTime,
+    PredictedLapTime = riderInfo.PredictedLapTime,
+    EstimatedNextCrossing = riderInfo.EstimatedNextCrossing,
+    IsDNF = riderInfo.IsDNF,
+    DNFTime = riderInfo.DNFTime,
+    IsDNS = riderInfo.IsDNS,
+    StatusSetByOperator = riderInfo.StatusSetByOperator,
+    StatusReason = riderInfo.StatusReason
+  };
+
+  /// <summary>
+  /// Records the riders who were entered but never crossed the loop, so the
+  /// session's gate pick order can be reprinted complete. Only tags with no row
+  /// yet: a rider who did cross is already here as a real rider.
+  /// </summary>
+  public void SaveRosterOnlyRiders(IEnumerable<RiderInfo> rosterOnly)
+  {
+    if (CurrentRaceId == 0) return;
+
+    var known = _riders.Find(r => r.RaceId == CurrentRaceId)
+      .Select(r => r.TagID)
+      .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    var rows = new List<DbRider>();
+    foreach (var rider in rosterOnly)
+    {
+      if (string.IsNullOrWhiteSpace(rider.TagID) || !known.Add(rider.TagID)) continue;
+      var row = ToDbRider(rider);
+      row.RosterOnly = true;
+      rows.Add(row);
+    }
+
+    if (rows.Count > 0) _riders.InsertBulk(rows);
+  }
+
+  /// <summary>
+  /// Removes a rider's row along with their laps. Used when the operator stops
+  /// counting a transponder and discards what it recorded - deleting only the
+  /// laps left a zero-lap rider behind to reappear on a reprinted sheet.
+  /// </summary>
+  public void DeleteRider(string riderTagID)
+  {
+    if (CurrentRaceId == 0) return;
+
+    _laps.DeleteMany(l => l.RaceId == CurrentRaceId && l.RiderTagID == riderTagID);
+    _riders.DeleteMany(r => r.RaceId == CurrentRaceId && r.TagID == riderTagID);
+  }
+
+  /// <summary>Transponders the operator stopped counting, as last saved.</summary>
+  public List<string> GetIgnoredTags(int raceId)
+  {
+    return _riders.Find(r => r.RaceId == raceId)
+      .Where(r => r.IsIgnored)
+      .Select(r => r.TagID)
+      .ToList();
   }
 
   public List<DbRider> GetAllRiders()
@@ -569,12 +695,19 @@ public class RaceDataService : IDisposable
   }
 
   /// <summary>
-  /// Restores rider data from database for crash recovery
+  /// Rebuilds the riders of a race from the database, for crash recovery and
+  /// for reprinting a past session's sheets.
   /// </summary>
-  public Dictionary<string, RiderInfo> RestoreRiderData(int raceId)
+  /// <param name="includeRosterOnly">Also return the riders who were entered but
+  /// never crossed. Wanted for a gate pick order, which lists them last; never
+  /// for a race classification or a live race, where a zero-lap rider would be
+  /// scored as though they had started.</param>
+  public Dictionary<string, RiderInfo> RestoreRiderData(int raceId, bool includeRosterOnly = false)
   {
     var restoredRiders = new Dictionary<string, RiderInfo>();
-    var dbRiders = _riders.Find(r => r.RaceId == raceId).ToList();
+    var dbRiders = _riders.Find(r => r.RaceId == raceId)
+      .Where(r => includeRosterOnly || !r.RosterOnly)
+      .ToList();
 
     Console.WriteLine($"RestoreRiderData: Found {dbRiders.Count} riders for race {raceId}");
 
@@ -595,7 +728,10 @@ public class RaceDataService : IDisposable
         RaceStartTime = dbRider.RaceStartTime,
         FinalAllowedLap = dbRider.FinalAllowedLap,
         IsDNF = dbRider.IsDNF,
-        DNFTime = dbRider.DNFTime
+        DNFTime = dbRider.DNFTime,
+        IsDNS = dbRider.IsDNS,
+        StatusSetByOperator = dbRider.StatusSetByOperator,
+        StatusReason = dbRider.StatusReason
       };
 
       // Restore laps for this rider
@@ -638,13 +774,15 @@ public class RaceDataService : IDisposable
     DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, bool raceTimeExpired,
     bool waitingForLeaderFinish, bool waitingForFinalLaps, DateTime? finalLapsStartTime,
     string? leaderAtTimeExpiry, int leaderLapsAtTimeExpiry, int targetLapsToFinishRace,
-    bool fiveMinuteWarningShown)
+    bool fiveMinuteWarningShown, IReadOnlyCollection<string>? ignoredTags = null,
+    RaceRules? rules = null)
   {
     if (CurrentRaceId == 0) return;
 
     // Update race record with current state
     UpdateRace(race =>
     {
+      if (rules != null) ApplyRules(race, rules);
       race.StartTime = raceStartTime ?? race.StartTime;
       race.EndTime = raceEndTime;
       race.IsFinished = raceFinished;
@@ -659,10 +797,11 @@ public class RaceDataService : IDisposable
       race.LastSavedAt = DateTime.Now;
     });
 
-    // Save all rider data
+    // Save all rider data. Ignored riders are saved too, marked as such: they
+    // used to be skipped, which left their row stale and their status lost.
     foreach (var rider in riders.Values)
     {
-      UpsertRider(rider);
+      UpsertRider(rider, ignored: ignoredTags?.Contains(rider.TagID) == true);
     }
   }
 
@@ -680,15 +819,45 @@ public class RaceDataService : IDisposable
     CurrentRaceId = raceId;
   }
 
-  public void ClearCurrentRaceData()
+  /// <summary>
+  /// Every stored session, newest first, with how much each one holds.
+  ///
+  /// Counted in memory rather than with a database predicate on the new flags:
+  /// a rider written before those fields existed has no such field at all, and
+  /// LiteDB does not treat a missing field as false.
+  /// </summary>
+  public List<SessionSummary> ListSessions()
   {
-    if (CurrentRaceId == 0) return;
+    var summaries = new List<SessionSummary>();
 
-    _riders.DeleteMany(r => r.RaceId == CurrentRaceId);
-    _laps.DeleteMany(l => l.RaceId == CurrentRaceId);
-    _positions.DeleteMany(p => p.RaceId == CurrentRaceId);
-    _events.DeleteMany(e => e.RaceId == CurrentRaceId);
-    _lapDiffs.DeleteMany(ld => ld.RaceId == CurrentRaceId);
+    foreach (var race in GetAllRaces())
+    {
+      var riders = _riders.Find(r => r.RaceId == race.Id)
+        .Count(r => !r.RosterOnly && !r.IsIgnored);
+      var laps = _laps.Count(l => l.RaceId == race.Id);
+      summaries.Add(new SessionSummary(race, riders, laps));
+    }
+
+    return summaries;
+  }
+
+  /// <summary>
+  /// Removes a race and everything recorded under it. The race row goes too -
+  /// the old clear-out left it behind, so the list of stored sessions filled
+  /// with empty entries nobody could get rid of.
+  /// </summary>
+  public void DeleteRace(int raceId)
+  {
+    if (raceId <= 0) return;
+
+    _riders.DeleteMany(r => r.RaceId == raceId);
+    _laps.DeleteMany(l => l.RaceId == raceId);
+    _positions.DeleteMany(p => p.RaceId == raceId);
+    _events.DeleteMany(e => e.RaceId == raceId);
+    _lapDiffs.DeleteMany(ld => ld.RaceId == raceId);
+    _races.Delete(raceId);
+
+    if (CurrentRaceId == raceId) CurrentRaceId = 0;
   }
 
   #endregion

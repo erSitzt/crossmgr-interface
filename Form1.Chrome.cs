@@ -22,6 +22,7 @@ public partial class Form1
   private ToolStripMenuItem _menuUndo = null!;
   private ToolStripMenuItem _menuAdvanced = null!;
   private ToolStripMenuItem _menuShowTransponders = null!;
+  private ToolStripMenuItem _menuDeleteSession = null!;
 
   private ToolStripStatusLabel _statusReader = null!;
   private ToolStripStatusLabel _statusLastRead = null!;
@@ -289,7 +290,10 @@ public partial class Form1
     _menuGatePick = Item("Gate pick order...", Keys.None, (s, e) => ShowQualifyingReport());
     _menuTransponders = Item("Transponder check...", Keys.None, (s, e) => ShowTransponderReport());
     var summary = Item("Rider summary", Keys.None, buttonShowSummary_Click);
-    var clear = Item("Delete race data...", Keys.None, buttonClearRiders_Click);
+    var pastSessions = Item("Past sessions...", Keys.Control | Keys.O, (s, e) => ShowSessionManager());
+    // "This session", not "race data": it removes one session, and New race...
+    // is the way to keep one and move on.
+    _menuDeleteSession = Item("Delete this session...", Keys.None, buttonClearRiders_Click);
     var exit = Item("Exit", Keys.None, (s, e) => Close());
 
     race.DropDownItems.AddRange(new ToolStripItem[]
@@ -297,7 +301,8 @@ public partial class Form1
       newRace, import, new ToolStripSeparator(),
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
       results, _menuGatePick, _menuTransponders, summary, new ToolStripSeparator(),
-      clear, exit
+      pastSessions, _menuDeleteSession, new ToolStripSeparator(),
+      exit
     });
 
     // ---- Riders ----
@@ -433,6 +438,12 @@ public partial class Form1
     _menuStartReader.Enabled = !isListening;
     _menuStopReader.Enabled = isListening;
 
+    // Nothing to delete before the first crossing: the race row is only
+    // created when the clock starts.
+    int riderCount;
+    lock (ridersLock) riderCount = riders.Count;
+    _menuDeleteSession.Enabled = currentRaceId.HasValue || riderCount > 0;
+
     _menuUndo.Enabled = _corrections.History.CanUndo;
     _menuUndo.Text = _corrections.History.CanUndo
       ? $"Undo: {_corrections.History.NextUndoDescription}"
@@ -542,7 +553,9 @@ public partial class Form1
       "5. Watch the Race Day screen. The reader light turns red if reads stop.\n" +
       "6. If a lap looks wrong, right-click the rider and choose Fix laps.\n" +
       "   Every change can be undone with Ctrl+Z.\n" +
-      "7. When the race is over, press Results...",
+      "7. When the race is over, press Results...\n" +
+      "8. Press NEW SESSION... for the next one. The finished session is kept:\n" +
+      "   Race > Past sessions... reprints, renames or deletes any stored session.",
       "Quick start", MessageBoxButtons.OK, MessageBoxIcon.Information);
   }
 }
