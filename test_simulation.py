@@ -134,7 +134,12 @@ def simulate_race(sock, num_riders=15, race_duration_minutes=8):
         missed_read_schedule[rider].sort(key=lambda x: x['start_lap'])
     
     race_start = time.time()
-    race_end = race_start + (race_duration_minutes * 60)
+    # Two laps past the clock, not on it. The application only notices the
+    # clock has run out on the next crossing, and the leader then rides the
+    # lap in progress plus the extra laps; stopping on the clock leaves the
+    # race unfinished with every total time short of the duration.
+    overrun = 2 * max(rider_base_lap_times.values()) + 10
+    race_end = race_start + (race_duration_minutes * 60) + overrun
     
     lap_number = {rider: 0 for rider in riders}
     
