@@ -32,9 +32,25 @@ public class RecomputeRiderTests
   }
 
   [Fact]
+  public void FirstLapIsMeasuredFromTheRidersOwnStartWhenTheyHaveOne()
+  {
+    // A class that left the gate two minutes after the first one is timed
+    // from its own gate, and a correction must not quietly move it back.
+    var rider = RiderBuilder.Rider("A").Lap(47).Build();
+    rider.RaceStartTime = Start.AddMinutes(2);
+    rider.Laps[0].CrossingTime = Start.AddMinutes(2).AddSeconds(50);
+
+    RaceCorrectionService.RecomputeRider(rider, Start);
+
+    Assert.Equal(TimeSpan.FromSeconds(50), rider.Laps[0].LapTime);
+  }
+
+  [Fact]
   public void FirstLapHasNoTimeWhenTheRaceStartIsUnknown()
   {
+    // Neither the race nor the rider knows when they started.
     var rider = RiderBuilder.Rider("A").Lap(47).Lap(40).Build();
+    rider.RaceStartTime = null;
 
     RaceCorrectionService.RecomputeRider(rider, null);
 

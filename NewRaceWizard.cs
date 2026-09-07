@@ -13,6 +13,13 @@ public sealed class NewRaceSetup
   public int DurationMinutes { get; init; } = 20;
   public int AdditionalLaps { get; init; } = 1;
   public bool ManualStart { get; init; }
+
+  /// <summary>
+  /// The classes' start order and the gap before each, when they leave the
+  /// gate in waves. Null for a race with one start. Implies ManualStart.
+  /// </summary>
+  public IReadOnlyList<(string Class, TimeSpan Delay)>? Waves { get; init; }
+
   public bool StartReader { get; init; } = true;
 
   /// <summary>The file that was imported during the wizard, if any.</summary>
@@ -36,6 +43,9 @@ public sealed class NewRaceSetup
 public sealed class NewRaceWizard : Form
 {
   private readonly Func<string, ImportResult> _import;
+  private readonly Func<IReadOnlyList<string>> _classes;
+  private readonly IReadOnlyList<WaveDelaySetting> _rememberedWaves;
+  private readonly bool _startStaggered;
   private readonly Panel _host = new();
   private readonly Label _stepLabel = new();
   private readonly Button _back = new();
@@ -73,6 +83,15 @@ public sealed class NewRaceWizard : Form
   // Step 5
   private readonly RadioButton _startOnFirstTag = new();
   private readonly RadioButton _startManually = new();
+  private readonly RadioButton _startInWaves = new();
+  private readonly Label _waveHint = new();
+  private readonly Panel _wavePanel = new();
+  private readonly NumericUpDown _waveGap = new();
+  private readonly DataGridView _waveGrid = new();
+
+  private const string WaveHintText =
+    "For an enduro. The first class goes when you press START RACE; each of the others follows " +
+    "after its delay, or when you press START <class> NOW. Every rider is timed from their own class's gate.";
 
   // Step 6
   private readonly Label _summary = new();
@@ -80,10 +99,18 @@ public sealed class NewRaceWizard : Form
 
   public NewRaceSetup Result { get; private set; } = new();
 
+  /// <param name="classes">The classes on the rider list, asked for when the start
+  /// step is shown - the list may have been imported two steps earlier.</param>
+  /// <param name="staggered">Whether last time's race started in waves.</param>
+  /// <param name="rememberedWaves">Last time's order and delays, offered again.</param>
   public NewRaceWizard(Func<string, ImportResult> import, int existingRiderCount, bool readerRunning,
-    SessionType sessionType = SessionType.Race)
+    SessionType sessionType = SessionType.Race, Func<IReadOnlyList<string>>? classes = null,
+    bool staggered = false, IReadOnlyList<WaveDelaySetting>? rememberedWaves = null)
   {
     _import = import;
+    _classes = classes ?? (() => Array.Empty<string>());
+    _rememberedWaves = rememberedWaves ?? Array.Empty<WaveDelaySetting>();
+    _startStaggered = staggered;
 
     Text = "Set up a session";
     FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -208,6 +235,12 @@ public sealed class NewRaceWizard : Form
   {
     foreach (var control in _extraLapControls) control.Visible = !IsTimedSession;
     if (_flagHint != null) _flagHint.Visible = IsTimedSession;
+
+    // Waves are a race thing: a timed session has no gate to leave in order.
+    _startInWaves.Visible = !IsTimedSession;
+    _waveHint.Visible = !IsTimedSession;
+    _wavePanel.Visible = !IsTimedSession;
+    if (IsTimedSession && _startInWaves.Checked) _startManually.Checked = true;
 
     // Only while the operator has not typed over it, so a name they chose is
     // never silently replaced when they step back and change the format.
@@ -403,12 +436,156 @@ public sealed class NewRaceWizard : Form
       ForeColor = Color.DimGray
     };
 
+    _startInWaves.Text = "The classes start in waves";
+    _startInWaves.Location = new Point(0, 190);
+    _startInWaves.AutoSize = true;
+    _startInWaves.CheckedChanged += (_, _) => _wavePanel.Enabled = _startInWaves.Checked;
+
+    _waveHint.Text = WaveHintText;
+    _waveHint.Location = new Point(24, 216);
+    _waveHint.Size = new Size(660, 40);
+    _waveHint.ForeColor = Color.DimGray;
+
+    BuildWavePanel();
+
     panel.Controls.AddRange(new Control[]
     {
-      prompt, _startOnFirstTag, autoHint, _startManually, manualHint
+      prompt, _startOnFirstTag, autoHint, _startManually, manualHint, _startInWaves, _waveHint, _wavePanel
     });
+
+    // After the handler is wired, so the panel follows the remembered choice.
+    if (_startStaggered) _startInWaves.Checked = true;
     return panel;
   }
+
+  /// <summary>The order and the delays: one row per class on the rider list.</summary>
+  private void BuildWavePanel()
+  {
+    _wavePanel.Location = new Point(24, 258);
+    _wavePanel.Size = new Size(680, 240);
+    _wavePanel.Enabled = false;
+
+    var gapCaption = new Label { Text = "Gap between classes", Location = new Point(0, 6), AutoSize = true };
+
+    _waveGap.Location = new Point(150, 2);
+    _waveGap.Width = 70;
+    _waveGap.Minimum = 0.5m;
+    _waveGap.Maximum = 30m;
+    _waveGap.Increment = 0.5m;
+    _waveGap.DecimalPlaces = 1;
+    _waveGap.Value = 1m;
+
+    var minutes = new Label { Text = "minutes", Location = new Point(226, 6), AutoSize = true };
+
+    var apply = new Button { Text = "Apply to every class", Location = new Point(300, 0), Size = new Size(170, 28) };
+    apply.Click += (_, _) => ApplyGapToEveryClass();
+
+    _waveGrid.Location = new Point(0, 36);
+    _waveGrid.Size = new Size(680, 200);
+    _waveGrid.AllowUserToAddRows = false;
+    _waveGrid.AllowUserToDeleteRows = false;
+    _waveGrid.AllowUserToResizeRows = false;
+    _waveGrid.RowHeadersVisible = false;
+    _waveGrid.MultiSelect = false;
+    _waveGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+    _waveGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Class", HeaderText = "Class", ReadOnly = true, FillWeight = 45 });
+    _waveGrid.Columns.Add(new DataGridViewTextBoxColumn
+    {
+      Name = "Delay",
+      HeaderText = "Starts after the previous class (minutes)",
+      ValueType = typeof(double),
+      FillWeight = 55
+    });
+    // A letter typed into the delay column is a slip, not a crash.
+    _waveGrid.DataError += (_, e) => e.ThrowException = false;
+
+    _wavePanel.Controls.AddRange(new Control[] { gapCaption, _waveGap, minutes, apply, _waveGrid });
+  }
+
+  /// <summary>
+  /// Fills the grid from the rider list as it is now. Delays already typed are
+  /// kept, then last time's, then the gap. Classes come in last time's order
+  /// first, so a club's usual running order survives a re-import.
+  /// </summary>
+  private void RefreshWaveClasses()
+  {
+    var classes = _classes();
+
+    if (classes.Count == 0)
+    {
+      _startInWaves.Enabled = false;
+      if (_startInWaves.Checked) _startManually.Checked = true;
+      _waveHint.Text = "Import the rider list first - the classes come from it.";
+      _waveHint.ForeColor = Color.Firebrick;
+      _waveGrid.Rows.Clear();
+      return;
+    }
+
+    _startInWaves.Enabled = true;
+    _waveHint.Text = WaveHintText;
+    _waveHint.ForeColor = Color.DimGray;
+
+    var typed = WaveRows().ToDictionary(r => r.Class, r => r.Minutes, StringComparer.OrdinalIgnoreCase);
+    var remembered = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+    foreach (var w in _rememberedWaves) remembered.TryAdd(w.Class, w.Minutes);
+
+    var ordered = new List<string>();
+    foreach (var name in typed.Keys.Concat(_rememberedWaves.Select(w => w.Class)))
+    {
+      var onList = classes.FirstOrDefault(c => string.Equals(c, name, StringComparison.OrdinalIgnoreCase));
+      if (onList != null && !ordered.Contains(onList, StringComparer.OrdinalIgnoreCase)) ordered.Add(onList);
+    }
+    foreach (var c in classes)
+      if (!ordered.Contains(c, StringComparer.OrdinalIgnoreCase)) ordered.Add(c);
+
+    var gap = (double)_waveGap.Value;
+    _waveGrid.Rows.Clear();
+    for (var i = 0; i < ordered.Count; i++)
+    {
+      var minutes = i == 0 ? 0
+        : typed.TryGetValue(ordered[i], out var t) ? t
+        : remembered.TryGetValue(ordered[i], out var r) ? r
+        : gap;
+      var row = _waveGrid.Rows.Add(ordered[i], minutes);
+      if (i == 0)
+      {
+        // The first class goes on START RACE; there is nothing to delay it after.
+        _waveGrid.Rows[row].Cells["Delay"].ReadOnly = true;
+        _waveGrid.Rows[row].Cells["Delay"].Style.ForeColor = Color.Gray;
+      }
+    }
+  }
+
+  private void ApplyGapToEveryClass()
+  {
+    _waveGrid.EndEdit();
+    var gap = (double)_waveGap.Value;
+    for (var i = 1; i < _waveGrid.Rows.Count; i++)
+      _waveGrid.Rows[i].Cells["Delay"].Value = gap;
+  }
+
+  /// <summary>The grid as (class, minutes), an unreadable delay falling back to the gap.</summary>
+  private List<(string Class, double Minutes)> WaveRows()
+  {
+    _waveGrid.EndEdit();
+    var rows = new List<(string, double)>();
+    var gap = (double)_waveGap.Value;
+
+    foreach (DataGridViewRow row in _waveGrid.Rows)
+    {
+      var name = row.Cells["Class"].Value?.ToString() ?? "";
+      if (name.Length == 0) continue;
+      var minutes = row.Cells["Delay"].Value is IConvertible v && double.TryParse(v.ToString(), out var m) && m >= 0 ? m : gap;
+      rows.Add((name, rows.Count == 0 ? 0 : minutes));
+    }
+
+    return rows;
+  }
+
+  private IReadOnlyList<(string Class, TimeSpan Delay)>? WaveResult() =>
+    _startInWaves.Checked && _waveGrid.Rows.Count > 0
+      ? WaveRows().Select(r => (r.Class, TimeSpan.FromMinutes(r.Minutes))).ToList()
+      : null;
 
   private Panel BuildReadyStep(bool readerRunning)
   {
@@ -462,6 +639,9 @@ public sealed class NewRaceWizard : Form
     var titles = new[] { "Session", "Name", "Riders", "Length", "Start", "Ready" };
     _stepLabel.Text = $"Step {_current + 1} of {_steps.Length}  -  {titles[_current]}";
 
+    // The classes may have been imported two steps ago.
+    if (_current == 4) RefreshWaveClasses();
+
     _back.Enabled = _current > 0;
     _next.Text = _current == _steps.Length - 1 ? "Finish" : "Next >";
 
@@ -489,7 +669,9 @@ public sealed class NewRaceWizard : Form
       // there anyway, but a stale one would be persisted to settings and shown
       // back on the Race Settings tab as though it applied.
       AdditionalLaps = IsTimedSession ? 0 : (int)_extraLaps.Value,
-      ManualStart = _startManually.Checked,
+      // A wave start is a manual one: the first class goes on START RACE.
+      ManualStart = _startManually.Checked || _startInWaves.Checked,
+      Waves = WaveResult(),
       StartReader = _startReader.Checked && _startReader.Enabled,
       ImportedFile = _importedFile,
       StartRaceImmediately = false
@@ -502,9 +684,11 @@ public sealed class NewRaceWizard : Form
   private void UpdateSummary()
   {
     var riders = _importedCount > 0 ? $"{_importedCount} riders imported" : "no riders imported yet";
-    var start = _startManually.Checked
-      ? "You will press Start Race"
-      : "The clock starts on the first rider";
+    var start = _startInWaves.Checked
+      ? $"In waves - {WaveSchedule.From(WaveResult())?.Describe() ?? "no classes"}"
+      : _startManually.Checked
+        ? "You will press Start Race"
+        : "The clock starts on the first rider";
 
     var reader = _startReader.Enabled
       ? "will be connected when you finish"

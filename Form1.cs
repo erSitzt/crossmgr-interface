@@ -927,6 +927,15 @@ public partial class Form1 : Form
       {
         resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
+      // A class that has not left the gate cannot be lapping. A read from one
+      // of its riders is a bike being wheeled over the loop on the way to the
+      // line, and counting it would hand them a lap they never rode.
+      else if (waves != null && !waves.HasStarted(ClassOf(tagID)))
+      {
+        messagesToAdd.Add(($"⏳ Read ignored: {GetRiderDisplayText(tagID)} - " +
+                           $"{waves.WaveFor(ClassOf(tagID)).Class} has not started yet", false));
+        resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+      }
       else
       {
         var processedLap = ProcessNormalCrossingInternal(tagID, crossingTime, messagesToAdd);
@@ -1017,6 +1026,10 @@ public partial class Form1 : Form
       // Get imported rider data if available
       var importedData = _riderDataImporter.GetRiderData(tagID);
 
+      // Their own class's gate in a staggered start; the race's otherwise.
+      var category = importedData?.Category ?? "";
+      var riderStart = waves?.StartTimeFor(category) ?? raceStartTime;
+
       // First time seeing this rider
       riders[tagID] = new RiderInfo
       {
@@ -1025,12 +1038,12 @@ public partial class Form1 : Form
         FirstName = importedData?.FirstName ?? "",
         LastName = importedData?.LastName ?? "",
         Team = importedData?.Team ?? "",
-        Category = importedData?.Category ?? "",
+        Category = category,
         Machine = importedData?.Machine ?? "",
         LastCrossingTime = crossingTime,
         FirstCrossing = crossingTime,
         LastCrossing = crossingTime,
-        RaceStartTime = raceStartTime
+        RaceStartTime = riderStart
       };
 
       var firstLap = new RiderLap
@@ -1038,7 +1051,7 @@ public partial class Form1 : Form
         TagID = tagID,
         CrossingTime = crossingTime,
         LapNumber = 1,
-        LapTime = raceStartTime.HasValue ? crossingTime - raceStartTime.Value : (TimeSpan?)null
+        LapTime = riderStart.HasValue ? crossingTime - riderStart.Value : (TimeSpan?)null
       };
 
       riders[tagID].Laps.Add(firstLap);
@@ -1358,6 +1371,9 @@ public partial class Form1 : Form
 
     // Undo must not reach back into a session that is over.
     _corrections.History.Clear();
+
+    // The order and the gaps are setup and stay; who has actually gone is not.
+    waves?.ResetStarts();
 
     // After the in-memory reset: every database write is guarded by the
     // current race, so from here nothing can land in the finished session.
@@ -2824,6 +2840,7 @@ public partial class Form1 : Form
   private void timerUpdate_Tick(object? sender, EventArgs e)
   {
     CheckRaceClockMilestones();
+    StartDueWaves();
     CheckReaderHealth();
     UpdateStatusBar();
 
@@ -3487,6 +3504,13 @@ public partial class Form1 : Form
     buttonStartRace.Enabled = manualStartMode && !raceStarted && !raceFinished;
     UpdateSessionTypeLock();
 
+    // A staggered start is always a manual one: the gate is never at the loop.
+    var staggered = waves != null;
+    radioButtonStartOnFirstTag.Enabled = !staggered;
+    groupBoxRaceStart.Text = staggered
+      ? "When does the clock start? - in waves, set in the wizard"
+      : "When does the clock start?";
+
     if (raceFinished)
     {
       labelRaceStatus.Text = IsTimedSession ? "Session: OVER" : "Race: FINISHED";
@@ -3563,10 +3587,15 @@ public partial class Form1 : Form
         {
           rider.RaceStartTime = raceStartTime;
         }
+
+        // Under the same lock as raceStarted, so no read can slip in between
+        // the race starting and the first class being marked as away.
+        waves?.Start(waves.First, raceStartTime.Value);
       }
 
       UpdateRaceStartControls();
       AddMessage($"🏁 Race started manually at {raceStartTime.Value:HH:mm:ss}");
+      if (waves != null) AnnounceWave(waves.First, raceStartTime.Value);
     RaiseNotice(NoticeLevel.Info, "Race started");
 
       // Reset warnings
@@ -4136,6 +4165,21 @@ public partial class Form1 : Form
           riders.Values.Select(CloneRiderForDisplay).ToList());
       }
 
+      // In a staggered start the overall order mixes classes that are a
+      // minute or two apart on the road: a rider two waves back is behind by
+      // laps without having been lapped, and corrected-time positions swap on
+      // every crossing. Passes and lappings are only real within a class.
+      if (waves != null)
+      {
+        var crossing = currentStandings.FirstOrDefault(r => r.TagID == crossingRiderTagID);
+        if (crossing != null)
+        {
+          currentStandings = currentStandings
+            .Where(r => string.Equals(r.Category, crossing.Category, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        }
+      }
+
       if (currentStandings.Count < 2)
         return; // Need at least 2 riders for position changes
 
@@ -4459,6 +4503,23 @@ public partial class Form1 : Form
   /// </summary>
   private void StoreCurrentStandings(List<RiderInfo> currentStandings)
   {
+    // Class positions in a staggered start, whichever caller this is - the
+    // position check compares against these, and it works per class there.
+    if (waves != null)
+    {
+      foreach (var group in currentStandings.GroupBy(r => r.Category, StringComparer.OrdinalIgnoreCase))
+      {
+        var place = 0;
+        foreach (var rider in group)
+        {
+          lastKnownPositions[rider.TagID] = ++place;
+          lastKnownLapCounts[rider.TagID] = rider.TotalLaps;
+        }
+      }
+      lastPositionCheck = DateTime.Now;
+      return;
+    }
+
     // Update position tracking
     lastKnownPositions.Clear();
     lastKnownLapCounts.Clear();
@@ -4557,6 +4618,11 @@ public partial class Form1 : Form
       leaderLapsAtTimeExpiry = raceToRestore.LeaderLapsAtTimeExpiry;
       targetLapsToFinishRace = raceToRestore.TargetLapsToFinishRace;
       fiveMinuteWarningShown = raceToRestore.FiveMinuteWarningShown;
+
+      // The start order with the classes already away, so a crash between two
+      // gates comes back still counting down to the next one. A race with one
+      // start clears any schedule left over from setup: this is that race now.
+      waves = WaveSchedule.FromRecords(raceToRestore.Waves);
 
       // Only when the race recorded one. Older rows have no value, and those
       // must keep the operator's current setting rather than drop to zero.

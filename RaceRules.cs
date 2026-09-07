@@ -29,6 +29,9 @@ public sealed class RaceRules
   /// <summary>The operator pressed Start, rather than the first crossing starting the clock.</summary>
   public bool? ManualStart { get; init; }
 
+  /// <summary>The classes' start order and gaps when the race was started in waves; null otherwise.</summary>
+  public WaveSchedule? Waves { get; init; }
+
   public bool IsTimedSession => SessionType != SessionType.Race;
 
   public static RaceRules FromRace(DbRace race) => new()
@@ -38,7 +41,8 @@ public sealed class RaceRules
     AdditionalLaps = race.AdditionalLaps,
     DnfTimeoutMinutes = race.DnfTimeoutMinutes,
     MinimumLapSeconds = race.MinimumLapSeconds,
-    ManualStart = race.ManualStart
+    ManualStart = race.ManualStart,
+    Waves = WaveSchedule.FromRecords(race.Waves)
   };
 
   /// <summary>
@@ -85,6 +89,15 @@ public sealed class RaceRules
       <= 0 => "off - every read counted as a lap",
       var s => $"{s:0.#} s - a read sooner than that after the previous one was not counted"
     }));
+
+    if (Waves != null)
+    {
+      // A staggered start changes what every time on the sheet means, so it
+      // is said twice: how the classes left, and what the times count from.
+      lines.Add(("Start", $"in waves - {Waves.Describe()}"));
+      lines.Add(("Times", "measured from each class's own start"));
+      return lines;
+    }
 
     lines.Add(("Start", ManualStart switch
     {

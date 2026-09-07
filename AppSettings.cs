@@ -9,6 +9,13 @@ namespace CrossMgrInterface;
 /// project has no settings infrastructure and adding it would be more churn than
 /// this is worth.
 /// </summary>
+/// <summary>One row of the remembered wave schedule.</summary>
+public sealed class WaveDelaySetting
+{
+  public string Class { get; set; } = "";
+  public double Minutes { get; set; }
+}
+
 public sealed class AppSettings
 {
   /// <summary>Show the technical tabs. Off by default - volunteers get the calm view.</summary>
@@ -53,6 +60,16 @@ public sealed class AppSettings
   /// wizard should come back offering what was chosen last time.
   /// </summary>
   public SessionType SessionType { get; set; }
+
+  /// <summary>
+  /// The classes start in waves. Remembered with the delays below for the
+  /// same reason as the rest of the setup: an enduro club runs the same start
+  /// order all season.
+  /// </summary>
+  public bool StaggeredStart { get; set; }
+
+  /// <summary>Class order and the minutes each class leaves after the previous one.</summary>
+  public List<WaveDelaySetting> WaveDelays { get; set; } = new();
 
   // How hard the app looks for a missed transponder read. Tunable because the
   // right sensitivity depends on the circuit; see LapAnomalySettings for what

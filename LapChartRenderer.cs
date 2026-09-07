@@ -457,12 +457,15 @@ public class LapChartRenderer
 
       if (i == 0)
       {
-        // First lap starts at race start
-        lapStartTime = raceStartTime;
+        // First lap starts at the rider's own start - the class's gate in a
+        // staggered start, which is later than the race clock's origin, so
+        // the bar begins part-way along rather than at the left edge.
+        var riderStart = rider.RaceStartTime ?? raceStartTime;
+        lapStartTime = riderStart;
         if (lap.LapTime == null)
         {
-          // Calculate first lap time from race start to crossing
-          lapDuration = lap.CrossingTime - raceStartTime;
+          // Calculate first lap time from the rider's start to crossing
+          lapDuration = lap.CrossingTime - riderStart;
         }
         else
         {

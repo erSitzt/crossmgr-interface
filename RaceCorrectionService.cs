@@ -109,10 +109,14 @@ public sealed class RaceCorrectionService
       var lap = rider.Laps[i];
       lap.LapNumber = i + 1;
 
-      // The first lap is measured from the start of the race, not from a
-      // previous crossing - matching how a live first lap is recorded.
+      // The first lap is measured from the rider's own start, not from a
+      // previous crossing - matching how a live first lap is recorded. Their
+      // own start, not the race's: in a staggered start a class that left two
+      // minutes after the first gate would otherwise gain two minutes on its
+      // first lap the moment any of its laps was corrected.
+      var start = rider.RaceStartTime ?? raceStartTime;
       lap.LapTime = i == 0
-        ? (raceStartTime.HasValue ? lap.CrossingTime - raceStartTime.Value : null)
+        ? (start.HasValue ? lap.CrossingTime - start.Value : null)
         : lap.CrossingTime - rider.Laps[i - 1].CrossingTime;
     }
 
