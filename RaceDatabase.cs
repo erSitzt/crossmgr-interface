@@ -51,7 +51,23 @@ public class DbRace
   public double? MinimumLapSeconds { get; set; }
   public bool? ManualStart { get; set; }
 
+  /// <summary>
+  /// The classes' start order and gaps, with the moment each one actually
+  /// left, for a race started in waves. Null for a race with one start.
+  /// Kept on the race row so a crash mid-schedule comes back still knowing
+  /// which classes are away and when the next is due.
+  /// </summary>
+  public List<DbStartWave>? Waves { get; set; }
+
   public DateTime CreatedAt { get; set; } = DateTime.Now;
+}
+
+/// <summary>One class of a staggered start, as stored. See <see cref="WaveSchedule"/>.</summary>
+public class DbStartWave
+{
+  public string Class { get; set; } = "";
+  public double DelaySeconds { get; set; }
+  public DateTime? StartedAt { get; set; }
 }
 
 public class DbRider
@@ -284,6 +300,7 @@ public class RaceDataService : IDisposable
     race.DnfTimeoutMinutes = rules.DnfTimeoutMinutes;
     race.MinimumLapSeconds = rules.MinimumLapSeconds;
     race.ManualStart = rules.ManualStart;
+    race.Waves = rules.Waves?.ToRecords();
   }
 
   public void UpdateRace(Action<DbRace> updateAction)

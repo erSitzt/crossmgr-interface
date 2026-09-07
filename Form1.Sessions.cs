@@ -80,7 +80,8 @@ public partial class Form1
     AdditionalLaps = IsTimedSession ? 0 : additionalLapsAfterTimeExpiry,
     DnfTimeoutMinutes = dnfTimeoutMinutes,
     MinimumLapSeconds = shortLapDetectionEnabled ? minimumLapTime.TotalSeconds : 0,
-    ManualStart = manualStartMode
+    ManualStart = manualStartMode,
+    Waves = waves
   };
 
   /// <summary>

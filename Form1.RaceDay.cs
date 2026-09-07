@@ -30,6 +30,7 @@ public partial class Form1
     _raceDayView.FixLapsClicked += (s, e) => OpenLapCorrectionForMostUrgentRider();
     _raceDayView.EndRaceNowClicked += (s, e) => EndRaceNow();
     _raceDayView.SetupClicked += (s, e) => RunNewRaceWizard();
+    _raceDayView.StartNextWaveClicked += (s, e) => StartNextWaveNow();
   }
 
   /// <summary>
@@ -78,7 +79,10 @@ public partial class Form1
         : _riderDataImporter.ImportFromExcelDetailed(file),
       _riderDataImporter.Count,
       isListening,
-      sessionType);
+      sessionType,
+      RosterClasses,
+      _settings.StaggeredStart,
+      _settings.WaveDelays);
 
     if (wizard.ShowDialog(this) != DialogResult.OK) return;
 
@@ -98,6 +102,9 @@ public partial class Form1
     // Before the settings handlers below: buttonSetAdditionalLaps_Click and the
     // start-mode radios both read the session type as they go.
     sessionType = setup.SessionType;
+
+    // Before the start-mode radios, which are locked to manual for a wave start.
+    waves = WaveSchedule.From(setup.Waves);
     raceName = setup.RaceName;
     Text = string.IsNullOrEmpty(raceName)
       ? "CrossMgr RFID Interface"
@@ -139,13 +146,17 @@ public partial class Form1
     };
 
     AddMessage($"🏁 Ready: {raceName} ({format}) - {setup.DurationMinutes} minutes, " +
-               $"{(setup.ManualStart ? "manual start" : "starts on the first rider")}");
+               (waves != null
+                 ? $"in waves - {waves.Describe()}"
+                 : setup.ManualStart ? "manual start" : "starts on the first rider"));
 
-    RaiseNotice(NoticeLevel.Info, setup.ManualStart
-      ? IsTimedSession
-        ? "Set up. Press START SESSION when the gate opens."
-        : "Set up. Press START RACE when the gate drops."
-      : "Set up. The clock starts on the first rider.");
+    RaiseNotice(NoticeLevel.Info, waves != null
+      ? $"Set up. Press START RACE when {waves.First.Class} leaves the gate."
+      : setup.ManualStart
+        ? IsTimedSession
+          ? "Set up. Press START SESSION when the gate opens."
+          : "Set up. Press START RACE when the gate drops."
+        : "Set up. The clock starts on the first rider.");
 
     tabControl.SelectedTab = tabPageRaceDay;
     _refresh.RenderNow(RaceViewKind.All);
@@ -171,6 +182,10 @@ public partial class Form1
       raceStarted && !raceFinished ? GetTimeRemaining() : null,
       finalElapsed,
       raceDuration);
+
+    // Before SetState, which decides whether the start-next-class button shows.
+    _raceDayView.ShowClass = waves != null;
+    _raceDayView.SetWaves(BuildWaveChips(), waves?.Next?.Class);
 
     var (state, detail) = DescribeRaceState(sorted, riderCount);
     _raceDayView.SetState(state, detail);
@@ -226,6 +241,9 @@ public partial class Form1
 
     if (!raceStarted)
     {
+      if (waves != null)
+        return (RaceDayState.ReadyToStart, $"Press START RACE when {waves.First.Class} leaves the gate");
+
       return manualStartMode
         ? (RaceDayState.ReadyToStart, IsTimedSession
             ? "Press START SESSION when the gate opens"
@@ -267,6 +285,17 @@ public partial class Form1
     }
 
     var started = raceStartTime.HasValue ? raceStartTime.Value.ToString("HH:mm") : "";
+
+    if (waves != null)
+    {
+      var next = waves.Next;
+      var countdown = waves.Countdown(DateTime.Now);
+      var wave = next == null
+        ? "every class away"
+        : countdown.HasValue ? $"{next.Class} in {countdown.Value:m\\:ss}" : $"{next.Class} next";
+      return (RaceDayState.Running, $"Started {started} · {wave} · {riderCount} riders");
+    }
+
     return (RaceDayState.Running, $"Started {started} · {riderCount} riders");
   }
 

@@ -57,6 +57,14 @@ administrator rights.
 6. Press **NEW SESSION…** on the Race Day screen (or **Race → New race…**) for
    the next one. The finished session is kept.
 
+For an enduro, choose **The classes start in waves** at the wizard's start
+step and set the delay before each class. START RACE sends the first class;
+the Race Day screen counts down to each of the others and starts it on time,
+or **START <class> NOW** sends it early. Every rider is timed from their own
+class's gate, so the per-class sheets compare like with like and the overall
+sheet ranks by laps and then by corrected time. One flag ends the race for
+everyone, as in any race.
+
 Every session is stored from the moment its clock starts. **Race → Past
 sessions…** (`Ctrl+O`) lists them all, so a whole day's sheets can be printed
 in one sitting after the last moto; a stored session can also be reopened,

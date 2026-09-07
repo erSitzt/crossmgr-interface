@@ -102,6 +102,29 @@ public sealed class RaceDataServiceTests : IDisposable
   }
 
   [Fact]
+  public void TheWaveScheduleIsStoredWithItsActualStarts()
+  {
+    // A crash between two gates must come back knowing which classes are
+    // away, or the remaining ones would never be started.
+    var waves = WaveSchedule.Build(new[] { "MX1", "MX2" }, TimeSpan.FromMinutes(2));
+    var rules = new RaceRules { SessionType = SessionType.Race, Duration = TimeSpan.FromMinutes(20), Waves = waves };
+    var id = _db.StartNewRace(Start, TimeSpan.FromMinutes(20), "Enduro", SessionType.Race, rules);
+
+    waves.Start(waves.First, Start);
+    _db.SaveRaceState(new(), Start, null, TimeSpan.FromMinutes(20), false, false, false, false, null, null, 0, 0, false,
+      ignoredTags: null, rules: rules);
+
+    var stored = RaceRules.FromRace(_db.GetRace(id)!).Waves!;
+    Assert.Equal("MX1 at the gate, MX2 +2:00", stored.Describe());
+    Assert.Equal(Start, stored.First.StartedAt);
+    Assert.Equal("MX2", stored.Next!.Class);
+
+    // A race with one start has no schedule at all.
+    var plain = StartRace("Moto");
+    Assert.Null(RaceRules.FromRace(_db.GetRace(plain)!).Waves);
+  }
+
+  [Fact]
   public void ARaceStoredBeforeTheRulesExistedReadsBackAsNotRecorded()
   {
     var id = _db.StartNewRace(Start, TimeSpan.FromMinutes(20), "Old");

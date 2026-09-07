@@ -68,6 +68,29 @@ public class RaceRulesTests
   }
 
   [Fact]
+  public void AStaggeredStartSaysHowTheClassesLeftAndWhatTheTimesCountFrom()
+  {
+    // Every time on the sheet means something different once the classes
+    // left the gate a minute apart, so the block says so in two lines.
+    var rules = new RaceRules
+    {
+      SessionType = SessionType.Race,
+      Duration = TimeSpan.FromMinutes(60),
+      AdditionalLaps = 1,
+      DnfTimeoutMinutes = 5,
+      MinimumLapSeconds = 30,
+      ManualStart = true,
+      Waves = WaveSchedule.Build(new[] { "MX1", "MX2", "Youth" }, TimeSpan.FromMinutes(1))
+    };
+
+    var lines = rules.Describe();
+
+    Assert.Equal("in waves - MX1 at the gate, MX2 +1:00, Youth +1:00", ValueOf(rules, "Start"));
+    Assert.Equal("measured from each class's own start", ValueOf(rules, "Times"));
+    Assert.Equal("Times", lines.Last().Caption);
+  }
+
+  [Fact]
   public void SwitchedOffShortReadRejectionIsSaidPlainly()
   {
     Assert.Equal("off - every read counted as a lap", ValueOf(Race(minLap: 0), "Minimum lap"));

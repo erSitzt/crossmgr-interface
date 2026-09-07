@@ -68,6 +68,18 @@ public partial class Form1
     // saying otherwise.
     manualStartMode = _settings.ManualStart;
 
+    // The start order from last time, like the rest of the setup. A staggered
+    // start is a manual one whatever the radio remembered.
+    if (_settings.StaggeredStart && _settings.WaveDelays.Count > 0)
+    {
+      waves = WaveSchedule.From(_settings.WaveDelays
+        .Select(w => (w.Class, TimeSpan.FromMinutes(w.Minutes)))
+        .ToList());
+      manualStartMode = true;
+      radioButtonStartManual.Checked = true;
+      radioButtonStartOnFirstTag.Checked = false;
+    }
+
     BuildMenu();
     BuildStatusBar();
 
@@ -120,6 +132,15 @@ public partial class Form1
     _settings.MissedReadMaxRatio = missedReadSettings.MaxRatio;
     _settings.MissedReadMinPriorLaps = missedReadSettings.MinPriorLaps;
     _settings.MissedReadPaceWindow = missedReadSettings.PaceWindow;
+    _settings.StaggeredStart = waves != null;
+    // The delays are kept even for a race with one start, so the wizard can
+    // offer last time's order again when the next enduro comes round.
+    if (waves != null)
+    {
+      _settings.WaveDelays = waves.Waves
+        .Select(w => new WaveDelaySetting { Class = w.Class, Minutes = w.Delay.TotalMinutes })
+        .ToList();
+    }
     _settings.Save();
   }
 

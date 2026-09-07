@@ -14,6 +14,11 @@ public enum RaceDayState
 /// <summary>How loudly a notice should be presented.</summary>
 public enum NoticeLevel { Info, Warning, Critical }
 
+/// <summary>One class on the wave strip of a staggered start.</summary>
+public enum WaveChipState { Started, Next, Waiting }
+
+public sealed record WaveChip(string Text, WaveChipState State);
+
 /// <summary>
 /// The screen a volunteer runs a race from.
 ///
@@ -45,6 +50,7 @@ public sealed class RaceDayView
   private Label _leaderboardFooter = null!;
 
   private Button _startRace = null!;
+  private Button _startNextWave = null!;
   private Button _endRace = null!;
   private Button _fixLaps = null!;
   private Button _results = null!;
@@ -58,7 +64,17 @@ public sealed class RaceDayView
 
   private Color _readerDotColor = Color.Gray;
 
+  private FlowLayoutPanel _waveStrip = null!;
+  private string? _nextWaveClass;
+
+  /// <summary>One font for every chip. A font per label leaked a GDI handle each time the strip shrank.</summary>
+  private Font? _chipFont;
+
+  /// <summary>Put the class beside each name: the overall order of a staggered start mixes them.</summary>
+  public bool ShowClass { get; set; }
+
   public event EventHandler? StartRaceClicked;
+  public event EventHandler? StartNextWaveClicked;
   public event EventHandler? EndRaceNowClicked;
   public event EventHandler? ResultsClicked;
   public event EventHandler? FixLapsClicked;
@@ -73,17 +89,19 @@ public sealed class RaceDayView
     {
       Dock = DockStyle.Fill,
       ColumnCount = 1,
-      RowCount = 3,
+      RowCount = 4,
       Padding = new Padding(16),
       BackColor = Color.White
     };
     root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
     root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190));
+    root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
     root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
     root.Controls.Add(BuildBanner(), 0, 0);
     root.Controls.Add(BuildTiles(), 0, 1);
-    root.Controls.Add(BuildBody(), 0, 2);
+    root.Controls.Add(BuildWaveStrip(), 0, 2);
+    root.Controls.Add(BuildBody(), 0, 3);
 
     page.Controls.Add(root);
     return page;
@@ -231,6 +249,68 @@ public sealed class RaceDayView
     return panel;
   }
 
+  /// <summary>
+  /// One chip per class of a staggered start: who is away, who is next and
+  /// in how long. Hidden for a race with one start.
+  /// </summary>
+  private Control BuildWaveStrip()
+  {
+    _waveStrip = new FlowLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      AutoSize = true,
+      WrapContents = true,
+      FlowDirection = FlowDirection.LeftToRight,
+      Visible = false,
+      BackColor = Color.White,
+      Margin = new Padding(4, 8, 4, 0)
+    };
+    return _waveStrip;
+  }
+
+  public void SetWaves(IReadOnlyList<WaveChip>? chips, string? nextClass)
+  {
+    _nextWaveClass = nextClass;
+    _startNextWave.Text = nextClass == null ? "START NEXT CLASS" : $"START {nextClass.ToUpperInvariant()} NOW";
+
+    if (chips == null)
+    {
+      _waveStrip.Visible = false;
+      return;
+    }
+
+    // Rebuilt in place rather than recreated: this runs every second.
+    while (_waveStrip.Controls.Count > chips.Count)
+    {
+      var spare = _waveStrip.Controls[_waveStrip.Controls.Count - 1];
+      _waveStrip.Controls.Remove(spare);
+      spare.Dispose();
+    }
+    while (_waveStrip.Controls.Count < chips.Count)
+      _waveStrip.Controls.Add(new Label
+      {
+        AutoSize = true,
+        Padding = new Padding(10, 6, 10, 6),
+        Margin = new Padding(0, 0, 8, 4),
+        Font = _chipFont ??= new Font("Segoe UI", 11F, FontStyle.Bold),
+        BorderStyle = BorderStyle.FixedSingle
+      });
+
+    for (var i = 0; i < chips.Count; i++)
+    {
+      var label = (Label)_waveStrip.Controls[i];
+      label.Text = chips[i].Text;
+      (label.BackColor, label.ForeColor) = chips[i].State switch
+      {
+        WaveChipState.Started => (Color.FromArgb(225, 245, 230), Color.FromArgb(0, 110, 45)),
+        WaveChipState.Next => (Color.FromArgb(255, 236, 200), Color.FromArgb(150, 80, 0)),
+        _ => (Color.WhiteSmoke, Color.DimGray)
+      };
+    }
+
+    _waveStrip.Visible = true;
+  }
+
   private Control BuildBody()
   {
     var body = new TableLayoutPanel
@@ -333,6 +413,12 @@ public sealed class RaceDayView
     _startRace = ActionButton("START RACE", Color.FromArgb(0, 140, 60), Color.White);
     _startRace.Click += (s, e) => StartRaceClicked?.Invoke(s, e);
 
+    // The override for a staggered start: the gate is dropping early, so the
+    // class goes now rather than when the countdown says.
+    _startNextWave = ActionButton("START NEXT CLASS", Color.FromArgb(0, 140, 60), Color.White);
+    _startNextWave.Visible = false;
+    _startNextWave.Click += (s, e) => StartNextWaveClicked?.Invoke(s, e);
+
     _endRace = ActionButton("End race now", Color.FromArgb(214, 137, 16), Color.White);
     _endRace.Click += (s, e) => EndRaceNowClicked?.Invoke(s, e);
 
@@ -349,7 +435,7 @@ public sealed class RaceDayView
     _newSession.Visible = false;
     _newSession.Click += (s, e) => SetupClicked?.Invoke(s, e);
 
-    column.Controls.AddRange(new Control[] { _startRace, _endRace, _fixLaps, _results, _newSession });
+    column.Controls.AddRange(new Control[] { _startRace, _startNextWave, _endRace, _fixLaps, _results, _newSession });
 
     var setupCaption = new Label
     {
@@ -496,6 +582,8 @@ public sealed class RaceDayView
     // Only offer the actions that make sense right now.
     _startRace.Visible = state == RaceDayState.ReadyToStart;
     _endRace.Visible = state is RaceDayState.Running or RaceDayState.LastLaps or RaceDayState.Finishing;
+    _startNextWave.Visible = _nextWaveClass != null &&
+      state is RaceDayState.Running or RaceDayState.LastLaps or RaceDayState.Finishing;
 
     var finished = state == RaceDayState.Finished;
     _results.BackColor = finished ? Color.FromArgb(0, 140, 60) : SystemColors.Control;
@@ -568,7 +656,9 @@ public sealed class RaceDayView
 
       row.Cells["Pos"].Value = rider.IsDNF || rider.IsDNS ? "-" : (i + 1).ToString();
       row.Cells["Number"].Value = rider.RiderNumber;
-      row.Cells["Rider"].Value = RiderNameOnly(rider);
+      row.Cells["Rider"].Value = ShowClass && !string.IsNullOrWhiteSpace(rider.Category)
+        ? $"{RiderNameOnly(rider)} · {rider.Category}"
+        : RiderNameOnly(rider);
       row.Cells["Laps"].Value = rider.TotalLaps.ToString();
       row.Cells["LastLap"].Value = rider.LastLapTime?.ToString(@"m\:ss\.f") ?? "-";
       row.Cells["Gap"].Value = DescribeGap(rider, leader, i);
