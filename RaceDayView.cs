@@ -48,6 +48,8 @@ public sealed class RaceDayView
   private Button _endRace = null!;
   private Button _fixLaps = null!;
   private Button _results = null!;
+  private Button _newSession = null!;
+  private Button _setup = null!;
 
   private Label _checkName = null!;
   private Label _checkRiders = null!;
@@ -340,7 +342,14 @@ public sealed class RaceDayView
     _results = ActionButton("Results...", SystemColors.Control, SystemColors.ControlText);
     _results.Click += (s, e) => ResultsClicked?.Invoke(s, e);
 
-    column.Controls.AddRange(new Control[] { _startRace, _endRace, _fixLaps, _results });
+    // The way on from a finished session. Same handler as "Set up race..."
+    // below, but shown large and green where the operator is already looking,
+    // because "what now?" after the flag used to have no answer on this screen.
+    _newSession = ActionButton("NEW SESSION...", Color.FromArgb(0, 140, 60), Color.White);
+    _newSession.Visible = false;
+    _newSession.Click += (s, e) => SetupClicked?.Invoke(s, e);
+
+    column.Controls.AddRange(new Control[] { _startRace, _endRace, _fixLaps, _results, _newSession });
 
     var setupCaption = new Label
     {
@@ -358,15 +367,15 @@ public sealed class RaceDayView
     _checkReader = ChecklistLabel();
     column.Controls.AddRange(new Control[] { _checkName, _checkRiders, _checkDuration, _checkReader });
 
-    var setup = new Button
+    _setup = new Button
     {
       Text = "Set up race...",
       Width = 210,
       Height = 34,
       Margin = new Padding(0, 10, 0, 0)
     };
-    setup.Click += (s, e) => SetupClicked?.Invoke(s, e);
-    column.Controls.Add(setup);
+    _setup.Click += (s, e) => SetupClicked?.Invoke(s, e);
+    column.Controls.Add(_setup);
 
     return column;
   }
@@ -467,6 +476,7 @@ public sealed class RaceDayView
     _startRace.Text = _timedSession ? "START SESSION" : "START RACE";
     _endRace.Text = _timedSession ? "End session now" : "End race now";
     _results.Text = _gatePickOrder ? "Gate pick order..." : "Results...";
+    _setup.Text = _timedSession ? "Set up session..." : "Set up race...";
   }
 
   public void SetState(RaceDayState state, string detail)
@@ -490,6 +500,10 @@ public sealed class RaceDayView
     var finished = state == RaceDayState.Finished;
     _results.BackColor = finished ? Color.FromArgb(0, 140, 60) : SystemColors.Control;
     _results.ForeColor = finished ? Color.White : SystemColors.ControlText;
+
+    // One button for one act: the big one after the flag, the small one before.
+    _newSession.Visible = finished;
+    _setup.Visible = !finished;
   }
 
   public void SetReaderHealth(bool serverRunning, int connections, DateTime lastReadTime, bool raceRunning)

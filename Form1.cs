@@ -250,6 +250,11 @@ public partial class Form1 : Form
     InitializeCorrections();
     _lapProgressionManager.RefreshRequested += () => _refresh.RenderNow(RaceViewKind.LapProgression);
 
+    // For every race, not only a recovered one. This used to start inside
+    // RestoreRaceState, so a race started normally was never saved as a whole:
+    // its laps went in live, but the race row never learned it had finished.
+    StartPeriodicStateSaving();
+
     // Applies the session type remembered from last time - and rebuilds the tabs
     // as it does, so this stands in for the plain RebuildTabs that was here.
     ApplySessionTypeToUi();
@@ -951,7 +956,8 @@ public partial class Form1 : Form
       raceStarted = true;
 
       // Create new race in database
-      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType);
+      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
+        additionalLapsAfterTimeExpiry);
 
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
@@ -1302,12 +1308,20 @@ public partial class Form1 : Form
     }
   }
 
-  private void ClearRiderData()
+  /// <summary>
+  /// Puts the application back to "nothing started" without touching the
+  /// database, so the session that just ended stays on record and the next one
+  /// can begin. Until this existed the only way on from a finished race was to
+  /// delete it.
+  ///
+  /// Session state only. The session type, the rider list, the ignore list and
+  /// the transponder aliases are meeting-level - a club runs the same format,
+  /// the same riders and the same stray marshal's bike all day - so they stay.
+  /// </summary>
+  private void ResetForNextSession()
   {
     lock (ridersLock)
     {
-      // sessionType is deliberately not reset. It is setup, not race state:
-      // an operator clearing data to re-run qualifying is still in qualifying.
       riders.Clear();
       raceStartTime = null;
       raceEndTime = null;
@@ -1322,7 +1336,6 @@ public partial class Form1 : Form
       targetLapsToFinishRace = 0;
       lastTagID = "None";
       lastTagTime = DateTime.MinValue;
-      _refresh.Invalidate(RaceViewKind.Standings);
       currentRaceId = null;
 
       // Reset position tracking
@@ -1332,25 +1345,56 @@ public partial class Form1 : Form
       lastBattleAnnounced.Clear();
       lastPositionCheck = DateTime.MinValue;
 
-      // Clear race data from database if we have a current race
-      if (_raceDb.CurrentRaceId > 0)
-      {
-        _raceDb.ClearCurrentRaceData();
-      }
+      // Reads rejected as too soon belong to the session they arrived in.
+      rejectedReads.Clear();
 
       // Reset warning flags
       fiveMinuteWarningShown = false;
       oneMinuteWarningShown = false;
 
-      // Reset race start controls
-      UpdateRaceStartControls();
-
       // Reset filter counter
       filteredTagCount = 0;
-
-      AddMessage("🗑️ All rider data cleared. Race reset.");
-      AddMessage($"⚙️ DNF timeout set to {dnfTimeoutMinutes} minutes after leader finishes.");
     }
+
+    // Undo must not reach back into a session that is over.
+    _corrections.History.Clear();
+
+    // After the in-memory reset: every database write is guarded by the
+    // current race, so from here nothing can land in the finished session.
+    _raceDb.CloseCurrentRace();
+
+    raceName = "";
+    Text = "CrossMgr RFID Interface";
+
+    UpdateRaceStartControls();
+    UpdateCommandStates();
+    _refresh.Invalidate(RaceViewKind.All);
+  }
+
+  /// <summary>Resets, and removes the session from the database as well.</summary>
+  private void ClearRiderData()
+  {
+    var deleted = currentRaceId;
+    var deletedName = raceName;
+
+    ResetForNextSession();
+
+    if (deleted.HasValue)
+    {
+      try
+      {
+        _raceDb.DeleteRace(deleted.Value);
+      }
+      catch (Exception ex)
+      {
+        AddDiagnostic($"Could not delete the stored session {deleted}: {ex.Message}");
+      }
+    }
+
+    AddMessage(string.IsNullOrEmpty(deletedName)
+      ? "🗑️ Session deleted. Ready for the next one."
+      : $"🗑️ Session '{deletedName}' deleted. Ready for the next one.");
+    AddMessage($"⚙️ DNF timeout set to {dnfTimeoutMinutes} minutes after leader finishes.");
   }
 
   private async void ParseGTResponse(string message, string clientEndpoint)
@@ -1610,12 +1654,15 @@ public partial class Form1 : Form
       lapCount = riders.Values.Sum(r => r.TotalLaps);
     }
 
-    if (riderCount > 0)
+    if (riderCount > 0 || currentRaceId.HasValue)
     {
-      var answer = MessageBox.Show(
-        $"Delete this race?\n\n{riderCount} rider(s) and {lapCount} recorded lap(s) " +
-        "will be permanently deleted. This cannot be undone.",
-        "Delete race",
+      var what = string.IsNullOrEmpty(raceName) ? "this session" : $"'{raceName}'";
+      var answer = MessageBox.Show(this,
+        $"Delete {what}?\n\n{riderCount} rider(s) and {lapCount} recorded lap(s) " +
+        "will be permanently deleted, and it will no longer appear under Past sessions. " +
+        "This cannot be undone.\n\n" +
+        "To keep the results and simply move on, use Race > New race... instead.",
+        "Delete session",
         MessageBoxButtons.YesNo,
         MessageBoxIcon.Warning,
         MessageBoxDefaultButton.Button2);
@@ -1675,33 +1722,9 @@ public partial class Form1 : Form
         return;
       }
 
-      // Show report options dialog
-      using var reportDialog = new ReportOptionsDialog(raceName);
-      if (reportDialog.ShowDialog() == DialogResult.OK)
-      {
-        var raceTitle = reportDialog.RaceTitle;
-
-        switch (reportDialog.SelectedAction)
-        {
-          case ReportAction.Preview:
-            _raceReportGenerator.ShowClassBasedPrintPreview(riderSnapshot, raceStartSnapshot,
-              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle,
-              additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
-            break;
-
-          case ReportAction.Print:
-            _raceReportGenerator.PrintReport(riderSnapshot, raceStartSnapshot,
-              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle,
-              additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
-            break;
-
-          case ReportAction.Export:
-            _raceReportGenerator.ExportToFile(riderSnapshot, raceStartSnapshot,
-              raceEndSnapshot, raceDurationSnapshot, raceFinishedSnapshot, raceTitle,
-              additionalLapsSignShown, raceActuallyEnded, additionalLapsCount);
-            break;
-        }
-      }
+      RunResultsReport(riderSnapshot, raceStartSnapshot, raceEndSnapshot, raceDurationSnapshot,
+        raceFinishedSnapshot, additionalLapsSignShown, raceActuallyEnded, additionalLapsCount,
+        raceName);
     }
     catch (Exception ex)
     {
@@ -3166,8 +3189,9 @@ public partial class Form1 : Form
       {
         try
         {
-          foreach (var lap in _raceDb.GetRiderLaps(tagID))
-            _raceDb.DeleteLap(tagID, lap.LapNumber);
+          // The rider row as well as the laps. Deleting only the laps left a
+          // zero-lap rider on record, who then turned up last on a reprint.
+          _raceDb.DeleteRider(tagID);
         }
         catch (Exception ex)
         {
@@ -3529,7 +3553,8 @@ public partial class Form1 : Form
       raceStarted = true;
 
       // Create new race in database
-      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType);
+      currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
+        additionalLapsAfterTimeExpiry);
 
       // Update race start time for all existing riders
       lock (ridersLock)
@@ -3854,6 +3879,46 @@ public partial class Form1 : Form
 
     // Force final update of displays
     _refresh.Invalidate(RaceViewKind.Standings);
+
+    FinaliseSessionRecord();
+  }
+
+  /// <summary>
+  /// Writes the finished session down as a whole: the race row learns it is
+  /// over, every rider's final status is saved, and the riders who were entered
+  /// but never went out are recorded so a gate pick order reprinted next month
+  /// still lists them.
+  ///
+  /// Synchronous on purpose. The live crossing path is fire-and-forget because
+  /// it runs at tag-read rate; this runs once, and the operator's next act may
+  /// well be to close the application.
+  /// </summary>
+  private void FinaliseSessionRecord()
+  {
+    if (!currentRaceId.HasValue) return;
+
+    try
+    {
+      SaveCurrentRaceState();
+
+      HashSet<string> crossed;
+      lock (ridersLock)
+      {
+        crossed = riders.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+      }
+
+      var rosterOnly = BuildSessionField().Where(r => !crossed.Contains(r.TagID)).ToList();
+      _raceDb.SaveRosterOnlyRiders(rosterOnly);
+
+      AddDiagnostic($"Session {currentRaceId} finalised: {crossed.Count} riders, " +
+                    $"{rosterOnly.Count} on the list who never went out.");
+    }
+    catch (Exception ex)
+    {
+      // The results are still on screen and the laps are already on disk;
+      // failing to stamp the race row is worth a log line, not a dialog.
+      AddDiagnostic($"Could not finalise the session record: {ex.Message}");
+    }
   }
 
   private void InitializeLogging()
@@ -4493,6 +4558,15 @@ public partial class Form1 : Form
       targetLapsToFinishRace = raceToRestore.TargetLapsToFinishRace;
       fiveMinuteWarningShown = raceToRestore.FiveMinuteWarningShown;
 
+      // Only when the race recorded one. Older rows have no value, and those
+      // must keep the operator's current setting rather than drop to zero.
+      if (raceToRestore.AdditionalLaps.HasValue)
+      {
+        additionalLapsAfterTimeExpiry = raceToRestore.AdditionalLaps.Value;
+        numericUpDownAdditionalLaps.Value = Math.Clamp(additionalLapsAfterTimeExpiry,
+          numericUpDownAdditionalLaps.Minimum, numericUpDownAdditionalLaps.Maximum);
+      }
+
       // Mark race as started if it was in progress
       if (raceStartTime.HasValue && !raceFinished)
       {
@@ -4522,6 +4596,14 @@ public partial class Form1 : Form
       lastKnownPositions = _raceDb.GetLastKnownPositions();
       lastKnownLapCounts = _raceDb.GetLastKnownLapCounts();
 
+      // Transponders the operator had stopped counting. Without this they
+      // came back into the standings, laps and all.
+      var ignoredCount = 0;
+      foreach (var tag in _raceDb.GetIgnoredTags(raceToRestore.Id))
+        if (ignoredTags.Add(tag)) ignoredCount++;
+      if (ignoredCount > 0)
+        AddMessage($"⛔ {ignoredCount} ignored transponder(s) restored with the session.");
+
       // Before the repaint: this rebuilds the tabs, which is what brings the
       // Qualifying tab back for a recovered qualifying session. Nothing else on
       // this path calls RebuildTabs.
@@ -4534,9 +4616,6 @@ public partial class Form1 : Form
       {
         StartTcpListener(readerPort);
       }
-
-      // Start periodic state saving
-      StartPeriodicStateSaving();
 
       // Create snapshot for UI update (exclude ignored riders)
       var raceFinishedSnapshot = raceFinished;
@@ -4570,21 +4649,25 @@ public partial class Form1 : Form
     }
   }
 
+  private System.Windows.Forms.Timer? _saveTimer;
+
   /// <summary>
-  /// Starts periodic saving of race state to prevent data loss
+  /// Starts periodic saving of race state to prevent data loss. One timer for
+  /// the life of the window: this used to create a new one on every restore.
   /// </summary>
   private void StartPeriodicStateSaving()
   {
-    var saveTimer = new System.Windows.Forms.Timer();
-    saveTimer.Interval = 30000; // Save every 30 seconds
-    saveTimer.Tick += (sender, e) =>
+    if (_saveTimer != null) return;
+
+    _saveTimer = new System.Windows.Forms.Timer { Interval = 30000 }; // Save every 30 seconds
+    _saveTimer.Tick += (sender, e) =>
     {
       if (raceStarted && !raceFinished && currentRaceId.HasValue)
       {
         Task.Run(() => SaveCurrentRaceState());
       }
     };
-    saveTimer.Start();
+    _saveTimer.Start();
   }
 
   /// <summary>
@@ -4594,13 +4677,14 @@ public partial class Form1 : Form
   {
     try
     {
+      // Ignored riders included, so that their row and their ignored status
+      // are both on record; SaveRaceState marks them from the list below.
       Dictionary<string, RiderInfo> riderSnapshot;
       lock (ridersLock)
       {
-        riderSnapshot = riders
-          .Where(kvp => !ignoredTags.Contains(kvp.Key))
-          .ToDictionary(kvp => kvp.Key, kvp => CloneRiderForDisplay(kvp.Value));
+        riderSnapshot = riders.ToDictionary(kvp => kvp.Key, kvp => CloneRiderForDisplay(kvp.Value));
       }
+      var ignoredSnapshot = ignoredTags.ToHashSet(StringComparer.Ordinal);
 
       _raceDb.SaveRaceState(
         riderSnapshot,
@@ -4615,7 +4699,8 @@ public partial class Form1 : Form
         leaderAtTimeExpiry,
         leaderLapsAtTimeExpiry,
         targetLapsToFinishRace,
-        fiveMinuteWarningShown
+        fiveMinuteWarningShown,
+        ignoredSnapshot
       );
     }
     catch (Exception ex)

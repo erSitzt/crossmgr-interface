@@ -52,6 +52,14 @@ administrator rights.
    **Race → Start race** (`F5`) if you chose to start it yourself.
 5. **Race → Results…** (`Ctrl+P`) prints or exports to Excel; qualifying also
    offers **Gate pick order…**.
+6. Press **NEW SESSION…** on the Race Day screen (or **Race → New race…**) for
+   the next one. The finished session is kept.
+
+Every session is stored from the moment its clock starts. **Race → Past
+sessions…** (`Ctrl+O`) lists them all, so a whole day's sheets can be printed
+in one sitting after the last moto; a stored session can also be reopened,
+renamed, or deleted. **Race → Delete this session…** removes only the one on
+screen.
 
 Press `F1` for the in-application quick start.
 
