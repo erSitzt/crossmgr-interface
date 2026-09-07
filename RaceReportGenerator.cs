@@ -563,10 +563,27 @@ public class RaceReportGenerator
       yPos += g.MeasureString("Race Results", headerFont).Height + 10;
     }
 
-    // Table headers
+    // Table headers. Widths are shares of the printable width rather than
+    // fixed units: the fixed ones were chosen for minute-long times and left a
+    // third of the page unused, and the winner's row, drawn in the larger
+    // header font, ran an hours-long total time into the next column.
     var headers = new[] { "Pos", "Number", "Name", "Team", "Laps", "Total Time", "Best Lap", "Gap" };
-    var columnWidths = new[] { 35, 50, 120, 100, 45, 80, 80, 80 };
-    var totalTableWidth = columnWidths.Sum();
+    var weights = new[] { 0.06f, 0.08f, 0.24f, 0.17f, 0.07f, 0.14f, 0.12f, 0.12f };
+    var columnWidths = weights.Select(w => (int)(printableArea.Width * w)).ToArray();
+
+    // Bold at the same size for the winner; the header font is two points
+    // larger and was what overflowed.
+    using var winnerFont = new Font(normalFont, FontStyle.Bold);
+
+    // Centred, one line, and cut with an ellipsis rather than drawn over the
+    // neighbouring cell when a name or a team is still too long.
+    using var cellFormat = new StringFormat
+    {
+      Alignment = StringAlignment.Center,
+      LineAlignment = StringAlignment.Center,
+      Trimming = StringTrimming.EllipsisCharacter,
+      FormatFlags = StringFormatFlags.NoWrap
+    };
 
     // Draw headers
     float xPos = printableArea.Left;
@@ -576,11 +593,7 @@ public class RaceReportGenerator
       g.FillRectangle(Brushes.LightGray, headerRect);
       g.DrawRectangle(Pens.Black, headerRect);
 
-      var headerText = headers[i];
-      var textSize = g.MeasureString(headerText, normalFont);
-      var textX = xPos + (columnWidths[i] - textSize.Width) / 2;
-      var textY = yPos + (20 - textSize.Height) / 2;
-      g.DrawString(headerText, normalFont, Brushes.Black, textX, textY);
+      g.DrawString(headers[i], normalFont, Brushes.Black, headerRect, cellFormat);
 
       xPos += columnWidths[i];
     }
@@ -633,12 +646,9 @@ public class RaceReportGenerator
         g.DrawRectangle(Pens.Black, cellRect);
 
         var textBrush = result.IsDNF ? Brushes.DarkRed : Brushes.Black;
-        var font = result.Position == "1" ? headerFont : normalFont;
+        var font = result.Position == "1" ? winnerFont : normalFont;
 
-        var textSize = g.MeasureString(rowData[i], font);
-        var textX = xPos + (columnWidths[i] - textSize.Width) / 2;
-        var textY = yPos + (rowHeight - textSize.Height) / 2;
-        g.DrawString(rowData[i], font, textBrush, textX, textY);
+        g.DrawString(rowData[i], font, textBrush, cellRect, cellFormat);
 
         xPos += columnWidths[i];
       }
