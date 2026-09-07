@@ -195,7 +195,7 @@ public sealed class LapCorrectionDialog : Form
     }
 
     var status = rider.StatusText.Length > 0 ? $" - {rider.StatusText}" : "";
-    var best = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "no timed lap yet";
+    var best = TimeFormat.Precise(rider.BestLapTime, "no timed lap yet");
     _header.Text = $"{rider.Label}{status}   |   {rider.TotalLaps} lap(s)   |   best {best}";
 
     var raceStart = _getRaceStartTime();
@@ -218,14 +218,14 @@ public sealed class LapCorrectionDialog : Form
       if (entry.Row.Lap is { } lap)
       {
         var raceTime = raceStart.HasValue
-          ? (lap.CrossingTime - raceStart.Value).ToString(@"mm\:ss\.f")
+          ? TimeFormat.Tenths(lap.CrossingTime - raceStart.Value)
           : "-";
 
         var index = _laps.Rows.Add(
           lap.LapNumber.ToString(),
           lap.CrossingTime.ToString("HH:mm:ss.fff"),
           raceTime,
-          lap.LapTime?.ToString(@"mm\:ss\.fff") ?? "-",
+          TimeFormat.Precise(lap.LapTime, "-"),
           DescribeLap(lap));
 
         var row = _laps.Rows[index];
@@ -241,14 +241,14 @@ public sealed class LapCorrectionDialog : Form
       else if (entry.Row.Rejected is { } rejected)
       {
         var raceTime = raceStart.HasValue
-          ? (rejected.CrossingTime - raceStart.Value).ToString(@"mm\:ss\.f")
+          ? TimeFormat.Tenths(rejected.CrossingTime - raceStart.Value)
           : "-";
 
         var index = _laps.Rows.Add(
           "-",
           rejected.CrossingTime.ToString("HH:mm:ss.fff"),
           raceTime,
-          rejected.GapToPrevious.ToString(@"mm\:ss\.fff"),
+          TimeFormat.Precise(rejected.GapToPrevious),
           $"Not counted: {rejected.Reason}");
 
         var row = _laps.Rows[index];

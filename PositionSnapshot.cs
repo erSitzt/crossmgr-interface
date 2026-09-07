@@ -44,7 +44,7 @@ public class PositionSnapshot
   /// <summary>
   /// Gets a formatted string representation of the race elapsed time
   /// </summary>
-  public string FormattedElapsedTime => RaceElapsedTime.ToString(@"mm\:ss");
+  public string FormattedElapsedTime => TimeFormat.Clock(RaceElapsedTime);
 
   /// <summary>
   /// Gets the position of a specific rider, or null if the rider wasn't ranked at this time
