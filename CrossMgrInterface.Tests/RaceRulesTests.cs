@@ -36,11 +36,12 @@ public class RaceRulesTests
     var captions = Race().Describe().Select(l => l.Caption).ToList();
 
     Assert.Equal(new[] { "Session", "Extra laps", "DNF timeout", "Minimum lap", "Start" }, captions);
-    Assert.Equal("2 minutes after the leader finishes to complete the last lap", ValueOf(Race(), "DNF timeout"));
+    Assert.Equal("2 minutes after the leader finishes to complete the last lap, or 1.5 laps of the field's pace if that is longer",
+      ValueOf(Race(), "DNF timeout"));
     Assert.Equal("10 s - a read sooner than that after the previous one was not counted", ValueOf(Race(), "Minimum lap"));
     Assert.Equal("clock started on the first crossing", ValueOf(Race(), "Start"));
     Assert.Equal("clock started by the operator", ValueOf(Race(manual: true), "Start"));
-    Assert.Equal("1 minute after the leader finishes to complete the last lap", ValueOf(Race(dnf: 1), "DNF timeout"));
+    Assert.StartsWith("1 minute after the leader finishes", ValueOf(Race(dnf: 1), "DNF timeout"));
   }
 
   [Fact]

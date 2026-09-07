@@ -340,7 +340,8 @@ public partial class Form1 : Form
     toolTipMain.SetToolTip(checkBoxShortLapDetection,
       "Turn off only if the course is genuinely short enough for real laps to fall below the limit.");
     toolTipMain.SetToolTip(numericUpDownDnfTimeout,
-      "Once the leader finishes, riders get this long to complete their last lap before being scored DNF.");
+      "Once the leader finishes, riders get this long to complete their last lap before being scored DNF " +
+      "- or 1.5 laps of the field's pace, whichever is longer.");
     toolTipMain.SetToolTip(textBoxTagFilter,
       "Only count transponders whose ID starts with one of these. Leave empty to count everything.");
     toolTipMain.SetToolTip(checkBoxFilterEnabled,
@@ -3751,12 +3752,13 @@ public partial class Form1 : Form
       field = riders.Values.ToList();
     }
 
-    // One deadline for the whole pass. A timed session stretches it to cover a
-    // flag lap - see ChequeredFlag.Grace for why the configured value alone is
-    // not safe there.
+    // One deadline for the whole pass, never shorter than a lap and a half at
+    // the field's pace - see ChequeredFlag.Grace. Only a timed session used to
+    // get the stretch; a race kept the configured minutes, which on an enduro
+    // with twenty-minute laps and the two-minute default would have scored
+    // everyone still out as DNF long before they could come round.
     var fieldPace = RaceProgress.MedianPace(field);
-    var grace = TimeSpan.FromMinutes(dnfTimeoutMinutes);
-    if (IsTimedSession) grace = ChequeredFlag.Grace(grace, fieldPace);
+    var grace = ChequeredFlag.Grace(TimeSpan.FromMinutes(dnfTimeoutMinutes), fieldPace);
 
     // When the flag actually fell, for telling a rider who was still out from
     // one who had already pulled in.

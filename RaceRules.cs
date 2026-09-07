@@ -79,7 +79,8 @@ public sealed class RaceRules
         var n => $"the leader rides the lap in progress plus {n} more laps after the clock"
       }));
       lines.Add(("DNF timeout", DnfTimeoutMinutes.HasValue
-        ? $"{Minutes(DnfTimeoutMinutes.Value)} after the leader finishes to complete the last lap"
+        ? $"{Minutes(DnfTimeoutMinutes.Value)} after the leader finishes to complete the last lap, " +
+          "or 1.5 laps of the field's pace if that is longer"
         : "not recorded"));
     }
 
