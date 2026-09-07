@@ -169,7 +169,7 @@ public class LapChartRenderer
           lapIndicator = " (Suggested for Split)";
         }
 
-        var lapInfo = $"{riderInfo}\nLap {hoveredElement.LapNumber}: {hoveredElement.LapTime.Value:mm\\:ss\\.fff}{lapIndicator}";
+        var lapInfo = $"{riderInfo}\nLap {hoveredElement.LapNumber}: {TimeFormat.Precise(hoveredElement.LapTime.Value)}{lapIndicator}";
 
         // Add lap start and end times if available
         if (hoveredElement.LapStartTime.HasValue && hoveredElement.LapEndTime.HasValue)
@@ -220,7 +220,7 @@ public class LapChartRenderer
   {
     var titleFont = new Font("Arial", 14, FontStyle.Bold);
     var raceTimeElapsed = TimeSpan.FromMilliseconds(raceElapsedMs);
-    var title = $"Lap Visualization - Race: {raceTimeElapsed:mm\\:ss} / {raceDuration:mm\\:ss}";
+    var title = $"Lap Visualization - Race: {TimeFormat.Clock(raceTimeElapsed)} / {TimeFormat.Clock(raceDuration)}";
     g.DrawString(title, titleFont, Brushes.Black, margin, margin);
     titleFont.Dispose();
   }
@@ -305,7 +305,7 @@ public class LapChartRenderer
     // Add current time indicator at the top
     var currentTimeFont = new Font("Arial", 10, FontStyle.Bold);
     var elapsedTime = TimeSpan.FromMilliseconds(raceElapsedMs);
-    var currentTimeText = $"NOW: {elapsedTime:mm\\:ss}";
+    var currentTimeText = $"NOW: {TimeFormat.Clock(elapsedTime)}";
     var timeTextSize = g.MeasureString(currentTimeText, currentTimeFont);
     var timeTextX = progressX - timeTextSize.Width / 2;
     var timeTextY = chartTop - 45;
@@ -337,7 +337,7 @@ public class LapChartRenderer
 
       // Add race end time indicator
       var raceEndTimeFont = new Font("Arial", 9, FontStyle.Bold);
-      var raceEndTimeText = $"TIME: {raceDuration:mm\\:ss}";
+      var raceEndTimeText = $"TIME: {TimeFormat.Clock(raceDuration)}";
       var raceEndTextSize = g.MeasureString(raceEndTimeText, raceEndTimeFont);
       var raceEndTextX = raceEndX - raceEndTextSize.Width / 2;
       var raceEndTextY = chartTop - 45;
@@ -408,7 +408,7 @@ public class LapChartRenderer
 
       // Draw time label
       var timeSpan = TimeSpan.FromMilliseconds(timeMs);
-      var timeText = timeSpan.ToString(@"mm\:ss");
+      var timeText = TimeFormat.Clock(timeSpan);
       var textSize = g.MeasureString(timeText, font);
       var textX = x - textSize.Width / 2;
       var textY = bounds.Y + 2;
@@ -653,9 +653,9 @@ public class LapChartRenderer
     var statsFont = new Font("Arial", 8);
     var stats = $"Laps: {rider.TotalLaps}";
     if (rider.BestLapTime.HasValue)
-      stats += $" | Best: {rider.BestLapTime.Value:mm\\:ss}";
+      stats += $" | Best: {TimeFormat.Clock(rider.BestLapTime.Value)}";
     if (rider.PredictedLapTime.HasValue)
-      stats += $" | Pred: {rider.PredictedLapTime.Value:mm\\:ss}";
+      stats += $" | Pred: {TimeFormat.Clock(rider.PredictedLapTime.Value)}";
 
     g.DrawString(stats, statsFont, Brushes.Black, bounds.X + 5, bounds.Y + bounds.Height + 2);
     statsFont.Dispose();

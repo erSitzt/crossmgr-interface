@@ -479,10 +479,10 @@ public class RaceReportGenerator
     if (_reportData?.RaceEndTime.HasValue == true)
       infoLines.Add($"End Time: {_reportData.RaceEndTime.Value:yyyy-MM-dd HH:mm:ss}");
 
-    infoLines.Add($"Scheduled Duration: {_reportData?.RaceDuration:mm\\:ss}");
+    infoLines.Add($"Scheduled Duration: {TimeFormat.Clock(_reportData?.RaceDuration ?? TimeSpan.Zero)}");
 
     if (_reportData?.RaceStatistics?.ActualRaceDuration.HasValue == true)
-      infoLines.Add($"Winning Time: {_reportData.RaceStatistics.ActualRaceDuration.Value:mm\\:ss\\.fff}");
+      infoLines.Add($"Winning Time: {TimeFormat.Precise(_reportData.RaceStatistics.ActualRaceDuration.Value)}");
 
     infoLines.Add($"Race Status: {(_reportData?.RaceFinished == true ? "Finished" : "In Progress")}");
 
@@ -525,7 +525,7 @@ public class RaceReportGenerator
 
     if (stats.FastestLap != null)
     {
-      statsLines.Add($"Fastest Lap: {stats.FastestLap.TagID} - {stats.FastestLap.BestLapTime:mm\\:ss\\.fff}");
+      statsLines.Add($"Fastest Lap: {stats.FastestLap.TagID} - {TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")}");
     }
 
     // Add additional laps timing information
@@ -563,10 +563,27 @@ public class RaceReportGenerator
       yPos += g.MeasureString("Race Results", headerFont).Height + 10;
     }
 
-    // Table headers
+    // Table headers. Widths are shares of the printable width rather than
+    // fixed units: the fixed ones were chosen for minute-long times and left a
+    // third of the page unused, and the winner's row, drawn in the larger
+    // header font, ran an hours-long total time into the next column.
     var headers = new[] { "Pos", "Number", "Name", "Team", "Laps", "Total Time", "Best Lap", "Gap" };
-    var columnWidths = new[] { 35, 50, 120, 100, 45, 80, 80, 80 };
-    var totalTableWidth = columnWidths.Sum();
+    var weights = new[] { 0.06f, 0.08f, 0.24f, 0.17f, 0.07f, 0.14f, 0.12f, 0.12f };
+    var columnWidths = weights.Select(w => (int)(printableArea.Width * w)).ToArray();
+
+    // Bold at the same size for the winner; the header font is two points
+    // larger and was what overflowed.
+    using var winnerFont = new Font(normalFont, FontStyle.Bold);
+
+    // Centred, one line, and cut with an ellipsis rather than drawn over the
+    // neighbouring cell when a name or a team is still too long.
+    using var cellFormat = new StringFormat
+    {
+      Alignment = StringAlignment.Center,
+      LineAlignment = StringAlignment.Center,
+      Trimming = StringTrimming.EllipsisCharacter,
+      FormatFlags = StringFormatFlags.NoWrap
+    };
 
     // Draw headers
     float xPos = printableArea.Left;
@@ -576,11 +593,7 @@ public class RaceReportGenerator
       g.FillRectangle(Brushes.LightGray, headerRect);
       g.DrawRectangle(Pens.Black, headerRect);
 
-      var headerText = headers[i];
-      var textSize = g.MeasureString(headerText, normalFont);
-      var textX = xPos + (columnWidths[i] - textSize.Width) / 2;
-      var textY = yPos + (20 - textSize.Height) / 2;
-      g.DrawString(headerText, normalFont, Brushes.Black, textX, textY);
+      g.DrawString(headers[i], normalFont, Brushes.Black, headerRect, cellFormat);
 
       xPos += columnWidths[i];
     }
@@ -613,8 +626,8 @@ public class RaceReportGenerator
           ? (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : "")[..12] + "..."
           : (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : ""),
         result.TotalLaps.ToString(),
-        result.TotalTime.ToString(@"mm\:ss\.fff"),
-        result.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A",
+        TimeFormat.Precise(result.TotalTime),
+        TimeFormat.Precise(result.BestLapTime, "N/A"),
         GetGapText(result)
       };
 
@@ -633,12 +646,9 @@ public class RaceReportGenerator
         g.DrawRectangle(Pens.Black, cellRect);
 
         var textBrush = result.IsDNF ? Brushes.DarkRed : Brushes.Black;
-        var font = result.Position == "1" ? headerFont : normalFont;
+        var font = result.Position == "1" ? winnerFont : normalFont;
 
-        var textSize = g.MeasureString(rowData[i], font);
-        var textX = xPos + (columnWidths[i] - textSize.Width) / 2;
-        var textY = yPos + (rowHeight - textSize.Height) / 2;
-        g.DrawString(rowData[i], font, textBrush, textX, textY);
+        g.DrawString(rowData[i], font, textBrush, cellRect, cellFormat);
 
         xPos += columnWidths[i];
       }
@@ -661,7 +671,7 @@ public class RaceReportGenerator
       return $"-{result.LapGapToLeader} lap{(result.LapGapToLeader == 1 ? "" : "s")}";
 
     if (result.GapToLeader.HasValue)
-      return $"+{result.GapToLeader.Value:mm\\:ss}";
+      return $"+{TimeFormat.Clock(result.GapToLeader.Value)}";
 
     return "N/A";
   }
@@ -688,10 +698,10 @@ public class RaceReportGenerator
     if (_reportData.RaceEndTime.HasValue)
       sb.AppendLine($"End Time:          {_reportData.RaceEndTime.Value:yyyy-MM-dd HH:mm:ss}");
 
-    sb.AppendLine($"Scheduled Duration: {_reportData.RaceDuration:mm\\:ss}");
+    sb.AppendLine($"Scheduled Duration: {TimeFormat.Clock(_reportData.RaceDuration)}");
 
     if (_reportData.RaceStatistics?.ActualRaceDuration.HasValue == true)
-      sb.AppendLine($"Winning Time:      {_reportData.RaceStatistics.ActualRaceDuration.Value:mm\\:ss\\.fff}");
+      sb.AppendLine($"Winning Time:      {TimeFormat.Precise(_reportData.RaceStatistics.ActualRaceDuration.Value)}");
 
     sb.AppendLine($"Race Status:       {(_reportData.RaceFinished ? "Finished" : "In Progress")}");
 
@@ -718,7 +728,7 @@ public class RaceReportGenerator
       sb.AppendLine($"Total Laps:        {stats.TotalLapsCompleted}");
 
       if (stats.FastestLap != null)
-        sb.AppendLine($"Fastest Lap:       {stats.FastestLap.TagID} - {stats.FastestLap.BestLapTime:mm\\:ss\\.fff}");
+        sb.AppendLine($"Fastest Lap:       {stats.FastestLap.TagID} - {TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")}");
 
       // Add additional laps timing information
       if (stats.AdditionalLapsSignShown.HasValue)
@@ -748,8 +758,8 @@ public class RaceReportGenerator
     foreach (var result in _reportData.RiderResults)
     {
       var gapText = GetGapText(result);
-      var bestLap = result.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-      var avgLap = result.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+      var bestLap = TimeFormat.Precise(result.BestLapTime, "N/A");
+      var avgLap = TimeFormat.Precise(result.AverageLapTime, "N/A");
       var riderName = !string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : "";
       var team = !string.IsNullOrWhiteSpace(result.Team) ? result.Team : "";
 
@@ -758,7 +768,7 @@ public class RaceReportGenerator
       if (team.Length > 14) team = team[..11] + "...";
 
       sb.AppendLine($"{result.Position,-4} {result.TagID,-35} {riderName,-20} {team,-15} {result.TotalLaps,-5} " +
-                   $"{result.TotalTime:mm\\:ss\\.fff,-12} {bestLap,-10} {avgLap,-10} {gapText,-15}");
+                   $"{TimeFormat.Precise(result.TotalTime),-12} {bestLap,-10} {avgLap,-10} {gapText,-15}");
     }
 
     sb.AppendLine(new string('=', 160)); // Increased width to accommodate longer tag IDs
@@ -900,8 +910,8 @@ public class RaceReportGenerator
       sheet.Cell(currentRow, 6).Value = rider.Category ?? "";
       sheet.Cell(currentRow, 7).Value = rider.TotalLaps;
       sheet.Cell(currentRow, 8).Value = rider.TotalTime.ToString(@"hh\:mm\:ss\.fff");
-      sheet.Cell(currentRow, 9).Value = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-      sheet.Cell(currentRow, 10).Value = rider.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+      sheet.Cell(currentRow, 9).Value = TimeFormat.Precise(rider.BestLapTime, "N/A");
+      sheet.Cell(currentRow, 10).Value = TimeFormat.Precise(rider.AverageLapTime, "N/A");
       sheet.Cell(currentRow, 11).Value = rider.Gap ?? "";
       sheet.Cell(currentRow, 12).Value = rider.Status;
 
@@ -966,7 +976,7 @@ public class RaceReportGenerator
       foreach (var lap in rider.LapTimes)
       {
         sheet.Cell(currentRow, 1).Value = lap.LapNumber;
-        sheet.Cell(currentRow, 2).Value = lap.LapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+        sheet.Cell(currentRow, 2).Value = TimeFormat.Precise(lap.LapTime, "N/A");
         sheet.Cell(currentRow, 3).Value = lap.CrossingTime.ToString("HH:mm:ss.fff");
 
         if (lap.LapTime.HasValue)
@@ -1022,7 +1032,7 @@ public class RaceReportGenerator
     if (stats.FastestLap != null)
     {
       sheet.Cell(currentRow, 1).Value = "Fastest Lap:";
-      sheet.Cell(currentRow, 2).Value = $"{stats.FastestLap.BestLapTime?.ToString(@"mm\:ss\.fff")} by {stats.FastestLap.TagID}";
+      sheet.Cell(currentRow, 2).Value = $"{TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")} by {stats.FastestLap.TagID}";
       currentRow++;
     }
 
@@ -1043,14 +1053,14 @@ public class RaceReportGenerator
 
       var signTime = stats.AdditionalLapsSignShown!.Value - _reportData.RaceStartTime!.Value;
       sheet.Cell(currentRow, 1).Value = "Additional Laps Sign Shown:";
-      sheet.Cell(currentRow, 2).Value = signTime.ToString(@"mm\:ss");
+      sheet.Cell(currentRow, 2).Value = TimeFormat.Clock(signTime);
       currentRow++;
 
       if (stats.RaceActuallyEnded.HasValue)
       {
         var endTime = stats.RaceActuallyEnded.Value - _reportData.RaceStartTime.Value;
         sheet.Cell(currentRow, 1).Value = "Race Actually Ended:";
-        sheet.Cell(currentRow, 2).Value = endTime.ToString(@"mm\:ss");
+        sheet.Cell(currentRow, 2).Value = TimeFormat.Clock(endTime);
         currentRow++;
 
         sheet.Cell(currentRow, 1).Value = "Additional Laps Count:";

@@ -498,7 +498,7 @@ public partial class Form1
 
     if (raceFinished) _statusRaceState.Text = "Finished";
     else if (!raceStarted) _statusRaceState.Text = manualStartMode ? "Ready to start" : "Waiting for first rider";
-    else _statusRaceState.Text = $"Running - {GetTimeRemaining():mm\\:ss} left";
+    else _statusRaceState.Text = $"Running - {TimeFormat.Clock(GetTimeRemaining())} left";
 
     int riderCount, lapCount;
     lock (ridersLock)

@@ -232,7 +232,7 @@ public class LapProgressionManager : IDisposable
           if (lapTime.HasValue)
           {
             var splitIndicator = isSplitLap ? "*" : "";
-            cellValue += $"\n{lapTime.Value:mm\\:ss\\.fff}{splitIndicator}";
+            cellValue += $"\n{TimeFormat.Precise(lapTime.Value)}{splitIndicator}";
           }
 
           cells[lap - 1] = new ProgressionCell(cellValue, cellBackColor, isSplitLap);

@@ -340,7 +340,8 @@ public partial class Form1 : Form
     toolTipMain.SetToolTip(checkBoxShortLapDetection,
       "Turn off only if the course is genuinely short enough for real laps to fall below the limit.");
     toolTipMain.SetToolTip(numericUpDownDnfTimeout,
-      "Once the leader finishes, riders get this long to complete their last lap before being scored DNF.");
+      "Once the leader finishes, riders get this long to complete their last lap before being scored DNF " +
+      "- or 1.5 laps of the field's pace, whichever is longer.");
     toolTipMain.SetToolTip(textBoxTagFilter,
       "Only count transponders whose ID starts with one of these. Leave empty to count everything.");
     toolTipMain.SetToolTip(checkBoxFilterEnabled,
@@ -837,7 +838,7 @@ public partial class Form1 : Form
       string lapInfoStr = $"Lap {lapInfo.LapNumber}";
       if (lapInfo.LapTime.HasValue)
       {
-        lapInfoStr += $" ({lapInfo.LapTime.Value:mm\\:ss\\.fff})";
+        lapInfoStr += $" ({TimeFormat.Precise(lapInfo.LapTime.Value)})";
       }
 
       string formattedMessage = $"🏷️  Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} {lapInfoStr} [Parsed: {crossingTime:HH:mm:ss.fff}]";
@@ -1300,10 +1301,10 @@ public partial class Form1 : Form
         int position = 1;
         foreach (var rider in sortedRiders)
         {
-          var bestLap = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-          var totalTime = rider.TotalTime.ToString(@"mm\:ss\.fff");
+          var bestLap = TimeFormat.Precise(rider.BestLapTime, "N/A");
+          var totalTime = TimeFormat.Precise(rider.TotalTime);
 
-          var avgLapStr = rider.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+          var avgLapStr = TimeFormat.Precise(rider.AverageLapTime, "N/A");
 
           var statusStr = rider.IsDNF ? " (DNF)" : "";
           messages.Add($"📊 P{position}: {rider.Label} | {rider.TotalLaps} laps | Best: {bestLap} | Avg: {avgLapStr} | Total: {totalTime}{statusStr}");
@@ -1977,7 +1978,7 @@ public partial class Form1 : Form
         case "PredictedLap": column.Width = 85; break;
         case "NextCrossing": column.Width = 80; break;
         case "TimeToNext": column.Width = 90; break;
-        case "TotalTime": column.Width = 85; break;
+        case "TotalTime": column.Width = 95; break; // room for h:mm:ss.fff
         case "Gap": column.Width = 80; break;
       }
     }
@@ -2237,7 +2238,7 @@ public partial class Form1 : Form
           else
           {
             var timeDiff = rider.TotalTime - leader.TotalTime;
-            gap = $"+{timeDiff:mm\\:ss\\.fff}";
+            gap = $"+{TimeFormat.Precise(timeDiff)}";
           }
         }
         else if (i == 0)
@@ -2247,10 +2248,10 @@ public partial class Form1 : Form
 
         // Average of the completed laps. RiderInfo.AverageLapTime excludes the
         // first, which is the run from the race start rather than a lap.
-        var avgLapStr = rider.AverageLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+        var avgLapStr = TimeFormat.Precise(rider.AverageLapTime, "N/A");
 
         // Predicted lap time
-        var predictedLapStr = rider.PredictedLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+        var predictedLapStr = TimeFormat.Precise(rider.PredictedLapTime, "N/A");
 
         // Next crossing prediction
         var nextCrossingStr = "N/A";
@@ -2272,7 +2273,7 @@ public partial class Form1 : Form
 
           // Convert to race time instead of wall clock time
           var raceTimeAtCrossing = nextTime - raceStartSnapshot.Value;
-          nextCrossingStr = raceTimeAtCrossing.ToString(@"mm\:ss");
+          nextCrossingStr = TimeFormat.Clock(raceTimeAtCrossing);
 
           var timeToNext = nextTime - DateTime.Now;
           if (timeToNext > TimeSpan.Zero)
@@ -2280,7 +2281,7 @@ public partial class Form1 : Form
             if (timeToNext.TotalMinutes < 1)
               timeToNextStr = $"{timeToNext.TotalSeconds:F0}s";
             else
-              timeToNextStr = $"{timeToNext:mm\\:ss}";
+              timeToNextStr = $"{TimeFormat.Clock(timeToNext)}";
           }
           else
           {
@@ -2366,13 +2367,13 @@ public partial class Form1 : Form
         cells[RiderRowData.ColTeam] = teamName;
         cells[RiderRowData.ColCategory] = categoryName;
         cells[RiderRowData.ColLaps] = rider.TotalLaps.ToString();
-        cells[RiderRowData.ColLastLap] = rider.LastLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
-        cells[RiderRowData.ColBestLap] = rider.BestLapTime?.ToString(@"mm\:ss\.fff") ?? "N/A";
+        cells[RiderRowData.ColLastLap] = TimeFormat.Precise(rider.LastLapTime, "N/A");
+        cells[RiderRowData.ColBestLap] = TimeFormat.Precise(rider.BestLapTime, "N/A");
         cells[RiderRowData.ColAvgLap] = avgLapStr;
         cells[RiderRowData.ColPredictedLap] = predictedLapStr;
         cells[RiderRowData.ColNextCrossing] = nextCrossingStr;
         cells[RiderRowData.ColTimeToNext] = timeToNextStr;
-        cells[RiderRowData.ColTotalTime] = rider.TotalTime.ToString(@"mm\:ss\.fff");
+        cells[RiderRowData.ColTotalTime] = TimeFormat.Precise(rider.TotalTime);
         cells[RiderRowData.ColGap] = gap;
 
         var rowBack = Color.Empty;
@@ -2605,12 +2606,12 @@ public partial class Form1 : Form
       if (additionalLapsSignShown.HasValue && raceStartSnapshot.HasValue)
       {
         var raceTimeWhenSignShown = additionalLapsSignShown.Value - raceStartSnapshot.Value;
-        var timingText = $"🏁 Additional Laps Board: {raceTimeWhenSignShown:mm\\:ss}";
+        var timingText = $"🏁 Additional Laps Board: {TimeFormat.Clock(raceTimeWhenSignShown)}";
 
         if (raceActuallyEnded.HasValue)
         {
           var actualRaceTime = raceActuallyEnded.Value - raceStartSnapshot.Value;
-          timingText += $" | Final: {actualRaceTime:mm\\:ss} (+{additionalLapsCount} laps)";
+          timingText += $" | Final: {TimeFormat.Clock(actualRaceTime)} (+{additionalLapsCount} laps)";
         }
 
         // Show additional timing info when race is in final/finished stages
@@ -2633,7 +2634,7 @@ public partial class Form1 : Form
           var timeRemaining = GetTimeRemaining();
           if (timeRemaining > TimeSpan.Zero)
           {
-            labelTimeRemaining.Text = $"Time Remaining: {timeRemaining:mm\\:ss}";
+            labelTimeRemaining.Text = $"Time Remaining: {TimeFormat.Clock(timeRemaining)}";
             labelTimeRemaining.ForeColor = timeRemaining.TotalMinutes <= 5 ? Color.Red : Color.DarkRed;
 
           }
@@ -2681,7 +2682,7 @@ public partial class Form1 : Form
         if (raceActuallyEnded.HasValue && raceStartSnapshot.HasValue)
         {
           var finalRaceTime = raceActuallyEnded.Value - raceStartSnapshot.Value;
-          labelPredictedLaps.Text = $"Final Race Time: {finalRaceTime:mm\\:ss}";
+          labelPredictedLaps.Text = $"Final Race Time: {TimeFormat.Clock(finalRaceTime)}";
         }
       }
     }
@@ -2747,7 +2748,7 @@ public partial class Form1 : Form
         if (timeToNext.TotalMinutes < 1)
           nextCrossingInfo = $"Next Expected: {riderDisplay} in {timeToNext.TotalSeconds:F0}s";
         else
-          nextCrossingInfo = $"Next Expected: {riderDisplay} in {timeToNext:mm\\:ss}";
+          nextCrossingInfo = $"Next Expected: {riderDisplay} in {TimeFormat.Clock(timeToNext)}";
       }
       else
       {
@@ -2920,7 +2921,7 @@ public partial class Form1 : Form
           {
             timeToNextStr = timeToNext.TotalMinutes < 1
               ? $"{timeToNext.TotalSeconds:F0}s"
-              : $"{timeToNext:mm\\:ss}";
+              : $"{TimeFormat.Clock(timeToNext)}";
           }
           else
           {
@@ -2978,13 +2979,13 @@ public partial class Form1 : Form
 
     if (leader.PredictedLapTime.HasValue)
     {
-      return $" (Avg: {leader.PredictedLapTime.Value:mm\\:ss\\.fff})";
+      return $" (Avg: {TimeFormat.Precise(leader.PredictedLapTime.Value)})";
     }
     else if (leader.TotalLaps > 0)
     {
       var raceElapsed = DateTime.Now - raceStartTime.Value;
       var avgTimePerLap = TimeSpan.FromMilliseconds(raceElapsed.TotalMilliseconds / leader.TotalLaps);
-      return $" (Est. Avg: {avgTimePerLap:mm\\:ss\\.fff})";
+      return $" (Est. Avg: {TimeFormat.Precise(avgTimePerLap)})";
     }
 
     return " (Calculating...)";
@@ -3707,7 +3708,7 @@ public partial class Form1 : Form
 
     var finishingRiderTag = finishingRider?.Label ?? "The leader";
 
-    AddMessage($"🏁 RACE TARGET REACHED! {finishingRiderTag} completed {targetLapsToFinishRace} laps in {actualRaceDuration:mm\\:ss}.");
+    AddMessage($"🏁 RACE TARGET REACHED! {finishingRiderTag} completed {targetLapsToFinishRace} laps in {TimeFormat.Clock(actualRaceDuration)}.");
     RaiseNotice(NoticeLevel.Critical, "Leader has finished - everyone else completes their current lap");
     AddMessage($"🏁 All other riders must complete only their current lap, then no more laps will be counted.");
 
@@ -3751,12 +3752,13 @@ public partial class Form1 : Form
       field = riders.Values.ToList();
     }
 
-    // One deadline for the whole pass. A timed session stretches it to cover a
-    // flag lap - see ChequeredFlag.Grace for why the configured value alone is
-    // not safe there.
+    // One deadline for the whole pass, never shorter than a lap and a half at
+    // the field's pace - see ChequeredFlag.Grace. Only a timed session used to
+    // get the stretch; a race kept the configured minutes, which on an enduro
+    // with twenty-minute laps and the two-minute default would have scored
+    // everyone still out as DNF long before they could come round.
     var fieldPace = RaceProgress.MedianPace(field);
-    var grace = TimeSpan.FromMinutes(dnfTimeoutMinutes);
-    if (IsTimedSession) grace = ChequeredFlag.Grace(grace, fieldPace);
+    var grace = ChequeredFlag.Grace(TimeSpan.FromMinutes(dnfTimeoutMinutes), fieldPace);
 
     // When the flag actually fell, for telling a rider who was still out from
     // one who had already pulled in.
@@ -3871,7 +3873,7 @@ public partial class Form1 : Form
       RaiseNotice(NoticeLevel.Critical, IsQualifying
         ? "Session over - the gate pick order is final"
         : "Session over");
-      AddMessage($"🏁 Session length: {actualRaceDuration:mm\\:ss}");
+      AddMessage($"🏁 Session length: {TimeFormat.Clock(actualRaceDuration)}");
       AddMessage($"⏱️ {withATime} of {wentOut.Count} riders who went out set a time.");
 
       if (IsQualifying)
@@ -3881,7 +3883,7 @@ public partial class Form1 : Form
     {
       AddMessage($"🏁 RACE COMPLETELY FINISHED! All riders have completed their final laps or timed out.");
       RaiseNotice(NoticeLevel.Critical, "Race finished - results are final");
-      AddMessage($"🏁 Final race duration: {actualRaceDuration:mm\\:ss}");
+      AddMessage($"🏁 Final race duration: {TimeFormat.Clock(actualRaceDuration)}");
 
       if (dnfRiders.Any())
       {
@@ -4568,7 +4570,7 @@ public partial class Form1 : Form
       var result = MessageBox.Show(
         $"Found an unfinished race from {latestRace.StartTime:yyyy-MM-dd HH:mm:ss}.\n\n" +
         $"Would you like to restore this race?\n\n" +
-        $"Race Duration: {latestRace.Duration:mm\\:ss}\n" +
+        $"Race Duration: {TimeFormat.Clock(latestRace.Duration)}\n" +
         $"Last Saved: {latestRace.LastSavedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown"}",
         "Crash Recovery",
         MessageBoxButtons.YesNo,

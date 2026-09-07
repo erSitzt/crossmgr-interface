@@ -14,14 +14,14 @@ public static class ChequeredFlag
 
   /// <summary>
   /// How long to wait after the flag before a rider who has not crossed is
-  /// treated as off the track.
+  /// treated as off the track. Used for races as well as timed sessions.
   ///
   /// The configured DNF timeout defaults to two minutes, which is shorter than
   /// a motocross lap - so on the configured value alone a rider riding a
-  /// perfectly good flag lap is written off while they are still on it. That
-  /// matters more in a timed session than in a race, because the write-off also
-  /// makes the app discard their next crossing: the lap that would have set
-  /// their gate pick is thrown away.
+  /// perfectly good last lap is written off while they are still on it. In a
+  /// timed session the write-off also discards their next crossing, the lap
+  /// that would have set their gate pick; in an enduro with twenty-minute laps
+  /// it would have scored the whole field DNF.
   ///
   /// Only ever extends the operator's setting, never shortens it.
   /// </summary>
