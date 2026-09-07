@@ -67,6 +67,9 @@ public sealed class RaceDayView
   private FlowLayoutPanel _waveStrip = null!;
   private string? _nextWaveClass;
 
+  /// <summary>One font for every chip. A font per label leaked a GDI handle each time the strip shrank.</summary>
+  private Font? _chipFont;
+
   /// <summary>Put the class beside each name: the overall order of a staggered start mixes them.</summary>
   public bool ShowClass { get; set; }
 
@@ -278,14 +281,18 @@ public sealed class RaceDayView
 
     // Rebuilt in place rather than recreated: this runs every second.
     while (_waveStrip.Controls.Count > chips.Count)
-      _waveStrip.Controls.RemoveAt(_waveStrip.Controls.Count - 1);
+    {
+      var spare = _waveStrip.Controls[_waveStrip.Controls.Count - 1];
+      _waveStrip.Controls.Remove(spare);
+      spare.Dispose();
+    }
     while (_waveStrip.Controls.Count < chips.Count)
       _waveStrip.Controls.Add(new Label
       {
         AutoSize = true,
         Padding = new Padding(10, 6, 10, 6),
         Margin = new Padding(0, 0, 8, 4),
-        Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+        Font = _chipFont ??= new Font("Segoe UI", 11F, FontStyle.Bold),
         BorderStyle = BorderStyle.FixedSingle
       });
 

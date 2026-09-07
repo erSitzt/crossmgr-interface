@@ -35,6 +35,17 @@ public partial class Form1
   }
 
   /// <summary>
+  /// True when the rider's class has not left the gate yet, naming the wave
+  /// they are waiting for. One class lookup: this runs under ridersLock on
+  /// every read before the last wave has gone. The caller holds ridersLock.
+  /// </summary>
+  private bool WaitingForWave(string tagID, out StartWave wave)
+  {
+    wave = waves!.WaveFor(ClassOf(tagID));
+    return wave.StartedAt == null;
+  }
+
+  /// <summary>
   /// Sends a class off at the given moment. Any rider of that class already
   /// known - after a restart, say - is re-timed from it.
   /// </summary>

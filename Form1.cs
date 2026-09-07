@@ -930,10 +930,10 @@ public partial class Form1 : Form
       // A class that has not left the gate cannot be lapping. A read from one
       // of its riders is a bike being wheeled over the loop on the way to the
       // line, and counting it would hand them a lap they never rode.
-      else if (waves != null && !waves.HasStarted(ClassOf(tagID)))
+      else if (waves != null && WaitingForWave(tagID, out var pendingWave))
       {
         messagesToAdd.Add(($"⏳ Read ignored: {GetRiderDisplayText(tagID)} - " +
-                           $"{waves.WaveFor(ClassOf(tagID)).Class} has not started yet", false));
+                           $"{pendingWave.Class} has not started yet", false));
         resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
       else
