@@ -34,9 +34,9 @@ public sealed class QualifyingReportGenerator : IDisposable
   // ---- Entry points --------------------------------------------------------
 
   public void ShowPrintPreview(Dictionary<string, RiderInfo> riders, string title,
-    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished)
+    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished, RaceRules? rules = null)
   {
-    Prepare(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
+    Prepare(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
 
     using var preview = new PrintPreviewDialog
     {
@@ -48,17 +48,17 @@ public sealed class QualifyingReportGenerator : IDisposable
 
   /// <summary>Overall first, then one preview per class, as the results report does.</summary>
   public void ShowClassBasedPrintPreview(Dictionary<string, RiderInfo> riders, string title,
-    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished)
+    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished, RaceRules? rules = null)
   {
     var classes = ReportHelpers.GetUniqueClasses(riders);
 
     if (classes.Count <= 1)
     {
-      ShowPrintPreview(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
+      ShowPrintPreview(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
       return;
     }
 
-    ShowPrintPreview(riders, $"{title} - Overall", sessionStart, sessionEnd, sessionDuration, sessionFinished);
+    ShowPrintPreview(riders, $"{title} - Overall", sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
 
     foreach (var className in classes)
     {
@@ -66,18 +66,18 @@ public sealed class QualifyingReportGenerator : IDisposable
       if (classRiders.Count == 0) continue;
 
       ShowPrintPreview(classRiders, $"{title} - Class: {className}",
-        sessionStart, sessionEnd, sessionDuration, sessionFinished);
+        sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
     }
   }
 
   public void PrintReport(Dictionary<string, RiderInfo> riders, string title,
-    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished)
+    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished, RaceRules? rules = null)
   {
     var classes = ReportHelpers.GetUniqueClasses(riders);
 
     if (classes.Count <= 1)
     {
-      PrintOne(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
+      PrintOne(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
       return;
     }
 
@@ -91,40 +91,40 @@ public sealed class QualifyingReportGenerator : IDisposable
     switch (answer)
     {
       case DialogResult.Yes:
-        PrintOne(riders, $"{title} - Overall", sessionStart, sessionEnd, sessionDuration, sessionFinished);
+        PrintOne(riders, $"{title} - Overall", sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
         foreach (var className in classes)
         {
           var classRiders = ReportHelpers.FilterRidersByClass(riders, className);
           if (classRiders.Count == 0) continue;
           PrintOne(classRiders, $"{title} - Class: {className}",
-            sessionStart, sessionEnd, sessionDuration, sessionFinished);
+            sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
         }
         break;
 
       case DialogResult.No:
-        PrintOne(riders, $"{title} - Overall", sessionStart, sessionEnd, sessionDuration, sessionFinished);
+        PrintOne(riders, $"{title} - Overall", sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
         break;
     }
   }
 
   public void ExportToFile(Dictionary<string, RiderInfo> riders, string title,
-    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished)
+    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished, RaceRules? rules = null)
   {
     var classes = ReportHelpers.GetUniqueClasses(riders);
 
     if (classes.Count <= 1)
     {
-      ExportSingle(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
+      ExportSingle(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
       return;
     }
 
-    ExportPerClass(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished, classes);
+    ExportPerClass(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished, classes, rules);
   }
 
   // ---- Data ----------------------------------------------------------------
 
   private void Prepare(Dictionary<string, RiderInfo> riders, string title,
-    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished)
+    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished, RaceRules? rules = null)
   {
     _data = new QualifyingReportData
     {
@@ -133,6 +133,7 @@ public sealed class QualifyingReportGenerator : IDisposable
       SessionEnd = sessionEnd,
       SessionDuration = sessionDuration,
       SessionFinished = sessionFinished,
+      Rules = rules,
       GeneratedAt = DateTime.Now,
       Entries = QualifyingRanking.Rank(riders.Values)
     };
@@ -144,9 +145,9 @@ public sealed class QualifyingReportGenerator : IDisposable
   // ---- Printing ------------------------------------------------------------
 
   private void PrintOne(Dictionary<string, RiderInfo> riders, string title,
-    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished)
+    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished, RaceRules? rules = null)
   {
-    Prepare(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
+    Prepare(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
 
     using var dialog = new PrintDialog { Document = _printDocument };
     if (dialog.ShowDialog() == DialogResult.OK) _printDocument.Print();
@@ -419,6 +420,11 @@ public sealed class QualifyingReportGenerator : IDisposable
       lines.Add(("Session end", $"{_data.SessionEnd.Value:yyyy-MM-dd HH:mm:ss}"));
 
     lines.Add(("Length", $"{_data.SessionDuration:hh\\:mm\\:ss}"));
+
+    // What the session was scored under - the grace after the flag decides
+    // whose last lap counted, which is exactly what a protest is about.
+    if (_data.Rules != null) lines.AddRange(_data.Rules.Describe());
+
     lines.Add(("Riders", $"{_data.Entries.Count} " +
                          $"({_data.Entries.Count(x => x.Status == QualifyingStatus.Timed)} with a time)"));
 
@@ -434,9 +440,9 @@ public sealed class QualifyingReportGenerator : IDisposable
   // ---- Export --------------------------------------------------------------
 
   private void ExportSingle(Dictionary<string, RiderInfo> riders, string title,
-    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished)
+    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished, RaceRules? rules = null)
   {
-    Prepare(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished);
+    Prepare(riders, title, sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
 
     using var save = new SaveFileDialog
     {
@@ -466,7 +472,7 @@ public sealed class QualifyingReportGenerator : IDisposable
 
   private void ExportPerClass(Dictionary<string, RiderInfo> riders, string title,
     DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished,
-    List<string> classes)
+    List<string> classes, RaceRules? rules = null)
   {
     using var folder = new FolderBrowserDialog
     {
@@ -482,7 +488,7 @@ public sealed class QualifyingReportGenerator : IDisposable
     try
     {
       var overall = Path.Combine(folder.SelectedPath, $"{baseName}_Overall.xlsx");
-      Prepare(riders, $"{title} - Overall", sessionStart, sessionEnd, sessionDuration, sessionFinished);
+      Prepare(riders, $"{title} - Overall", sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
       ExportToExcel(overall);
       written.Add(Path.GetFileName(overall));
 
@@ -495,7 +501,7 @@ public sealed class QualifyingReportGenerator : IDisposable
           $"{baseName}_Class_{ReportHelpers.SanitizeFileName(className)}.xlsx");
 
         Prepare(classRiders, $"{title} - Class: {className}",
-          sessionStart, sessionEnd, sessionDuration, sessionFinished);
+          sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
         ExportToExcel(path);
         written.Add(Path.GetFileName(path));
       }
@@ -627,6 +633,7 @@ public sealed class QualifyingReportGenerator : IDisposable
     public DateTime? SessionEnd { get; init; }
     public TimeSpan SessionDuration { get; init; }
     public bool SessionFinished { get; init; }
+    public RaceRules? Rules { get; init; }
     public DateTime GeneratedAt { get; init; }
     public List<QualifyingEntry> Entries { get; init; } = new();
   }

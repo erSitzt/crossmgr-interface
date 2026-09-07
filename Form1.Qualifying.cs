@@ -349,7 +349,7 @@ public partial class Form1
       }
 
       RunGatePickReport(field.ToDictionary(r => r.TagID, r => r), GatePickTitle(raceName),
-        sessionStart, sessionEnd, sessionDuration, sessionFinished);
+        sessionStart, sessionEnd, sessionDuration, sessionFinished, RulesForReport());
     }
     catch (Exception ex)
     {

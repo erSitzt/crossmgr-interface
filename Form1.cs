@@ -957,7 +957,7 @@ public partial class Form1 : Form
 
       // Create new race in database
       currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
-        additionalLapsAfterTimeExpiry);
+        LiveRules());
 
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
@@ -1724,7 +1724,7 @@ public partial class Form1 : Form
 
       RunResultsReport(riderSnapshot, raceStartSnapshot, raceEndSnapshot, raceDurationSnapshot,
         raceFinishedSnapshot, additionalLapsSignShown, raceActuallyEnded, additionalLapsCount,
-        raceName);
+        raceName, RulesForReport());
     }
     catch (Exception ex)
     {
@@ -3554,7 +3554,7 @@ public partial class Form1 : Form
 
       // Create new race in database
       currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
-        additionalLapsAfterTimeExpiry);
+        LiveRules());
 
       // Update race start time for all existing riders
       lock (ridersLock)
@@ -4700,7 +4700,8 @@ public partial class Form1 : Form
         leaderLapsAtTimeExpiry,
         targetLapsToFinishRace,
         fiveMinuteWarningShown,
-        ignoredSnapshot
+        ignoredSnapshot,
+        LiveRules()
       );
     }
     catch (Exception ex)

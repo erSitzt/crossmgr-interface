@@ -51,7 +51,9 @@ administrator rights.
 4. Run the session. The clock starts on the first crossing, or on
    **Race → Start race** (`F5`) if you chose to start it yourself.
 5. **Race → Results…** (`Ctrl+P`) prints or exports to Excel; qualifying also
-   offers **Gate pick order…**.
+   offers **Gate pick order…**. Every sheet states what the session was scored
+   under: its length, the extra laps, the DNF timeout, the minimum lap time
+   and how the clock was started.
 6. Press **NEW SESSION…** on the Race Day screen (or **Race → New race…**) for
    the next one. The finished session is kept.
 

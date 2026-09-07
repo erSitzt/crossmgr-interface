@@ -21,7 +21,7 @@ public partial class Form1
   /// <param name="actuallyEnded">When the race was called, if it was.</param>
   private void RunResultsReport(Dictionary<string, RiderInfo> field, DateTime? start, DateTime? end,
     TimeSpan duration, bool finished, DateTime? flagAt, DateTime? actuallyEnded, int extraLaps,
-    string? defaultTitle)
+    string? defaultTitle, RaceRules? rules)
   {
     using var options = new ReportOptionsDialog(defaultTitle);
     if (options.ShowDialog(this) != DialogResult.OK) return;
@@ -32,24 +32,24 @@ public partial class Form1
     {
       case ReportAction.Preview:
         _raceReportGenerator.ShowClassBasedPrintPreview(field, start, end, duration, finished, title,
-          flagAt, actuallyEnded, extraLaps);
+          flagAt, actuallyEnded, extraLaps, rules);
         break;
 
       case ReportAction.Print:
         _raceReportGenerator.PrintReport(field, start, end, duration, finished, title,
-          flagAt, actuallyEnded, extraLaps);
+          flagAt, actuallyEnded, extraLaps, rules);
         break;
 
       case ReportAction.Export:
         _raceReportGenerator.ExportToFile(field, start, end, duration, finished, title,
-          flagAt, actuallyEnded, extraLaps);
+          flagAt, actuallyEnded, extraLaps, rules);
         break;
     }
   }
 
   /// <summary>Preview, print or export a gate pick order. See <see cref="RunResultsReport"/>.</summary>
   private void RunGatePickReport(Dictionary<string, RiderInfo> field, string defaultTitle,
-    DateTime? start, DateTime? end, TimeSpan duration, bool finished)
+    DateTime? start, DateTime? end, TimeSpan duration, bool finished, RaceRules? rules)
   {
     using var options = new ReportOptionsDialog(defaultTitle);
     if (options.ShowDialog(this) != DialogResult.OK) return;
@@ -59,17 +59,44 @@ public partial class Form1
     switch (options.SelectedAction)
     {
       case ReportAction.Preview:
-        _qualifyingReportGenerator.ShowClassBasedPrintPreview(field, title, start, end, duration, finished);
+        _qualifyingReportGenerator.ShowClassBasedPrintPreview(field, title, start, end, duration, finished, rules);
         break;
 
       case ReportAction.Print:
-        _qualifyingReportGenerator.PrintReport(field, title, start, end, duration, finished);
+        _qualifyingReportGenerator.PrintReport(field, title, start, end, duration, finished, rules);
         break;
 
       case ReportAction.Export:
-        _qualifyingReportGenerator.ExportToFile(field, title, start, end, duration, finished);
+        _qualifyingReportGenerator.ExportToFile(field, title, start, end, duration, finished, rules);
         break;
     }
+  }
+
+  /// <summary>What the session on screen is being scored under, right now.</summary>
+  private RaceRules LiveRules() => new()
+  {
+    SessionType = sessionType,
+    Duration = raceDuration,
+    AdditionalLaps = IsTimedSession ? 0 : additionalLapsAfterTimeExpiry,
+    DnfTimeoutMinutes = dnfTimeoutMinutes,
+    MinimumLapSeconds = shortLapDetectionEnabled ? minimumLapTime.TotalSeconds : 0,
+    ManualStart = manualStartMode
+  };
+
+  /// <summary>
+  /// The rules for the sheet of the session on screen. Once it is over they
+  /// come from its race row: a session opened from the archive was scored
+  /// under what it was recorded with, not under what the settings tab says
+  /// today, and the sheet must not change because a setting did.
+  /// </summary>
+  private RaceRules RulesForReport()
+  {
+    if (raceFinished && currentRaceId.HasValue)
+    {
+      var stored = _raceDb.GetRace(currentRaceId.Value);
+      if (stored != null) return RaceRules.FromRace(stored);
+    }
+    return LiveRules();
   }
 
   private static string GatePickTitle(string? sessionName) =>
@@ -106,10 +133,12 @@ public partial class Form1
         return;
       }
 
+      var rules = RaceRules.FromRace(race);
+
       if (gatePick)
       {
         RunGatePickReport(field, GatePickTitle(race.Name),
-          race.StartTime, race.EndTime, race.Duration, race.IsFinished);
+          race.StartTime, race.EndTime, race.Duration, race.IsFinished, rules);
         return;
       }
 
@@ -123,7 +152,8 @@ public partial class Form1
         race.FinalLapsStartTime,
         race.IsFinished ? race.EndTime : null,
         race.AdditionalLaps ?? 0,
-        race.Name);
+        race.Name,
+        rules);
     }
     catch (Exception ex)
     {

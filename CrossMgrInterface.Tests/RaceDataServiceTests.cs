@@ -26,8 +26,18 @@ public sealed class RaceDataServiceTests : IDisposable
 
   private static readonly DateTime Start = RiderBuilder.RaceStart;
 
+  private static readonly RaceRules Rules = new()
+  {
+    SessionType = SessionType.Race,
+    Duration = TimeSpan.FromMinutes(20),
+    AdditionalLaps = 2,
+    DnfTimeoutMinutes = 2,
+    MinimumLapSeconds = 10,
+    ManualStart = false
+  };
+
   private int StartRace(string name = "Moto 1", SessionType type = SessionType.Race) =>
-    _db.StartNewRace(Start, TimeSpan.FromMinutes(20), name, type, additionalLaps: 2);
+    _db.StartNewRace(Start, TimeSpan.FromMinutes(20), name, type, Rules);
 
   /// <summary>Saves the field as the periodic timer and the finish both do.</summary>
   private void Save(IEnumerable<RiderInfo> riders, bool finished, IReadOnlyCollection<string>? ignored = null)
@@ -60,6 +70,49 @@ public sealed class RaceDataServiceTests : IDisposable
     Assert.Equal(Start.AddMinutes(22), stored.EndTime);
     Assert.NotNull(stored.LastSavedAt);
     Assert.Equal(2, stored.AdditionalLaps);
+  }
+
+  [Fact]
+  public void TheRulesAreStoredWithTheRaceAndFollowAMidRaceChange()
+  {
+    // The sheet prints what the race was scored under, so it must be on the
+    // row - and it must be the value that applied at the end, because the
+    // length and the DNF timeout can be changed while the clock is running.
+    var id = StartRace();
+
+    var stored = RaceRules.FromRace(_db.GetRace(id)!);
+    Assert.Equal((2, 2, 10.0, false), (stored.AdditionalLaps, stored.DnfTimeoutMinutes, stored.MinimumLapSeconds, stored.ManualStart));
+    Assert.Equal(TimeSpan.FromMinutes(20), stored.Duration);
+
+    var changed = new RaceRules
+    {
+      SessionType = SessionType.Race,
+      Duration = TimeSpan.FromMinutes(25),
+      AdditionalLaps = 1,
+      DnfTimeoutMinutes = 3,
+      MinimumLapSeconds = 0,
+      ManualStart = false
+    };
+    _db.SaveRaceState(new(), Start, null, changed.Duration, false, false, false, false, null, null, 0, 0, false,
+      ignoredTags: null, rules: changed);
+
+    stored = RaceRules.FromRace(_db.GetRace(id)!);
+    Assert.Equal(TimeSpan.FromMinutes(25), stored.Duration);
+    Assert.Equal((1, 3, 0.0), (stored.AdditionalLaps, stored.DnfTimeoutMinutes, stored.MinimumLapSeconds));
+  }
+
+  [Fact]
+  public void ARaceStoredBeforeTheRulesExistedReadsBackAsNotRecorded()
+  {
+    var id = _db.StartNewRace(Start, TimeSpan.FromMinutes(20), "Old");
+
+    var stored = RaceRules.FromRace(_db.GetRace(id)!);
+
+    Assert.Null(stored.AdditionalLaps);
+    Assert.Null(stored.DnfTimeoutMinutes);
+    Assert.Null(stored.MinimumLapSeconds);
+    Assert.Null(stored.ManualStart);
+    Assert.Contains(stored.Describe(), l => l.Value == "not recorded");
   }
 
   [Fact]

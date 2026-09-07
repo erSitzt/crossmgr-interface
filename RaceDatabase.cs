@@ -45,6 +45,12 @@ public class DbRace
   /// </summary>
   public int? AdditionalLaps { get; set; }
 
+  // The rest of what the race was scored under, for the sheet. Nullable for
+  // the same reason as AdditionalLaps. See RaceRules.
+  public int? DnfTimeoutMinutes { get; set; }
+  public double? MinimumLapSeconds { get; set; }
+  public bool? ManualStart { get; set; }
+
   public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
@@ -249,7 +255,7 @@ public class RaceDataService : IDisposable
   /// clock is running, so periodic state saves have nothing to say about it.
   /// </summary>
   public int StartNewRace(DateTime startTime, TimeSpan duration, string name = "",
-    SessionType sessionType = SessionType.Race, int? additionalLaps = null)
+    SessionType sessionType = SessionType.Race, RaceRules? rules = null)
   {
     var race = new DbRace
     {
@@ -257,13 +263,27 @@ public class RaceDataService : IDisposable
       StartTime = startTime,
       Duration = duration,
       SessionType = sessionType,
-      AdditionalLaps = additionalLaps,
       IsFinished = false,
       IsTimeExpired = false
     };
+    if (rules != null) ApplyRules(race, rules);
 
     CurrentRaceId = _races.Insert(race);
     return CurrentRaceId;
+  }
+
+  /// <summary>
+  /// Records what the race is being scored under. Written at the start and
+  /// again on every save, because the duration and the DNF timeout can be
+  /// changed while the clock is running and the sheet must show what applied.
+  /// </summary>
+  private static void ApplyRules(DbRace race, RaceRules rules)
+  {
+    race.Duration = rules.Duration;
+    race.AdditionalLaps = rules.AdditionalLaps;
+    race.DnfTimeoutMinutes = rules.DnfTimeoutMinutes;
+    race.MinimumLapSeconds = rules.MinimumLapSeconds;
+    race.ManualStart = rules.ManualStart;
   }
 
   public void UpdateRace(Action<DbRace> updateAction)
@@ -754,13 +774,15 @@ public class RaceDataService : IDisposable
     DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, bool raceTimeExpired,
     bool waitingForLeaderFinish, bool waitingForFinalLaps, DateTime? finalLapsStartTime,
     string? leaderAtTimeExpiry, int leaderLapsAtTimeExpiry, int targetLapsToFinishRace,
-    bool fiveMinuteWarningShown, IReadOnlyCollection<string>? ignoredTags = null)
+    bool fiveMinuteWarningShown, IReadOnlyCollection<string>? ignoredTags = null,
+    RaceRules? rules = null)
   {
     if (CurrentRaceId == 0) return;
 
     // Update race record with current state
     UpdateRace(race =>
     {
+      if (rules != null) ApplyRules(race, rules);
       race.StartTime = raceStartTime ?? race.StartTime;
       race.EndTime = raceEndTime;
       race.IsFinished = raceFinished;
