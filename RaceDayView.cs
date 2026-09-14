@@ -56,6 +56,7 @@ public sealed class RaceDayView
   private Button _results = null!;
   private Button _newSession = null!;
   private Button _setup = null!;
+  private LinkLabel? _demoLink;
 
   private Label _checkName = null!;
   private Label _checkRiders = null!;
@@ -82,6 +83,7 @@ public sealed class RaceDayView
   public event EventHandler? ResultsClicked;
   public event EventHandler? FixLapsClicked;
   public event EventHandler? SetupClicked;
+  public event EventHandler? DemoClicked;
   public event EventHandler? BannerDismissed;
 
   public TabPage CreateRaceDayTab()
@@ -466,6 +468,19 @@ public sealed class RaceDayView
     _setup.Click += (s, e) => SetupClicked?.Invoke(s, e);
     column.Controls.Add(_setup);
 
+    // For whoever has no reader to hand: a volunteer before their first
+    // meeting, or a club deciding whether to use this at all.
+    _demoLink = new LinkLabel
+    {
+      Text = "No reader here? Try a demo race...",
+      AutoSize = true,
+      Font = new Font("Segoe UI", 9.5F),
+      Margin = new Padding(0, 12, 0, 0),
+      Visible = _demoOffered
+    };
+    _demoLink.LinkClicked += (s, e) => DemoClicked?.Invoke(s, e);
+    column.Controls.Add(_demoLink);
+
     return column;
   }
 
@@ -560,6 +575,18 @@ public sealed class RaceDayView
   }
   private bool _gatePickOrder;
 
+  /// <summary>Whether the link to the demos is offered at all. Never inside a demo.</summary>
+  public bool DemoOffered
+  {
+    get => _demoOffered;
+    set
+    {
+      _demoOffered = value;
+      if (_demoLink != null) _demoLink.Visible = value;
+    }
+  }
+  private bool _demoOffered = true;
+
   private void ApplySessionWording()
   {
     _startRace.Text = _timedSession ? "START SESSION" : "START RACE";
@@ -595,9 +622,14 @@ public sealed class RaceDayView
     // One button for one act: the big one after the flag, the small one before.
     _newSession.Visible = finished;
     _setup.Visible = !finished;
+
+    // Before a session gets going only: during one, nobody should be tempted away.
+    if (_demoLink != null)
+      _demoLink.Visible = _demoOffered && state is RaceDayState.WaitingForFirstRider or RaceDayState.ReadyToStart;
   }
 
-  public void SetReaderHealth(bool serverRunning, int connections, DateTime lastReadTime, bool raceRunning)
+  /// <param name="quiet">What the reader check made of the silence, or null outside a running session.</param>
+  public void SetReaderHealth(bool serverRunning, int connections, DateTime lastReadTime, ReaderQuietVerdict? quiet)
   {
     if (!serverRunning)
     {
@@ -618,12 +650,18 @@ public sealed class RaceDayView
     }
 
     var since = DateTime.Now - lastReadTime;
-    if (raceRunning && since.TotalSeconds > 60)
-      Reader(Color.Red, $"NO READS FOR {FormatClock(since)}", "Check the reader and the loop");
-    else if (raceRunning && since.TotalSeconds > 30)
-      Reader(Color.FromArgb(214, 137, 16), $"No reads for {since.TotalSeconds:F0}s", "Quiet - is that expected?");
-    else
-      Reader(Color.FromArgb(0, 160, 70), "Reader OK", $"last read {since.TotalSeconds:F0}s ago");
+    switch (quiet?.Level)
+    {
+      case ReaderQuietLevel.Silent:
+        Reader(Color.Red, $"NO READS FOR {FormatClock(since)}", quiet.TileDetail);
+        break;
+      case ReaderQuietLevel.Quiet:
+        Reader(Color.FromArgb(214, 137, 16), $"No reads for {since.TotalSeconds:F0}s", quiet.TileDetail);
+        break;
+      default:
+        Reader(Color.FromArgb(0, 160, 70), "Reader OK", $"last read {since.TotalSeconds:F0}s ago");
+        break;
+    }
   }
 
   private void Reader(Color dot, string value, string sub)

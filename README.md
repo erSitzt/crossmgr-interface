@@ -94,6 +94,15 @@ in one sitting after the last moto; a stored session can also be reopened,
 renamed, or deleted. **Race → Delete this session…** removes only the one on
 screen.
 
+No reader to hand? **Help → Try a demo race…** runs a whole session with
+simulated riders: a short motocross race, qualifying to gate pick, an enduro in
+waves, or a team event. Each opens in a window of its own, runs in real time
+with a few problems to fix along the way, and keeps everything in a folder of
+its own under `%LOCALAPPDATA%\CrossMgrInterface\Demo\`. The real races, rider
+lists and reader settings are never touched. A demo's reader listens only on
+the computer itself and on a spare port, so a session being timed in the main
+window is not disturbed.
+
 Press `F1` for the in-application help: a quick start, a topic for each session
 type (race, timed qualifying, free practice, classes in waves, team events), and
 fixing laps, the transponder check, the track map, results, rider lists, the

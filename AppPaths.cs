@@ -10,9 +10,21 @@ namespace CrossMgrInterface;
 /// </summary>
 public static class AppPaths
 {
-  private static readonly string Root = Path.Combine(
+  /// <summary>Where the application keeps everything, unless a demo has moved it.</summary>
+  public static string DefaultRoot { get; } = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
     "CrossMgrInterface");
+
+  private static string Root = DefaultRoot;
+
+  /// <summary>
+  /// Sends everything the application writes into <paramref name="folder"/>.
+  /// A demo calls this once, before the main window exists: the database, the
+  /// settings and the log are opened from here on first use, and a demo must
+  /// never write into the real race database or remember its setup as the
+  /// club's own.
+  /// </summary>
+  public static void UseRoot(string folder) => Root = folder;
 
   /// <summary>Race database. Created on first use.</summary>
   public static string DatabaseFile => Path.Combine(EnsureRoot(), "races.db");

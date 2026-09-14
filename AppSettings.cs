@@ -31,6 +31,16 @@ public sealed class AppSettings
   public bool VerboseProtocolLogging { get; set; }
 
   /// <summary>
+  /// Whether the no-reads warning judges the silence from the riders' lap times -
+  /// riders due at the line who have not come - rather than from a fixed number
+  /// of seconds. See <see cref="ReaderQuietCheck"/>.
+  /// </summary>
+  public bool ReaderQuietFromLapTimes { get; set; } = true;
+
+  /// <summary>Seconds without a read before the warning when not judged from lap times, and until riders have lap times.</summary>
+  public int ReaderQuietSeconds { get; set; } = 60;
+
+  /// <summary>
   /// Whether the reader connection was open when the application last closed.
   ///
   /// A timing laptop that restarts - after a crash, or because someone closed the

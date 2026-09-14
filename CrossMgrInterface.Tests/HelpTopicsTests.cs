@@ -53,6 +53,15 @@ public class HelpTopicsTests
   }
 
   [Fact]
+  public void TheDemoTopicNamesEveryDemo()
+  {
+    var topic = HelpTopics.Find(HelpTopicIds.Demo)!;
+    var words = string.Join("\n", topic.Blocks.Select(b => b.Text).Concat(topic.Blocks.SelectMany(b => b.Items)));
+
+    Assert.All(DemoScenarios.All, demo => Assert.Contains(demo.Title, words));
+  }
+
+  [Fact]
   public void EverySessionTypeHasItsOwnTopic()
   {
     Assert.Equal("Session types", HelpTopics.Find(HelpTopicIds.Race)!.Group);
