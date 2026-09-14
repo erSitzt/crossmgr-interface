@@ -131,8 +131,14 @@ public partial class Form1 : Form
   /// <summary>Whether the technical tabs are shown. Off by default.</summary>
   private bool advancedMode = false;
 
-  public Form1()
+  public Form1() : this(null)
   {
+  }
+
+  /// <param name="demo">The demo this window runs, or null for the real application.</param>
+  public Form1(DemoSession? demo)
+  {
+    _demo = demo;
     InitializeComponent();
 
     // Initialize database service
@@ -396,6 +402,14 @@ public partial class Form1 : Form
     if (startupCompleted) return;
     startupCompleted = true;
 
+    // A demo starts from nothing in a folder of its own: there is no previous
+    // session to put back, and no interrupted race to offer.
+    if (IsDemo)
+    {
+      StartDemo();
+      return;
+    }
+
     // Reader and roster first: they never prompt, so the app is usable even if
     // the operator leaves the recovery question sitting there.
     RestorePreviousSession();
@@ -468,6 +482,8 @@ public partial class Form1 : Form
     // unmanaged memory the GC will not reclaim in time on its own.
     _trackTab?.Dispose();
 
+    // Before the listener drops the connection out from under it.
+    StopDemoReader();
     StopTcpListener();
 
     // Write final log entry
@@ -480,7 +496,8 @@ public partial class Form1 : Form
   {
     try
     {
-      tcpListener = new TcpListener(IPAddress.Any, port);
+      // A demo's reader is on this computer, and nothing else should reach a demo.
+      tcpListener = new TcpListener(IsDemo ? IPAddress.Loopback : IPAddress.Any, port);
       tcpListener.Start();
       isListening = true;
 

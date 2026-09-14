@@ -31,6 +31,8 @@ public partial class Form1
     _raceDayView.EndRaceNowClicked += (s, e) => EndRaceNow();
     _raceDayView.SetupClicked += (s, e) => RunNewRaceWizard();
     _raceDayView.StartNextWaveClicked += (s, e) => StartNextWaveNow();
+    _raceDayView.DemoClicked += (s, e) => ShowDemoPicker();
+    _raceDayView.DemoOffered = !IsDemo;
   }
 
   /// <summary>
@@ -101,6 +103,15 @@ public partial class Form1
         : $"📁 '{previous}' put away. Its results stay under Race > Past sessions...");
     }
 
+    ApplyNewRaceSetup(setup);
+  }
+
+  /// <summary>
+  /// Puts a finished setup into effect: the wizard's, or a demo's. The rider
+  /// list named in it has already been imported.
+  /// </summary>
+  private void ApplyNewRaceSetup(NewRaceSetup setup)
+  {
     // Before the settings handlers below: buttonSetAdditionalLaps_Click and the
     // start-mode radios both read the session type as they go.
     sessionType = setup.SessionType;
@@ -203,7 +214,7 @@ public partial class Form1
       isListening,
       ConnectedClientCount(),
       lastTagTime,
-      raceStarted && !raceFinished);
+      _readerQuiet);
 
     // A timed session is ranked on best lap, not on laps completed. Feeding the
     // race board here would show a sort order that is not a ranking, on the one

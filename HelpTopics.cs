@@ -25,7 +25,7 @@ public static class HelpTopics
 
   public static IReadOnlyList<HelpTopic> All { get; } = new[]
   {
-    QuickStart(), Screens(),
+    QuickStart(), Demo(), Screens(),
     Race(), Qualifying(), Practice(), Waves(), Teams(),
     RaceDay(), Fixing(), Unknown(), TransponderCheck(), Track(),
     Results(), PastSessions(),
@@ -76,9 +76,44 @@ public static class HelpTopics
         "(Ctrl+O) prints it again at any time."),
 
       Tip("Each session type has its own topic under Session types: how to set it up, what happens when " +
-          "the clock runs out, and what its sheet shows.")
+          "the clock runs out, and what its sheet shows."),
+      Tip("No reader to hand? Help > Try a demo race... runs a whole session with simulated riders, in a " +
+          "window of its own.")
     },
-    HelpTopicIds.Race, HelpTopicIds.Qualifying, HelpTopicIds.Practice, HelpTopicIds.RaceDay, HelpTopicIds.Fixing);
+    HelpTopicIds.Race, HelpTopicIds.Qualifying, HelpTopicIds.Practice, HelpTopicIds.RaceDay, HelpTopicIds.Fixing,
+    HelpTopicIds.Demo);
+
+  private static HelpTopic Demo() => Topic(HelpTopicIds.Demo, GettingStarted,
+    "Try a demo race",
+    "Watch the application time a whole session with simulated riders - no reader and no rider list needed.",
+    new[]
+    {
+      Para("Help > Try a demo race... lists the demos; so does the link under Set up race... on the Race Day " +
+           "screen. Choose one and press Start demo. It opens in a window of its own, with a yellow DEMO bar " +
+           "along the top."),
+
+      Heading("The demos"),
+      Bullets(
+        "A short motocross race - 16 riders in two classes, 6 minutes and one lap, with a missed read, a rider " +
+        "on a spare transponder, a pass read twice and a rider who retires. About 10 minutes.",
+        "Qualifying to gate pick - ten riders, 6 minutes of timed qualifying, a lap that ends after the flag " +
+        "and still counts, and two riders with the same best lap. About 7 minutes.",
+        "Enduro in waves - 24 riders in three classes a minute apart. You press START RACE. About 13 minutes.",
+        "Team event - six teams of two and two solo riders, with handovers, two riders of one team out at " +
+        "once, and a rider waiting by the loop. About 10 minutes."),
+
+      Heading("How a demo runs"),
+      Bullets(
+        "In real time: a demo takes as long as the session it shows.",
+        "A card at the start says what is going to happen and what to try. What's happening? on the DEMO bar " +
+        "shows it again.",
+        "Everything works as it does on a race day: fixing laps, identifying a transponder, undo, the results " +
+        "and the gate pick order.",
+        "Close the demo's window to end it. Start it again from the Help menu to see it again."),
+      Tip("A demo keeps everything in a folder of its own. Your real races, rider lists and reader settings are " +
+          "never touched, and a session being timed in the main window carries on undisturbed.")
+    },
+    HelpTopicIds.QuickStart, HelpTopicIds.Race, HelpTopicIds.Qualifying, HelpTopicIds.Waves, HelpTopicIds.Teams);
 
   private static HelpTopic Screens() => Topic(HelpTopicIds.Screens, GettingStarted,
     "The screens",
@@ -371,8 +406,11 @@ public static class HelpTopics
         "Afterwards it shows the final time.",
         "RACE shows the state: Waiting for first rider, Ready to start, Race running (Session running), Last " +
         "laps, Finishing (Chequered flag), Race finished (Session over). The line underneath says what happens next.",
-        "READER is green while the reader is connected and reading. During a session it turns orange after " +
-        "30 seconds without a read and red after a minute: check the reader and the loop."),
+        "READER is green while the reader is connected and reading. During a session it turns orange when a " +
+        "rider due at the line has not come and nothing has been read, and red - with a banner - once several " +
+        "have: check the reader and the loop. It stays green while nobody is still expected, such as after the " +
+        "flag while the finish waits for a rider who retired. To go by a fixed time instead, see The " +
+        "transponder reader."),
 
       Heading("The buttons"),
       Bullets(
@@ -650,6 +688,12 @@ public static class HelpTopics
         "Reader > Connection settings... changes the port (53135, unless something else on this computer uses " +
         "it) and can log the raw reader traffic for diagnosing problems. A new port needs the connection " +
         "stopped and started again.",
+        "Reader > Connection settings... also says when to warn that nothing is being read. The usual choice " +
+        "goes by the riders' lap times: a rider is late once they are well past their usual lap, and the " +
+        "warning comes when three riders still out are late (or all of them, if fewer are out) and nothing " +
+        "has been read for at least 30 seconds. The other choice is a fixed number of seconds, orange at half " +
+        "of it. Until the riders have lap times the seconds are used either way, and neither warns while " +
+        "nobody is still expected at the line.",
         "The reader's clock is checked when it connects, and each crossing is timed by the reader's own timestamp.",
         "More than one reader can be connected at once."),
 

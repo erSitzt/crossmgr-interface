@@ -77,6 +77,35 @@ count, and the "waiting too close to the loop" warning appears. `--stray` puts
 Ben on `SPARE01`, which is not on the list; identify it as his transponder
 (**This transponder belongs to a team**) before the flag.
 
+## Built-in demos
+
+The application has simulated races of its own (**Help → Try a demo race…**),
+which need neither Python nor a rider file:
+- `DemoScenarios.cs` plans each one.
+- `DemoReader.cs` sends it, using the same protocol as the harnesses, to a
+  loopback port that belongs to that demo alone.
+
+They cover similar ground to `scenario.py`, `qualifying.py --late`,
+`enduro.py` and `teams_40.py`, with smaller fields. `DemoScenarioTests` checks
+each demo against its intro card. For example, the missed read really is
+flagged, the rider sent out early really looks like two on track, and every
+race keeps sending long enough to finish.
+
+A demo can be started from a script. This is the quickest way to watch a whole
+session go through the real application:
+
+```
+CrossMgrInterface.exe --demo race --unattended
+```
+
+- **Demo ids:** `race`, `qualifying`, `enduro` and `teams`.
+- **`--unattended`:** skips the intro card. For the enduro it also presses
+  START RACE as soon as the reader has connected.
+- **Where the output goes:** each demo writes everything to its own folder,
+  including its log: `%LOCALAPPDATA%\CrossMgrInterface\Demo\<id>-<date>-<time>\`.
+  The folder is cleared when a later demo starts, or kept if that demo is still
+  running.
+
 ## Rider lists
 
 | File | Purpose |

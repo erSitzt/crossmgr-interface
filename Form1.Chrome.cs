@@ -40,6 +40,8 @@ public partial class Form1
     advancedMode = _settings.AdvancedMode;
     readerPort = _settings.ReaderPort;
     verboseProtocolLogging = _settings.VerboseProtocolLogging;
+    readerQuietFromLapTimes = _settings.ReaderQuietFromLapTimes;
+    readerQuietSeconds = Math.Clamp(_settings.ReaderQuietSeconds, 15, 1800);
 
     // Push the remembered race setup into the controls before Form1_Load reads
     // them, so the rest of startup picks these up rather than designer defaults.
@@ -96,6 +98,12 @@ public partial class Form1
     Controls.Add(_menu);
     MainMenuStrip = _menu;
 
+    if (IsDemo)
+    {
+      _demoBanner = BuildDemoBanner();
+      Controls.Add(_demoBanner);
+    }
+
     // WinForms lays docked children out from the HIGHEST z-order index down to
     // zero, each taking what it needs from the space left over. So the Fill
     // control has to sit at index 0 - laid out last, receiving the remainder -
@@ -104,9 +112,13 @@ public partial class Form1
     // Getting this backwards does not throw or warn: the tab control simply
     // claims the whole client area and the menu paints over the top of it,
     // hiding the tab strip completely.
-    Controls.SetChildIndex(tabControl, 0);
-    Controls.SetChildIndex(_statusBar, 1);
-    Controls.SetChildIndex(_menu, 2);
+    //
+    // A demo's DEMO bar goes under the menu, so it sits between the two.
+    var index = 0;
+    Controls.SetChildIndex(tabControl, index++);
+    if (_demoBanner != null) Controls.SetChildIndex(_demoBanner, index++);
+    Controls.SetChildIndex(_statusBar, index++);
+    Controls.SetChildIndex(_menu, index);
 
     ApplyTransponderColumnVisibility();
 
@@ -303,10 +315,13 @@ public partial class Form1
 
   private void VerifyChromeLayout()
   {
-    var overlapped = tabControl.Top < _menu.Bottom || tabControl.Bottom > _statusBar.Top;
+    // In a demo the tab strip starts below the DEMO bar, which is below the menu.
+    var chromeBottom = _demoBanner?.Bottom ?? _menu.Bottom;
+    var overlapped = tabControl.Top < chromeBottom || tabControl.Bottom > _statusBar.Top;
 
     AddDiagnostic(
       $"Chrome layout: menu={_menu.Top}..{_menu.Bottom}, " +
+      (_demoBanner != null ? $"demo bar={_demoBanner.Top}..{_demoBanner.Bottom}, " : "") +
       $"tabs={tabControl.Top}..{tabControl.Bottom} (rows={tabControl.RowCount}), " +
       $"status={_statusBar.Top}..{_statusBar.Bottom}, client={ClientSize.Width}x{ClientSize.Height}" +
       (overlapped ? "  *** OVERLAP - tab strip is hidden ***" : "  OK"));
@@ -422,6 +437,8 @@ public partial class Form1
     help.DropDownItems.AddRange(new ToolStripItem[]
     {
       Item("Quick start...", Keys.F1, (s, e) => ShowHelp(HelpTopicIds.QuickStart)),
+      // Not from inside a demo, which already is one.
+      new ToolStripMenuItem("Try a demo race...", null, (s, e) => ShowDemoPicker()) { Available = !IsDemo },
       new ToolStripSeparator(),
       Item("Running a race...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.Race)),
       Item("Timed qualifying...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.Qualifying)),
@@ -575,16 +592,23 @@ public partial class Form1
 
   private void ShowReaderSettings()
   {
-    using var dialog = new ReaderSettingsDialog(readerPort, isListening);
+    using var dialog = new ReaderSettingsDialog(readerPort, isListening, readerQuietFromLapTimes, readerQuietSeconds);
     if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
     readerPort = dialog.Port;
     _settings.ReaderPort = readerPort;
     _settings.VerboseProtocolLogging = dialog.VerboseLogging;
+    _settings.ReaderQuietFromLapTimes = dialog.QuietFromLapTimes;
+    _settings.ReaderQuietSeconds = dialog.QuietSeconds;
     _settings.Save();
 
     verboseProtocolLogging = dialog.VerboseLogging;
+    readerQuietFromLapTimes = dialog.QuietFromLapTimes;
+    readerQuietSeconds = dialog.QuietSeconds;
     AddMessage($"⚙️ Reader will connect on port {readerPort}");
+    AddMessage(readerQuietFromLapTimes
+      ? "⚙️ No-reads warning: when riders due at the line have not come"
+      : $"⚙️ No-reads warning: after {readerQuietSeconds} seconds without a read");
   }
 
   private void OpenLogFolder()

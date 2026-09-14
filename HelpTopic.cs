@@ -43,6 +43,7 @@ public static class HelpTopicIds
 {
   public const string QuickStart = "quick-start";
   public const string Screens = "screens";
+  public const string Demo = "demo";
 
   public const string Race = "race";
   public const string Qualifying = "qualifying";
