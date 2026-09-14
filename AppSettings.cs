@@ -55,6 +55,22 @@ public sealed class AppSettings
   public int DnfTimeoutMinutes { get; set; } = 2;
 
   /// <summary>
+  /// Reads closer together than this are one pass seen twice. Part of the setup
+  /// like the rest: it went back to 10 seconds on every restart, so a circuit
+  /// set up for more counted double reads as laps after a crash.
+  /// </summary>
+  public int MinimumLapSeconds { get; set; } = 10;
+  public bool ShortLapDetection { get; set; } = true;
+
+  /// <summary>
+  /// Only transponders starting with one of these prefixes count. Kept as it
+  /// was left rather than switched off on every restart, which quietly started
+  /// counting every marshal's bike again; while it is on, startup says so.
+  /// </summary>
+  public string TagFilterPrefix { get; set; } = "";
+  public bool TagFilterEnabled { get; set; }
+
+  /// <summary>
   /// Practice, qualifying or a race. Part of race setup for the same reason as
   /// the rest of this block: a club runs a block of the same format, so the
   /// wizard should come back offering what was chosen last time.
@@ -70,6 +86,13 @@ public sealed class AppSettings
 
   /// <summary>Class order and the minutes each class leaves after the previous one.</summary>
   public List<WaveDelaySetting> WaveDelays { get; set; } = new();
+
+  /// <summary>
+  /// Riders sharing a team name race as one team. Remembered with the rider list
+  /// it was set up for, so a restart between setting up and the start cannot
+  /// quietly split every team back into solo riders.
+  /// </summary>
+  public bool TeamEvent { get; set; }
 
   // How hard the app looks for a missed transponder read. Tunable because the
   // right sensitivity depends on the circuit; see LapAnomalySettings for what

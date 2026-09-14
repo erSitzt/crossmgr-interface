@@ -73,6 +73,9 @@ public sealed class RaceDayView
   /// <summary>Put the class beside each name: the overall order of a staggered start mixes them.</summary>
   public bool ShowClass { get; set; }
 
+  /// <summary>Put a team's rider on track beside its name, in a team event.</summary>
+  public bool ShowOnTrack { get; set; }
+
   public event EventHandler? StartRaceClicked;
   public event EventHandler? StartNextWaveClicked;
   public event EventHandler? EndRaceNowClicked;
@@ -539,7 +542,7 @@ public sealed class RaceDayView
 
   /// <summary>
   /// Whether this session produces a gate pick order, which only qualifying
-  /// does - free practice is timed but yields no sheet.
+  /// does - free practice is timed but yields no pick order.
   ///
   /// Deliberately separate from <see cref="TimedSession"/>. Driving the results
   /// button from that one instead labelled it "Gate pick order..." during free
@@ -656,9 +659,12 @@ public sealed class RaceDayView
 
       row.Cells["Pos"].Value = rider.IsDNF || rider.IsDNS ? "-" : (i + 1).ToString();
       row.Cells["Number"].Value = rider.RiderNumber;
-      row.Cells["Rider"].Value = ShowClass && !string.IsNullOrWhiteSpace(rider.Category)
-        ? $"{RiderNameOnly(rider)} · {rider.Category}"
-        : RiderNameOnly(rider);
+      var riderText = RiderNameOnly(rider);
+      if (ShowOnTrack && rider.OnTrackMember is { } member)
+        riderText += $" · {member.ShortLabel}";
+      if (ShowClass && !string.IsNullOrWhiteSpace(rider.Category))
+        riderText += $" · {rider.Category}";
+      row.Cells["Rider"].Value = riderText;
       row.Cells["Laps"].Value = rider.TotalLaps.ToString();
       row.Cells["LastLap"].Value = rider.LastLapTime?.ToString(@"m\:ss\.f") ?? "-";
       row.Cells["Gap"].Value = DescribeGap(rider, leader, i);
@@ -745,19 +751,28 @@ public sealed class RaceDayView
     _leaderboard.Columns["Gap"]!.HeaderText = qualifying ? "Gap to pole" : "Gap";
   }
 
-  private static string RiderNameOnly(RiderInfo rider)
+  private string RiderNameOnly(RiderInfo rider)
   {
     var name = $"{rider.FirstName} {rider.LastName}".Trim();
-    if (name.Length > 0) return rider.StatusText.Length > 0 ? $"{name} ({rider.StatusText})" : name;
+    var status = StatusOf(rider);
+    if (name.Length > 0) return status.Length > 0 ? $"{name} ({status})" : name;
 
     // No name known. Say so plainly rather than showing a transponder code.
     return rider.RiderNumber.Length > 0 ? "" : "unidentified transponder";
   }
 
-  private static string DescribeGap(RiderInfo rider, RiderInfo? leader, int index)
+  /// <summary>
+  /// "DNF" or "DNS" - except that in a timed session the flag's timeout only
+  /// means a rider is off track, with every time they set still counting. Free
+  /// practice used to end with half the board reading DNF.
+  /// </summary>
+  private string StatusOf(RiderInfo rider) =>
+    _timedSession && rider.IsDNF && !rider.IsDNS ? "off track" : rider.StatusText;
+
+  private string DescribeGap(RiderInfo rider, RiderInfo? leader, int index)
   {
     if (rider.IsDNS) return "DNS";
-    if (rider.IsDNF) return "DNF";
+    if (rider.IsDNF) return _timedSession ? "-" : "DNF";
     if (leader == null || index == 0) return "-";
 
     var lapsDown = leader.TotalLaps - rider.TotalLaps;

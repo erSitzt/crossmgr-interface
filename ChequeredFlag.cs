@@ -36,6 +36,21 @@ public static class ChequeredFlag
   }
 
   /// <summary>
+  /// The last lap a rider may complete once the flag is out, from the laps they
+  /// had completed when it came out: the lap they are on - or none at all for a
+  /// rider already at the race's laps target when the leader finished.
+  ///
+  /// Worked out again from the flag moment after every correction, never from
+  /// the laps a rider has now. A lap split in two before the flag moves the
+  /// allowance with it; a lap added after the flag is the one they were on, not
+  /// a licence to start another.
+  /// </summary>
+  /// <param name="lapsCompletedAtFlag">RiderInfo.LapsCompletedBy at the flag moment.</param>
+  /// <param name="targetLaps">The race's laps target when the leader's finish ended it, or 0 when the clock did.</param>
+  public static int AllowedLap(int lapsCompletedAtFlag, int targetLaps) =>
+    targetLaps > 0 && lapsCompletedAtFlag >= targetLaps ? lapsCompletedAtFlag : lapsCompletedAtFlag + 1;
+
+  /// <summary>
   /// Whether a rider was still out on a lap when the flag fell, as opposed to
   /// having pulled in earlier and finished their session normally.
   ///

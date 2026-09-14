@@ -127,4 +127,29 @@ public class RaceRulesTests
     Assert.Equal((0, 3, 12.5, true), (rules.AdditionalLaps, rules.DnfTimeoutMinutes, rules.MinimumLapSeconds, rules.ManualStart));
     Assert.True(rules.IsTimedSession);
   }
+
+  [Fact]
+  public void ATeamEventSaysHowTeamsAreScored()
+  {
+    var rules = new RaceRules
+    {
+      SessionType = SessionType.Race,
+      Duration = TimeSpan.FromMinutes(120),
+      AdditionalLaps = 0,
+      DnfTimeoutMinutes = 2,
+      MinimumLapSeconds = 10,
+      ManualStart = true,
+      TeamEvent = true
+    };
+
+    Assert.Equal(new[] { "Session", "Teams", "Extra laps", "DNF timeout", "Minimum lap", "Start" },
+      rules.Describe().Select(l => l.Caption));
+    Assert.StartsWith("team event - riders sharing a team name score as one entry", ValueOf(rules, "Teams"));
+  }
+
+  [Fact]
+  public void AnOrdinaryRaceHasNoTeamsLine()
+  {
+    Assert.DoesNotContain(Race().Describe(), l => l.Caption == "Teams");
+  }
 }

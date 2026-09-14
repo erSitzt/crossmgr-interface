@@ -20,6 +20,12 @@ public sealed class NewRaceSetup
   /// </summary>
   public IReadOnlyList<(string Class, TimeSpan Delay)>? Waves { get; init; }
 
+  /// <summary>
+  /// Riders sharing a team name race as one team (see TeamRoster). A race only,
+  /// and never together with <see cref="Waves"/>: a team event starts together.
+  /// </summary>
+  public bool TeamEvent { get; init; }
+
   public bool StartReader { get; init; } = true;
 
   /// <summary>The file that was imported during the wizard, if any.</summary>
@@ -68,6 +74,12 @@ public sealed class NewRaceWizard : Form
   private readonly Label _skipped = new();
   private string? _importedFile;
   private int _importedCount;
+  private readonly CheckBox _teamEvent = new();
+  private readonly Label _teamSummary = new();
+  private readonly Func<IReadOnlyList<RiderDataImporter.RiderImportData>> _rows;
+  private readonly bool _startTeamEvent;
+  private IReadOnlyList<RiderDataImporter.RiderImportData> _riderRows = Array.Empty<RiderDataImporter.RiderImportData>();
+  private TeamRoster _roster = TeamRoster.Empty;
 
   // Step 4
   private readonly NumericUpDown _duration = new();
@@ -103,11 +115,16 @@ public sealed class NewRaceWizard : Form
   /// step is shown - the list may have been imported two steps earlier.</param>
   /// <param name="staggered">Whether last time's race started in waves.</param>
   /// <param name="rememberedWaves">Last time's order and delays, offered again.</param>
+  /// <param name="teamEvent">Whether last time's session was a team event.</param>
+  /// <param name="rows">Every row of the rider list already loaded, so the teams it makes can be shown.</param>
   public NewRaceWizard(Func<string, ImportResult> import, int existingRiderCount, bool readerRunning,
     SessionType sessionType = SessionType.Race, Func<IReadOnlyList<string>>? classes = null,
-    bool staggered = false, IReadOnlyList<WaveDelaySetting>? rememberedWaves = null)
+    bool staggered = false, IReadOnlyList<WaveDelaySetting>? rememberedWaves = null,
+    bool teamEvent = false, Func<IReadOnlyList<RiderDataImporter.RiderImportData>>? rows = null)
   {
     _import = import;
+    _rows = rows ?? (() => Array.Empty<RiderDataImporter.RiderImportData>());
+    _startTeamEvent = teamEvent;
     _classes = classes ?? (() => Array.Empty<string>());
     _rememberedWaves = rememberedWaves ?? Array.Empty<WaveDelaySetting>();
     _startStaggered = staggered;
@@ -193,7 +210,7 @@ public sealed class NewRaceWizard : Form
     Configure(_formatQualifying, "Timed qualifying", 116,
       "Scored on best lap. The gate pick order for the race comes out of this.");
     Configure(_formatPractice, "Free practice", 186,
-      "Timed the same way, but no timing sheet is produced.");
+      "Timed the same way, but not ranked: no gate pick order comes out of it.");
 
     (sessionType switch
     {
@@ -241,6 +258,11 @@ public sealed class NewRaceWizard : Form
     _waveHint.Visible = !IsTimedSession;
     _wavePanel.Visible = !IsTimedSession;
     if (IsTimedSession && _startInWaves.Checked) _startManually.Checked = true;
+
+    // Teams are a race thing too: a timed session checks and ranks every rider
+    // on their own transponder.
+    _teamEvent.Visible = !IsTimedSession;
+    if (IsTimedSession && _teamEvent.Checked) _teamEvent.Checked = false;
 
     // Only while the operator has not typed over it, so a name they chose is
     // never silently replaced when they step back and change the format.
@@ -313,8 +335,13 @@ public sealed class NewRaceWizard : Form
       : "An Excel (.xlsx) or CSV file with a column called tagid.";
     _importSummary.ForeColor = Color.DimGray;
 
-    _preview.Location = new Point(0, 86);
-    _preview.Size = new Size(700, 300);
+    _teamEvent.Text = "Team event - riders with the same team name race as one team";
+    _teamEvent.Location = new Point(0, 82);
+    _teamEvent.AutoSize = true;
+    _teamEvent.Visible = !IsTimedSession;
+
+    _preview.Location = new Point(0, 112);
+    _preview.Size = new Size(700, 220);
     _preview.ReadOnly = true;
     _preview.AllowUserToAddRows = false;
     _preview.RowHeadersVisible = false;
@@ -324,12 +351,24 @@ public sealed class NewRaceWizard : Form
     _preview.Columns.Add("Team", "Team");
     _preview.Columns.Add("Class", "Class");
     _preview.Columns.Add("Transponder", "Transponder");
+    _preview.Columns.Add("Entry", "Races as");
+    _preview.Columns["Entry"]!.Visible = false;
 
-    _skipped.Location = new Point(0, 394);
-    _skipped.Size = new Size(700, 90);
+    _teamSummary.Location = new Point(0, 338);
+    _teamSummary.Size = new Size(700, 84);
+
+    _skipped.Location = new Point(0, 426);
+    _skipped.Size = new Size(700, 70);
     _skipped.ForeColor = Color.Firebrick;
 
-    panel.Controls.AddRange(new Control[] { prompt, choose, _importSummary, _preview, _skipped });
+    // The list already loaded, so ticking Team event shows what it makes of it
+    // without choosing the file again.
+    FillPreview(_rows());
+
+    _teamEvent.CheckedChanged += (_, _) => RefreshTeams();
+    _teamEvent.Checked = _startTeamEvent && !IsTimedSession;
+
+    panel.Controls.AddRange(new Control[] { prompt, choose, _importSummary, _teamEvent, _preview, _teamSummary, _skipped });
     return panel;
   }
 
@@ -509,6 +548,17 @@ public sealed class NewRaceWizard : Form
   /// </summary>
   private void RefreshWaveClasses()
   {
+    // A team event starts together. The grid is left as it is, so unticking
+    // Team event brings back what was typed.
+    if (_teamEvent.Checked)
+    {
+      _startInWaves.Enabled = false;
+      if (_startInWaves.Checked) _startManually.Checked = true;
+      _waveHint.Text = "A team event starts together, so the classes cannot start in waves.";
+      _waveHint.ForeColor = Color.DimGray;
+      return;
+    }
+
     var classes = _classes();
 
     if (classes.Count == 0)
@@ -600,10 +650,10 @@ public sealed class NewRaceWizard : Form
     };
 
     _summary.Location = new Point(0, 44);
-    _summary.Size = new Size(700, 180);
+    _summary.Size = new Size(700, 256);
     _summary.Font = new Font(Font.FontFamily, 11F);
 
-    _startReader.Location = new Point(0, 240);
+    _startReader.Location = new Point(0, 316);
     _startReader.AutoSize = true;
 
     if (readerRunning)
@@ -650,6 +700,27 @@ public sealed class NewRaceWizard : Form
 
   private void Advance()
   {
+    // Leaving the riders step. A team event cannot be scored from no list, or
+    // from one that puts a transponder on two entries: a read of it would have
+    // to count for both.
+    if (_current == 2 && _teamEvent.Checked && !IsTimedSession)
+    {
+      RefreshTeams();
+      if (_riderRows.Count == 0 || _roster.HasErrors)
+      {
+        MessageBox.Show(this,
+          _riderRows.Count == 0
+            ? "A team event needs the rider list - the teams come from its team column.\n\n" +
+              "Choose the file, or untick Team event."
+            : "The rider list puts the same transponder on two entries:\n\n" +
+              string.Join("\n", _roster.Issues.Where(i => i.Severity == TeamRosterSeverity.Error)
+                .Take(5).Select(i => i.Message)) +
+              "\n\nFix the file and choose it again.",
+          "Team event", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return;
+      }
+    }
+
     if (_current < _steps.Length - 1)
     {
       Show(_current + 1);
@@ -671,7 +742,8 @@ public sealed class NewRaceWizard : Form
       AdditionalLaps = IsTimedSession ? 0 : (int)_extraLaps.Value,
       // A wave start is a manual one: the first class goes on START RACE.
       ManualStart = _startManually.Checked || _startInWaves.Checked,
-      Waves = WaveResult(),
+      Waves = _teamEvent.Checked ? null : WaveResult(),
+      TeamEvent = !IsTimedSession && _teamEvent.Checked,
       StartReader = _startReader.Checked && _startReader.Enabled,
       ImportedFile = _importedFile,
       StartRaceImmediately = false
@@ -697,7 +769,7 @@ public sealed class NewRaceWizard : Form
     var format = _formatQualifying.Checked
       ? "Timed qualifying - ranked by best lap"
       : _formatPractice.Checked
-        ? "Free practice - no timing sheet"
+        ? "Free practice - timed, not ranked"
         : "Race - ranked by laps, then time";
 
     var length = IsTimedSession
@@ -708,6 +780,7 @@ public sealed class NewRaceWizard : Form
       $"Session:   {format}\n\n" +
       $"Name:      {_name.Text.Trim()}\n\n" +
       $"Riders:    {riders}\n\n" +
+      (!IsTimedSession && _teamEvent.Checked ? $"Teams:     team event - {_roster.Summary}\n\n" : "") +
       $"Length:    {length}\n\n" +
       $"Start:     {start}\n\n" +
       $"Reader:    {reader}";
@@ -738,16 +811,7 @@ public sealed class NewRaceWizard : Form
     _importedFile = dialog.FileName;
     _importedCount = result.ImportedCount;
 
-    _preview.Rows.Clear();
-    foreach (var rider in result.Riders.Take(200))
-    {
-      _preview.Rows.Add(
-        rider.RiderNumber,
-        $"{rider.FirstName} {rider.LastName}".Trim(),
-        rider.Team,
-        rider.Category,
-        Shorten(rider.TagID));
-    }
+    FillPreview(result.Riders);
 
     if (result.ImportedCount == 0)
     {
@@ -773,6 +837,76 @@ public sealed class NewRaceWizard : Form
       : $"{result.Skipped.Count} row(s) skipped:\n" +
         string.Join("\n", result.Skipped.Take(4).Select(s => $"  row {s.Row} - {s.Reason}")) +
         (result.Skipped.Count > 4 ? $"\n  ...and {result.Skipped.Count - 4} more" : "");
+  }
+
+  private void FillPreview(IReadOnlyList<RiderDataImporter.RiderImportData> rows)
+  {
+    _riderRows = rows;
+    _preview.Rows.Clear();
+    foreach (var rider in rows.Take(200))
+    {
+      _preview.Rows.Add(
+        rider.RiderNumber,
+        $"{rider.FirstName} {rider.LastName}".Trim(),
+        rider.Team,
+        rider.Category,
+        Shorten(rider.TagID),
+        "");
+    }
+
+    RefreshTeams();
+  }
+
+  /// <summary>
+  /// What a team event makes of the rider list: the teams, the solo riders, and
+  /// anything that stops a transponder being scored. Shown before Finish,
+  /// because a club name in the team column only looks wrong once it is grouped.
+  /// </summary>
+  private void RefreshTeams()
+  {
+    // The format step can change this before the riders step has been built.
+    if (!_preview.Columns.Contains("Entry")) return;
+
+    var on = _teamEvent.Checked;
+    _preview.Columns["Entry"]!.Visible = on;
+
+    if (!on)
+    {
+      _roster = TeamRoster.Empty;
+      _teamSummary.Text = "";
+      return;
+    }
+
+    // A team event starts together.
+    if (_startInWaves.Checked) _startManually.Checked = true;
+
+    _roster = TeamRoster.Build(_riderRows);
+
+    for (var i = 0; i < _preview.Rows.Count && i < _riderRows.Count; i++)
+    {
+      var key = _roster.EntryKeyFor(_riderRows[i].TagID.Trim());
+      var team = key != null ? _roster.TeamFor(key) : null;
+      _preview.Rows[i].Cells["Entry"].Value = team != null ? $"{team.Name} ({team.Members.Count})" : "solo";
+    }
+
+    if (_riderRows.Count == 0)
+    {
+      _teamSummary.Text = "Choose the rider list - the teams come from its team column.";
+      _teamSummary.ForeColor = Color.Firebrick;
+      return;
+    }
+
+    var errors = _roster.Issues.Where(i => i.Severity == TeamRosterSeverity.Error).ToList();
+    var warnings = _roster.Issues.Where(i => i.Severity == TeamRosterSeverity.Warning).ToList();
+    var shown = errors.Concat(warnings).Take(2).Select(i => i.Message).ToList();
+    var more = errors.Count + warnings.Count - shown.Count;
+
+    _teamSummary.Text = $"Races as {_roster.Summary}." +
+      (shown.Count > 0 ? "\n" + string.Join("\n", shown) : "") +
+      (more > 0 ? $"\n...and {more} more" : "");
+    _teamSummary.ForeColor = errors.Count > 0 ? Color.Firebrick
+      : warnings.Count > 0 ? Color.DarkOrange
+      : Color.DarkGreen;
   }
 
   /// <summary>Transponder codes are long and meaningless; show just enough to compare.</summary>

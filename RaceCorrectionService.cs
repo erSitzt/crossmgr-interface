@@ -23,7 +23,12 @@ public enum AssignTagMode
   /// <summary>Give this transponder a name and number. Laps stay where they are.</summary>
   AttachIdentity,
   /// <summary>Move its laps onto a rider already tracked under another transponder.</summary>
-  MergeIntoRider
+  MergeIntoRider,
+  /// <summary>
+  /// In a team event: it is a team member's transponder. Its laps go to the team,
+  /// and if the operator says whose it is, it becomes that rider's transponder.
+  /// </summary>
+  JoinTeam
 }
 
 /// <summary>What the operator chose in the assign-transponder dialog.</summary>
@@ -46,6 +51,15 @@ public sealed class AssignTagRequest
 
   /// <summary>Route later reads of the stray transponder to the same rider.</summary>
   public bool RegisterAlias { get; init; } = true;
+
+  /// <summary>The team for <see cref="AssignTagMode.JoinTeam"/>.</summary>
+  public string? TeamKey { get; init; }
+
+  /// <summary>The team's entry to start scoring when it has not crossed the loop yet.</summary>
+  public RiderInfo? TeamTemplate { get; init; }
+
+  /// <summary>Which of the team's riders the transponder belongs to, when the operator knows.</summary>
+  public int? MemberIndex { get; init; }
 }
 
 /// <summary>Which status an operator is applying by hand.</summary>
@@ -69,6 +83,13 @@ public sealed class RaceCorrectionService
   private readonly Func<DateTime?> _getRaceStartTime;
   private readonly Action<string> _log;
 
+  /// <summary>
+  /// Stray transponder -> the entry its reads count for. Owned by Form1, which
+  /// resolves every read through it; changed here so undo and redo move the
+  /// route along with the laps.
+  /// </summary>
+  private readonly Dictionary<string, string> _aliases;
+
   public CorrectionHistory History { get; } = new();
 
   /// <summary>Raised after any change, with the transponders that were touched.</summary>
@@ -78,12 +99,14 @@ public sealed class RaceCorrectionService
     Dictionary<string, RiderInfo> riders,
     object ridersLock,
     Func<DateTime?> getRaceStartTime,
-    Action<string> log)
+    Action<string> log,
+    Dictionary<string, string>? aliases = null)
   {
     _riders = riders;
     _ridersLock = ridersLock;
     _getRaceStartTime = getRaceStartTime;
     _log = log;
+    _aliases = aliases ?? new Dictionary<string, string>();
   }
 
   // ---- The canonical recompute ---------------------------------------------
@@ -133,7 +156,9 @@ public sealed class RaceCorrectionService
   // ---- Operations ----------------------------------------------------------
 
   /// <summary>Inserts a lap that was never read, at the given crossing time.</summary>
-  public CorrectionResult AddLap(string tagId, DateTime crossingTime, int expectedRevision, string? note = null)
+  /// <param name="crossedBy">For a team, the member's transponder if the operator knows who rode it.</param>
+  public CorrectionResult AddLap(string tagId, DateTime crossingTime, int expectedRevision, string? note = null,
+    string? crossedBy = null)
     => Mutate(tagId, expectedRevision, CorrectionKind.AddLap, rider =>
     {
       rider.Laps.Add(new RiderLap
@@ -141,7 +166,8 @@ public sealed class RaceCorrectionService
         TagID = tagId,
         CrossingTime = crossingTime,
         Source = LapSource.ManualInsert,
-        CorrectionNote = note
+        CorrectionNote = note,
+        CrossedBy = crossedBy
       });
 
       return $"Added a lap for {rider.Label} at {crossingTime:HH:mm:ss.fff}";
@@ -201,7 +227,10 @@ public sealed class RaceCorrectionService
           // real read; the intermediate ones are interpolated.
           CrossingTime = i == intoCount ? lap.CrossingTime : start + segment * i,
           IsSplitLap = true,
-          Source = LapSource.Split
+          Source = LapSource.Split,
+          // Whoever's read ended the long lap was out for it; the missed reads
+          // in between were almost certainly theirs too.
+          CrossedBy = lap.CrossedBy
         });
       }
 
@@ -224,15 +253,33 @@ public sealed class RaceCorrectionService
       return $"Kept lap {lapNumber} of {rider.Label} as recorded";
     });
 
+  /// <summary>
+  /// Keeps a lap flagged as two team riders out at once: the operator checked, and
+  /// it is real. Stops the detector flagging it again after every crossing.
+  /// </summary>
+  public CorrectionResult DismissOverlapWarning(string tagId, int lapNumber)
+    => Mutate(tagId, expectedRevision: -1, CorrectionKind.DismissOverlap, rider =>
+    {
+      var lap = rider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber && !l.IsDeleted);
+      if (lap == null) throw new CorrectionException($"Lap {lapNumber} no longer exists.");
+
+      lap.IsSuspectedOverlap = false;
+      lap.OverlapDismissed = true;
+
+      return $"Kept lap {lapNumber} of {rider.Label} - not two riders on track";
+    });
+
   /// <summary>Reinstates a read that was rejected for being too soon after the last one.</summary>
-  public CorrectionResult RestoreRejectedRead(string tagId, DateTime crossingTime)
+  /// <param name="crossedBy">The transponder that was read, from <see cref="RejectedRead.CrossedBy"/>.</param>
+  public CorrectionResult RestoreRejectedRead(string tagId, DateTime crossingTime, string? crossedBy = null)
     => Mutate(tagId, expectedRevision: -1, CorrectionKind.RestoreRejectedRead, rider =>
     {
       rider.Laps.Add(new RiderLap
       {
         TagID = tagId,
         CrossingTime = crossingTime,
-        Source = LapSource.RestoredShortRead
+        Source = LapSource.RestoredShortRead,
+        CrossedBy = crossedBy
       });
 
       return $"Restored the {crossingTime:HH:mm:ss.fff} read for {rider.Label}";
@@ -275,6 +322,10 @@ public sealed class RaceCorrectionService
       if (!_riders.TryGetValue(sourceTag, out var source))
         return CorrectionResult.Failure("That transponder is no longer in the race.");
 
+      // A team is not a transponder: its riders come from the rider list.
+      if (source.IsTeam && request.Mode != AssignTagMode.AttachIdentity)
+        return CorrectionResult.Failure("A team cannot be merged into another entry.");
+
       var before = new List<RiderSnapshot> { RiderSnapshot.Capture(source, sourceTag) };
       var after = new List<RiderSnapshot>();
       var aliases = new Dictionary<string, string>();
@@ -293,30 +344,7 @@ public sealed class RaceCorrectionService
 
         before.Add(RiderSnapshot.Capture(target, request.MergeTargetTag));
 
-        var brought = 0;
-        var dropped = 0;
-
-        foreach (var lap in source.Laps.Where(l => !l.IsDeleted).OrderBy(l => l.CrossingTime))
-        {
-          // Two crossings closer together than a lap can physically be are the
-          // same pass seen twice. Merging without this check produces three
-          // second laps that poison the pace, the standings and the detector.
-          var clashes = target.Laps.Any(existing =>
-            !existing.IsDeleted &&
-            (existing.CrossingTime - lap.CrossingTime).Duration() < minimumLapTime);
-
-          if (clashes && request.DropDuplicateCrossings)
-          {
-            dropped++;
-            continue;
-          }
-
-          var copy = lap.Clone();
-          copy.TagID = target.TagID;
-          copy.Source = LapSource.Merged;
-          target.Laps.Add(copy);
-          brought++;
-        }
+        var (brought, dropped) = MoveLaps(source, sourceTag, target, request.DropDuplicateCrossings, minimumLapTime);
 
         // Re-keying means remove and re-add: a dictionary key cannot be mutated.
         _riders.Remove(sourceTag);
@@ -331,6 +359,53 @@ public sealed class RaceCorrectionService
         description = dropped > 0
           ? $"Merged {brought} lap(s) onto {target.Label} ({dropped} duplicate read(s) dropped)"
           : $"Merged {brought} lap(s) onto {target.Label}";
+      }
+      else if (request.Mode == AssignTagMode.JoinTeam)
+      {
+        if (string.IsNullOrEmpty(request.TeamKey))
+          return CorrectionResult.Failure("No team was chosen.");
+
+        // A team that has not crossed the loop yet starts being scored now, from
+        // this transponder's laps; undo takes it out again.
+        var created = !_riders.TryGetValue(request.TeamKey, out var team);
+        if (created)
+        {
+          if (request.TeamTemplate == null)
+            return CorrectionResult.Failure("That team is no longer in the race.");
+
+          team = request.TeamTemplate;
+          team.TagID = request.TeamKey;
+          team.RaceStartTime = source.RaceStartTime;
+          team.FinalAllowedLap = source.FinalAllowedLap;
+          team.Laps = new List<RiderLap>();
+        }
+
+        before.Add(RiderSnapshot.Capture(created ? null : team, request.TeamKey));
+        if (created) _riders[request.TeamKey] = team!;
+
+        // A new list rather than an edit: the snapshot above still holds the old one.
+        TeamMember? member = null;
+        if (request.MemberIndex is { } index && team!.Members is { } members && index >= 0 && index < members.Count)
+        {
+          var updated = members.ToList();
+          updated[index] = member = updated[index].WithTransponder(sourceTag);
+          team.Members = updated;
+        }
+
+        var (brought, dropped) = MoveLaps(source, sourceTag, team!, request.DropDuplicateCrossings, minimumLapTime);
+        _riders.Remove(sourceTag);
+
+        RecomputeRider(team!, _getRaceStartTime());
+        after.Add(RiderSnapshot.Capture(team, team!.TagID));
+        after.Add(new RiderSnapshot { TagID = sourceTag, Existed = false });
+
+        // Later reads of it go to the team even before the team list is rebuilt.
+        aliases[sourceTag] = team.TagID;
+
+        description = $"Joined transponder {sourceTag} to {team.Label}" +
+                      (member != null ? $" as {member.Label}'s" : "") +
+                      $": {brought} lap(s)" +
+                      (dropped > 0 ? $", {dropped} duplicate read(s) dropped" : "");
       }
       else
       {
@@ -358,6 +433,7 @@ public sealed class RaceCorrectionService
     }
 
     History.Record(command);
+    RouteAliases(command, add: true);
     _log($"✏️ {command.Description}");
     NotifyApplied(command);
     return CorrectionResult.Success(command);
@@ -371,6 +447,7 @@ public sealed class RaceCorrectionService
     if (command == null) return CorrectionResult.Failure("There is nothing to undo.");
 
     ApplySnapshots(command.Before);
+    RouteAliases(command, add: false);
     _log($"↩️ Undone: {command.Description}");
     NotifyApplied(command);
     return CorrectionResult.Success(command);
@@ -382,6 +459,7 @@ public sealed class RaceCorrectionService
     if (command == null) return CorrectionResult.Failure("There is nothing to redo.");
 
     ApplySnapshots(command.After);
+    RouteAliases(command, add: true);
     _log($"↪️ Redone: {command.Description}");
     NotifyApplied(command);
     return CorrectionResult.Success(command);
@@ -393,6 +471,28 @@ public sealed class RaceCorrectionService
     {
       foreach (var snapshot in snapshots)
         snapshot.RestoreInto(_riders);
+    }
+  }
+
+  /// <summary>
+  /// Puts a command's transponder routes in place, or takes them away. Undoing
+  /// an identify used to put the laps back but leave the route, so every later
+  /// read of that transponder still counted for the rider it had been added to.
+  /// </summary>
+  private void RouteAliases(CorrectionCommand command, bool add)
+  {
+    if (command.AliasesAdded.Count == 0) return;
+
+    lock (_ridersLock)
+    {
+      foreach (var (from, to) in command.AliasesAdded)
+      {
+        if (add)
+          _aliases[from] = to;
+        // Only the route this command made; one pointing elsewhere came later.
+        else if (_aliases.TryGetValue(from, out var current) && current == to)
+          _aliases.Remove(from);
+      }
     }
   }
 
@@ -450,6 +550,42 @@ public sealed class RaceCorrectionService
     _log($"✏️ {command.Description}");
     NotifyApplied(command);
     return CorrectionResult.Success(command);
+  }
+
+  /// <summary>
+  /// Copies a transponder's laps onto another entry. Two crossings closer
+  /// together than a lap can physically be are the same pass seen twice, and
+  /// merging without dropping them produces three-second laps that poison the
+  /// pace, the standings and the detector.
+  /// </summary>
+  private static (int Brought, int Dropped) MoveLaps(RiderInfo source, string sourceTag, RiderInfo target,
+    bool dropDuplicates, TimeSpan minimumLapTime)
+  {
+    var brought = 0;
+    var dropped = 0;
+
+    foreach (var lap in source.Laps.Where(l => !l.IsDeleted).OrderBy(l => l.CrossingTime))
+    {
+      var clashes = target.Laps.Any(existing =>
+        !existing.IsDeleted &&
+        (existing.CrossingTime - lap.CrossingTime).Duration() < minimumLapTime);
+
+      if (clashes && dropDuplicates)
+      {
+        dropped++;
+        continue;
+      }
+
+      var copy = lap.Clone();
+      copy.TagID = target.TagID;
+      copy.Source = LapSource.Merged;
+      // Whichever transponder it came from keeps saying who crossed.
+      copy.CrossedBy ??= sourceTag;
+      target.Laps.Add(copy);
+      brought++;
+    }
+
+    return (brought, dropped);
   }
 
   private void NotifyApplied(CorrectionCommand command)

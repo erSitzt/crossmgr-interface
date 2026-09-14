@@ -43,7 +43,19 @@ public partial class Form1
 
     var seen = field.Select(r => r.TagID).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    foreach (var entry in _riderDataImporter.GetAllRiderData().Values)
+    // In a team event the entered field is the teams and the solo riders, not
+    // every row: a team that never went out is one entry, not one per member.
+    IEnumerable<RiderDataImporter.RiderImportData> listed = _riderDataImporter.GetAllRiderData().Values;
+    if (teamEvent)
+    {
+      var teams = _teams;
+      foreach (var team in teams.Teams)
+        if (!seen.Contains(team.Key) && !ignoredTags.Contains(team.Key))
+          field.Add(team.ToRiderInfo());
+      listed = teams.Solos;
+    }
+
+    foreach (var entry in listed)
     {
       if (string.IsNullOrWhiteSpace(entry.TagID)) continue;
       if (seen.Contains(entry.TagID) || ignoredTags.Contains(entry.TagID)) continue;
@@ -226,6 +238,16 @@ public partial class Form1
 
     sessionType = chosen;
 
+    // Teams are a race thing: a timed session checks and ranks every rider on
+    // their own transponder.
+    if (IsTimedSession && teamEvent)
+    {
+      teamEvent = false;
+      RebuildTeamRoster();
+      PopulateClassFilter();
+      AddMessage("👥 Team event switched off - a timed session scores every rider on their own transponder.");
+    }
+
     // A timed session has no extra-laps rule, so a value left over from a race
     // would be persisted and shown as though it applied.
     if (IsTimedSession && additionalLapsAfterTimeExpiry != 0)
@@ -268,7 +290,7 @@ public partial class Form1
   private static string DescribeSessionType(SessionType type) => type switch
   {
     SessionType.TimedQualifying => "timed qualifying - the gate pick order comes from the best laps",
-    SessionType.FreePractice => "free practice - timed, but no sheet is produced",
+    SessionType.FreePractice => "free practice - timed, not ranked",
     _ => "race - scored on laps completed, then on time"
   };
 
@@ -299,6 +321,8 @@ public partial class Form1
     // Disabled rather than hidden: the Race Settings tab is absolute-positioned,
     // so hiding these would leave a hole in the middle of it. The DNF timeout
     // stays enabled - it still governs the grace after the flag.
+    ApplyTeamEventToUi();
+
     var extraLapsApply = !IsTimedSession;
     labelAdditionalLaps.Enabled = extraLapsApply;
     numericUpDownAdditionalLaps.Enabled = extraLapsApply;

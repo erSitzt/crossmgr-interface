@@ -127,3 +127,61 @@ public class ChequeredFlagTests
     Assert.True(ChequeredFlag.WasCirculatingAtFlag(TimeSpan.FromMinutes(10), null));
   }
 }
+
+/// <summary>
+/// What a rider may still ride once the flag is out, and why a correction made
+/// after the flag must not change it beyond what the correction itself changed.
+/// </summary>
+public class FinalLapAllowanceTests
+{
+  private static readonly DateTime Start = RiderBuilder.RaceStart;
+
+  [Fact]
+  public void TheFlagAllowsTheLapInProgress()
+  {
+    Assert.Equal(7, ChequeredFlag.AllowedLap(lapsCompletedAtFlag: 6, targetLaps: 0));
+  }
+
+  [Fact]
+  public void ARiderAlreadyAtTheTargetWhenTheLeaderFinishedRidesNoMore()
+  {
+    Assert.Equal(10, ChequeredFlag.AllowedLap(lapsCompletedAtFlag: 10, targetLaps: 10));
+    Assert.Equal(10, ChequeredFlag.AllowedLap(lapsCompletedAtFlag: 9, targetLaps: 10));
+  }
+
+  [Fact]
+  public void SplittingAMissedReadAfterTheFlagDoesNotGrantAnotherLap()
+  {
+    // Crossings at 40, 80, 120, 200 (a missed read) and 240; the flag at 250;
+    // the lap in progress completes at 290. That was the rider's last lap.
+    var rider = RiderBuilder.Rider("R").Lap(40).Lap(40).Lap(40).Lap(80).Lap(40).Lap(50).Build();
+    var flag = Start.AddSeconds(250);
+    Assert.Equal(6, ChequeredFlag.AllowedLap(rider.LapsCompletedBy(flag), 0));
+
+    // After the flag, the operator splits the missed read into two laps.
+    var field = new Dictionary<string, RiderInfo> { ["R"] = rider };
+    var service = new RaceCorrectionService(field, new object(), () => Start, _ => { });
+    Assert.True(service.SplitLap("R", 4, 2, rider.Revision).Ok);
+
+    // Seven laps now, and seven allowed: the split added a lap before the flag,
+    // so the allowance moves with it - and the rider has still ridden their last.
+    Assert.Equal(7, rider.TotalLaps);
+    Assert.Equal(7, ChequeredFlag.AllowedLap(rider.LapsCompletedBy(flag), 0));
+  }
+
+  [Fact]
+  public void ALapAddedAfterTheFlagIsTheOneTheRiderWasOn()
+  {
+    // Five laps by the flag, allowed six. The sixth crossing was missed and the
+    // operator adds it by hand after the flag.
+    var rider = RiderBuilder.Rider("R").Laps(5, 40).Build();
+    var flag = Start.AddSeconds(210);
+    var field = new Dictionary<string, RiderInfo> { ["R"] = rider };
+    var service = new RaceCorrectionService(field, new object(), () => Start, _ => { });
+
+    Assert.True(service.AddLap("R", Start.AddSeconds(240), rider.Revision).Ok);
+
+    Assert.Equal(6, rider.TotalLaps);
+    Assert.Equal(6, ChequeredFlag.AllowedLap(rider.LapsCompletedBy(flag), 0));
+  }
+}

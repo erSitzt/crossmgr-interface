@@ -321,7 +321,7 @@ partial class Form1
     // 
     numericUpDownRaceDuration.Location = new Point(318, 31);
     numericUpDownRaceDuration.Margin = new Padding(4, 5, 4, 5);
-    numericUpDownRaceDuration.Maximum = new decimal(new int[] { 180, 0, 0, 0 });
+    numericUpDownRaceDuration.Maximum = new decimal(new int[] { 600, 0, 0, 0 });
     numericUpDownRaceDuration.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
     numericUpDownRaceDuration.Name = "numericUpDownRaceDuration";
     numericUpDownRaceDuration.Size = new Size(171, 31);
@@ -706,7 +706,7 @@ partial class Form1
     radioButtonSessionPractice.Name = "radioButtonSessionPractice";
     radioButtonSessionPractice.Size = new Size(370, 30);
     radioButtonSessionPractice.TabIndex = 2;
-    radioButtonSessionPractice.Text = "Free practice - timed, no sheet";
+    radioButtonSessionPractice.Text = "Free practice - timed, not ranked";
     radioButtonSessionPractice.UseVisualStyleBackColor = true;
     // 
     // buttonMissedReadSettings

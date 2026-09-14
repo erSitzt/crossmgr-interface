@@ -10,7 +10,8 @@ public enum CorrectionKind
   DismissSuggestion,
   RestoreRejectedRead,
   SetStatus,
-  AssignTag
+  AssignTag,
+  DismissOverlap
 }
 
 /// <summary>
@@ -46,6 +47,7 @@ public sealed class RiderSnapshot
   public bool StatusSetByOperator { get; init; }
   public string? StatusReason { get; init; }
   public int Revision { get; init; }
+  public IReadOnlyList<TeamMember>? Members { get; init; }
   public List<RiderLap> Laps { get; init; } = new();
 
   public static RiderSnapshot Capture(RiderInfo? rider, string tagId)
@@ -74,6 +76,8 @@ public sealed class RiderSnapshot
       StatusSetByOperator = rider.StatusSetByOperator,
       StatusReason = rider.StatusReason,
       Revision = rider.Revision,
+      // Shared rather than copied: a member list is replaced, never edited.
+      Members = rider.Members,
       Laps = rider.Laps.Select(l => l.Clone()).ToList()
     };
   }
@@ -110,6 +114,7 @@ public sealed class RiderSnapshot
     rider.StatusSetByOperator = StatusSetByOperator;
     rider.StatusReason = StatusReason;
     rider.Revision = Revision;
+    rider.Members = Members;
     rider.Laps = Laps.Select(l => l.Clone()).ToList();
   }
 }

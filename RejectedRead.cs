@@ -17,6 +17,9 @@ public sealed class RejectedRead
 
   public string Reason { get; init; } = "";
 
+  /// <summary>The transponder that was read, when TagID names a team. See <see cref="RiderLap.CrossedBy"/>.</summary>
+  public string? CrossedBy { get; init; }
+
   /// <summary>Set once an operator has put this read back as a lap.</summary>
   public bool Restored { get; set; }
 }

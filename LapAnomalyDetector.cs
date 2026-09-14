@@ -78,7 +78,9 @@ public static class LapAnomalyDetector
     var window = rider.Laps
       .Take(index)
       .Skip(1)
-      .Where(l => l.LapTime.HasValue && !l.IsSuggestedForSplit)
+      // A lap suspected of being two team riders out at once is a fraction of a
+      // real lap, and would drag the pace down just as a long one drags it up.
+      .Where(l => l.LapTime.HasValue && !l.IsSuggestedForSplit && !l.IsSuspectedOverlap)
       .TakeLast(tuning.PaceWindow)
       .ToList();
 

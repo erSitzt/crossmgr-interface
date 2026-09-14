@@ -81,7 +81,8 @@ public partial class Form1
     DnfTimeoutMinutes = dnfTimeoutMinutes,
     MinimumLapSeconds = shortLapDetectionEnabled ? minimumLapTime.TotalSeconds : 0,
     ManualStart = manualStartMode,
-    Waves = waves
+    Waves = waves,
+    TeamEvent = teamEvent
   };
 
   /// <summary>

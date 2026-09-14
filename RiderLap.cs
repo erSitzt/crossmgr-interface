@@ -54,6 +54,26 @@ public class RiderLap
   /// <summary>Free-text note shown in the correction dialog and the audit log.</summary>
   public string? CorrectionNote { get; set; }
 
+  /// <summary>
+  /// The transponder whose read ended this lap, or null when nobody knows (a lap
+  /// entered by hand, or one stored before this was recorded).
+  ///
+  /// Not the same as <see cref="TagID"/>, which names the entry the lap belongs
+  /// to. For a solo rider the two are equal; for a team the entry is the team
+  /// and this says which member's transponder crossed, which is what the
+  /// per-rider breakdown and the two-on-track warning are built on.
+  /// </summary>
+  public string? CrossedBy { get; set; }
+
+  /// <summary>
+  /// A different team member crossed far too soon after the last one, so two of
+  /// them look to have been out at once. A warning only - see TwoOnTrackDetector.
+  /// </summary>
+  public bool IsSuspectedOverlap { get; set; }
+
+  /// <summary>The operator looked at the two-on-track warning and kept the lap.</summary>
+  public bool OverlapDismissed { get; set; }
+
   /// <summary>True if an operator created or altered this lap.</summary>
   public bool WasCorrected =>
     Source != LapSource.Read || OriginalCrossingTime.HasValue;
@@ -72,6 +92,9 @@ public class RiderLap
     SuggestionDismissed = SuggestionDismissed,
     OriginalCrossingTime = OriginalCrossingTime,
     IsDeleted = IsDeleted,
-    CorrectionNote = CorrectionNote
+    CorrectionNote = CorrectionNote,
+    CrossedBy = CrossedBy,
+    IsSuspectedOverlap = IsSuspectedOverlap,
+    OverlapDismissed = OverlapDismissed
   };
 }

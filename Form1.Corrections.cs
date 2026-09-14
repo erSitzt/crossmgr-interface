@@ -19,7 +19,7 @@ public partial class Form1
 
   private void InitializeCorrections()
   {
-    _corrections = new RaceCorrectionService(riders, ridersLock, () => raceStartTime, AddMessage);
+    _corrections = new RaceCorrectionService(riders, ridersLock, () => raceStartTime, AddMessage, tagAliases);
     _corrections.CorrectionApplied += RefreshAfterCorrection;
   }
 
@@ -31,12 +31,23 @@ public partial class Form1
     if (string.IsNullOrEmpty(tagId)) return;
 
     int lapsRecorded;
+    bool isTeam;
     List<RiderInfo> activeRiders;
     lock (ridersLock)
     {
       if (!riders.TryGetValue(tagId, out var rider)) return;
       lapsRecorded = rider.TotalLaps;
+      isTeam = rider.IsTeam;
       activeRiders = riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList();
+    }
+
+    if (isTeam)
+    {
+      MessageBox.Show(this,
+        "This is a team, not a transponder. Its riders come from the rider list - to change them, " +
+        "correct the list and import it again.",
+        "Identify transponder", MessageBoxButtons.OK, MessageBoxIcon.Information);
+      return;
     }
 
     // Roster entries with no laps yet are the likely match, so surface them first.
@@ -51,7 +62,24 @@ public partial class Form1
       .ThenBy(e => e.RiderNumber)
       .ToList();
 
-    using var dialog = new AssignTagDialog(tagId, lapsRecorded, roster, activeRiders);
+    // In a team event the transponder may be a team rider's: a spare, or one read
+    // before the rider list was loaded. Teams that have not crossed yet count too.
+    var teamChoices = new List<TeamJoinChoice>();
+    (string Key, int MemberIndex)? suggestion = null;
+    if (teamEvent)
+    {
+      var teams = _teams;
+      foreach (var team in teams.Teams)
+      {
+        var live = activeRiders.FirstOrDefault(r => r.TagID == team.Key);
+        teamChoices.Add(new TeamJoinChoice(team.Key, live ?? team.ToRiderInfo(), live != null));
+      }
+
+      if (teams.EntryKeyFor(tagId) is { } key && teamChoices.FirstOrDefault(c => c.Key == key) is { } owner)
+        suggestion = (key, owner.Template.Members?.ToList().FindIndex(m => m.Owns(tagId)) ?? -1);
+    }
+
+    using var dialog = new AssignTagDialog(tagId, lapsRecorded, roster, activeRiders, teamChoices, suggestion);
     if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
     var result = _corrections.AssignTag(tagId, dialog.Request, minimumLapTime);
@@ -62,15 +90,9 @@ public partial class Form1
       return;
     }
 
-    // Route later reads of the stray transponder to the rider it was merged into.
-    if (result.Command != null)
-    {
-      lock (ridersLock)
-      {
-        foreach (var (from, to) in result.Command.AliasesAdded)
-          tagAliases[from] = to;
-      }
-    }
+    // Later reads of the stray transponder are routed by the correction service,
+    // which takes the route away again on undo. A transponder joined to a team
+    // reaches the roster through RefreshAfterCorrection, on undo and redo too.
 
     PopulateClassFilter();
   }
@@ -118,6 +140,13 @@ public partial class Form1
       return;
     }
 
+    // A team's riders and their transponders are part of its snapshot, so
+    // joining a transponder to a team - or undoing that - changes who owns it.
+    // Only the application of the join used to rebuild the roster, so after an
+    // undo the transponder still counted for the team.
+    if (teamEvent && affectedTags.Any(TeamRoster.IsTeamKey))
+      RebuildTeamRoster();
+
     List<RiderInfo> affected;
     List<RiderInfo> standings;
 
@@ -132,6 +161,12 @@ public partial class Form1
       //    way round, so the missed-read warnings have to be re-derived. Laps the
       //    operator explicitly kept are skipped, or dismissing one would be undone
       //    by the very next re-scan.
+      //    Two team riders out at once first, so those laps stay out of the pace
+      //    the missed-read detector measures against.
+      var fieldPace = FieldPace();
+      foreach (var rider in affected.Where(r => r.IsTeam))
+        TwoOnTrackDetector.Analyze(rider, fieldPace);
+
       var globalAverage = CalculateGlobalAverageLapTime();
       foreach (var rider in affected)
         LapAnomalyDetector.Analyze(rider, globalAverage, missedReadSettings);
@@ -143,13 +178,17 @@ public partial class Form1
       standings = PositionCalculator.GetSortedRidersFromSnapshot(
         riders.Values.Where(r => !ignoredTags.Contains(r.TagID)).ToList());
 
-      // 3. A rider's lap allowance was frozen when the leader finished. If a
-      //    correction changed their lap count, the allowance has to move with it
-      //    or they are cut short - or allowed an extra lap.
+      // 3. A rider's lap allowance was fixed when the flag came out, from the laps
+      //    they had completed by then. A correction can change that count - a lap
+      //    split or added before the flag - so it is worked out again the same
+      //    way. It used to be reset to one more than the laps they have now, which
+      //    handed a rider who had already ridden their last lap another one: a
+      //    missed read split after the flag gave its team a lap, and the win.
       if (waitingForFinalLaps)
       {
+        var flagAt = raceEndTime ?? finalLapsStartTime ?? DateTime.Now;
         foreach (var rider in affected.Where(r => r.FinalAllowedLap != int.MaxValue))
-          rider.FinalAllowedLap = rider.TotalLaps + 1;
+          rider.FinalAllowedLap = ChequeredFlag.AllowedLap(rider.LapsCompletedBy(flagAt), targetLapsToFinishRace);
       }
     }
 
@@ -178,6 +217,21 @@ public partial class Form1
           catch (Exception ex)
           {
             AddDiagnostic($"Could not save the correction for {rider.Label}: {ex.Message}");
+          }
+        }
+
+        // An entry a correction took away - a transponder merged onto someone, or
+        // a team an undo removed again - goes from the database as well, or a
+        // restart brings it back beside the laps it gave up.
+        foreach (var gone in affectedTags.Where(t => !riders.ContainsKey(t)))
+        {
+          try
+          {
+            _raceDb.DeleteRider(gone);
+          }
+          catch (Exception ex)
+          {
+            AddDiagnostic($"Could not remove {gone} from the database after a correction: {ex.Message}");
           }
         }
       }

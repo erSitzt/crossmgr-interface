@@ -89,7 +89,7 @@ public partial class ReportOptionsDialog : Form
         radioExport.Name = "radioExport";
         radioExport.Size = new Size(380, 31);
         radioExport.TabIndex = 3;
-        radioExport.Text = "Export to File (Save as Text)";
+        radioExport.Text = "Export to File (Excel or text)";
         radioExport.UseVisualStyleBackColor = true;
         // 
         // buttonOK

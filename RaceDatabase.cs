@@ -59,6 +59,13 @@ public class DbRace
   /// </summary>
   public List<DbStartWave>? Waves { get; set; }
 
+  /// <summary>
+  /// Riders sharing a team name were scored as one entry. Nullable like the
+  /// other rules: a race stored before team events existed reads back as null,
+  /// which is what it was - not a team event.
+  /// </summary>
+  public bool? TeamEvent { get; set; }
+
   public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
@@ -115,6 +122,19 @@ public class DbRider
   /// who took part, and never restored into a live race.
   /// </summary>
   public bool RosterOnly { get; set; }
+
+  /// <summary>The riders of a team entry in a team event; null for a solo rider. See RiderInfo.Members.</summary>
+  public List<DbTeamMember>? Members { get; set; }
+}
+
+/// <summary>One rider of a team entry, as stored. See <see cref="TeamMember"/>.</summary>
+public class DbTeamMember
+{
+  public string RiderNumber { get; set; } = "";
+  public string FirstName { get; set; } = "";
+  public string LastName { get; set; } = "";
+  public string Category { get; set; } = "";
+  public List<string> Transponders { get; set; } = new();
 }
 
 public class DbLap
@@ -138,6 +158,12 @@ public class DbLap
   public int Source { get; set; }
   public DateTime? OriginalCrossingTime { get; set; }
   public string? CorrectionNote { get; set; }
+
+  // Who rode it, for a team entry, and the two-on-track warning. Without these
+  // a restored team event would lose its per-rider breakdown.
+  public string? CrossedBy { get; set; }
+  public bool IsSuspectedOverlap { get; set; }
+  public bool OverlapDismissed { get; set; }
 }
 
 public class DbPositionSnapshot
@@ -301,6 +327,7 @@ public class RaceDataService : IDisposable
     race.MinimumLapSeconds = rules.MinimumLapSeconds;
     race.ManualStart = rules.ManualStart;
     race.Waves = rules.Waves?.ToRecords();
+    race.TeamEvent = rules.TeamEvent;
   }
 
   public void UpdateRace(Action<DbRace> updateAction)
@@ -389,7 +416,15 @@ public class RaceDataService : IDisposable
     DNFTime = riderInfo.DNFTime,
     IsDNS = riderInfo.IsDNS,
     StatusSetByOperator = riderInfo.StatusSetByOperator,
-    StatusReason = riderInfo.StatusReason
+    StatusReason = riderInfo.StatusReason,
+    Members = riderInfo.Members?.Select(m => new DbTeamMember
+    {
+      RiderNumber = m.RiderNumber,
+      FirstName = m.FirstName,
+      LastName = m.LastName,
+      Category = m.Category,
+      Transponders = m.Transponders.ToList()
+    }).ToList()
   };
 
   /// <summary>
@@ -501,6 +536,9 @@ public class RaceDataService : IDisposable
     to.Source = (int)from.Source;
     to.OriginalCrossingTime = from.OriginalCrossingTime;
     to.CorrectionNote = from.CorrectionNote;
+    to.CrossedBy = from.CrossedBy;
+    to.IsSuspectedOverlap = from.IsSuspectedOverlap;
+    to.OverlapDismissed = from.OverlapDismissed;
   }
 
   public List<DbLap> GetRiderLaps(string riderTagID)
@@ -550,7 +588,10 @@ public class RaceDataService : IDisposable
         SuggestionDismissed = l.SuggestionDismissed,
         Source = (int)l.Source,
         OriginalCrossingTime = l.OriginalCrossingTime,
-        CorrectionNote = l.CorrectionNote
+        CorrectionNote = l.CorrectionNote,
+        CrossedBy = l.CrossedBy,
+        IsSuspectedOverlap = l.IsSuspectedOverlap,
+        OverlapDismissed = l.OverlapDismissed
       })
       .ToList();
 
@@ -748,7 +789,15 @@ public class RaceDataService : IDisposable
         DNFTime = dbRider.DNFTime,
         IsDNS = dbRider.IsDNS,
         StatusSetByOperator = dbRider.StatusSetByOperator,
-        StatusReason = dbRider.StatusReason
+        StatusReason = dbRider.StatusReason,
+        Members = dbRider.Members?.Select(m => new TeamMember
+        {
+          RiderNumber = m.RiderNumber,
+          FirstName = m.FirstName,
+          LastName = m.LastName,
+          Category = m.Category,
+          Transponders = m.Transponders.ToList()
+        }).ToList()
       };
 
       // Restore laps for this rider
@@ -773,7 +822,10 @@ public class RaceDataService : IDisposable
         SuggestionDismissed = dbLap.SuggestionDismissed,
         Source = (LapSource)dbLap.Source,
         OriginalCrossingTime = dbLap.OriginalCrossingTime,
-        CorrectionNote = dbLap.CorrectionNote
+        CorrectionNote = dbLap.CorrectionNote,
+        CrossedBy = dbLap.CrossedBy,
+        IsSuspectedOverlap = dbLap.IsSuspectedOverlap,
+        OverlapDismissed = dbLap.OverlapDismissed
         });
       }
 
