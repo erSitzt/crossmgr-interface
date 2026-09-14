@@ -12,6 +12,9 @@ public sealed class AssignTagDialog : Form
 {
   private readonly RadioButton _attach = new();
   private readonly RadioButton _merge = new();
+  private readonly RadioButton _joinTeam = new();
+  private readonly ComboBox _teamPicker = new();
+  private readonly ComboBox _memberPicker = new();
 
   private readonly TextBox _number = new();
   private readonly TextBox _firstName = new();
@@ -29,20 +32,25 @@ public sealed class AssignTagDialog : Form
   /// <summary>What the operator chose. Only meaningful after DialogResult.OK.</summary>
   public AssignTagRequest Request { get; private set; } = new();
 
+  /// <param name="teams">In a team event, the teams the transponder could belong to; empty otherwise.</param>
+  /// <param name="suggestion">The team, and which of its riders, the rider list says this transponder is.</param>
   public AssignTagDialog(
     string unknownTag,
     int lapsRecorded,
     IReadOnlyList<RiderImportRosterEntry> roster,
-    IReadOnlyList<RiderInfo> activeRiders)
+    IReadOnlyList<RiderInfo> activeRiders,
+    IReadOnlyList<TeamJoinChoice>? teams = null,
+    (string Key, int MemberIndex)? suggestion = null)
   {
     _activeRiders = activeRiders;
+    teams ??= Array.Empty<TeamJoinChoice>();
 
     Text = "Identify transponder";
     FormBorderStyle = FormBorderStyle.FixedDialog;
     StartPosition = FormStartPosition.CenterParent;
     MinimizeBox = false;
     MaximizeBox = false;
-    ClientSize = new Size(560, 470);
+    ClientSize = new Size(560, teams.Count > 0 ? 540 : 470);
 
     var header = new Label
     {
@@ -91,6 +99,30 @@ public sealed class AssignTagDialog : Form
     var classLabel = FieldLabel("Class:");
     _category.Location = new Point(130, y); _category.Width = 180; y += 38;
 
+    // ---- Option 3, team events: a team rider's transponder ----
+    _joinTeam.Visible = _teamPicker.Visible = _memberPicker.Visible = teams.Count > 0;
+    if (teams.Count > 0)
+    {
+      _joinTeam.Text = "This transponder belongs to a team";
+      _joinTeam.Location = new Point(16, y);
+      _joinTeam.AutoSize = true;
+      _joinTeam.CheckedChanged += (_, _) => UpdateEnabledState();
+      y += 30;
+
+      _teamPicker.Location = new Point(36, y);
+      _teamPicker.Width = 240;
+      _teamPicker.DropDownStyle = ComboBoxStyle.DropDownList;
+      foreach (var team in teams)
+        _teamPicker.Items.Add(team);
+      _teamPicker.SelectedIndexChanged += (_, _) => FillMembers();
+
+      _memberPicker.Location = new Point(286, y);
+      _memberPicker.Width = 240;
+      _memberPicker.DropDownStyle = ComboBoxStyle.DropDownList;
+      _memberPicker.SelectedIndexChanged += (_, _) => UpdatePreview();
+      y += 40;
+    }
+
     // ---- Option 2: merge ----
     _merge.Text = "These laps belong to a rider already in the race";
     _merge.Location = new Point(16, y);
@@ -101,7 +133,8 @@ public sealed class AssignTagDialog : Form
     _mergeTarget.Location = new Point(36, y);
     _mergeTarget.Width = 490;
     _mergeTarget.DropDownStyle = ComboBoxStyle.DropDownList;
-    foreach (var rider in activeRiders.Where(r => r.TagID != unknownTag))
+    // Teams are joined above, where the rider can be named too.
+    foreach (var rider in activeRiders.Where(r => r.TagID != unknownTag && !(teams.Count > 0 && r.IsTeam)))
       _mergeTarget.Items.Add(new MergeChoice(rider));
     if (_mergeTarget.Items.Count > 0) _mergeTarget.SelectedIndex = 0;
     _mergeTarget.SelectedIndexChanged += (_, _) => UpdatePreview();
@@ -139,6 +172,7 @@ public sealed class AssignTagDialog : Form
       header, _attach, rosterLabel, _rosterPicker,
       numberLabel, _number, firstLabel, _firstName, lastLabel, _lastName,
       teamLabel, _team, classLabel, _category,
+      _joinTeam, _teamPicker, _memberPicker,
       _merge, _mergeTarget, _dropDuplicates, _preview, ok, cancel
     });
 
@@ -152,7 +186,32 @@ public sealed class AssignTagDialog : Form
       _merge.Text += " (nobody else is being tracked)";
     }
 
+    if (_teamPicker.Items.Count > 0)
+    {
+      // The rider list already says whose it is: offer that, rather than making
+      // the operator find it.
+      var suggested = suggestion is { } s ? teams.ToList().FindIndex(t => t.Key == s.Key) : -1;
+      _teamPicker.SelectedIndex = Math.Max(0, suggested);
+      if (suggested >= 0)
+      {
+        _joinTeam.Checked = true;
+        if (suggestion!.Value.MemberIndex >= 0 && suggestion.Value.MemberIndex + 1 < _memberPicker.Items.Count)
+          _memberPicker.SelectedIndex = suggestion.Value.MemberIndex + 1;
+      }
+    }
+
     UpdateEnabledState();
+  }
+
+  private void FillMembers()
+  {
+    _memberPicker.Items.Clear();
+    _memberPicker.Items.Add("(not sure which rider)");
+    if (_teamPicker.SelectedItem is TeamJoinChoice team && team.Template.Members is { } members)
+      foreach (var member in members)
+        _memberPicker.Items.Add(member.Label);
+    _memberPicker.SelectedIndex = 0;
+    UpdatePreview();
   }
 
   private void FillFromRoster()
@@ -174,7 +233,8 @@ public sealed class AssignTagDialog : Form
     _number.Enabled = _firstName.Enabled = _lastName.Enabled = attaching;
     _team.Enabled = _category.Enabled = attaching;
 
-    _mergeTarget.Enabled = !attaching;
+    _mergeTarget.Enabled = _merge.Checked;
+    _teamPicker.Enabled = _memberPicker.Enabled = _joinTeam.Checked;
     _dropDuplicates.Enabled = !attaching;
 
     UpdatePreview();
@@ -188,6 +248,16 @@ public sealed class AssignTagDialog : Form
       return;
     }
 
+    if (_joinTeam.Checked)
+    {
+      if (_teamPicker.SelectedItem is not TeamJoinChoice team) return;
+      var rider = _memberPicker.SelectedIndex > 0 ? $", as {_memberPicker.SelectedItem}'s transponder" : "";
+      _preview.Text = team.Racing
+        ? $"{team.Template.Label} has {team.Template.TotalLaps} lap(s). This transponder's laps are added to theirs{rider}."
+        : $"{team.Template.Label} has not crossed the line yet. It starts with this transponder's laps{rider}.";
+      return;
+    }
+
     if (_mergeTarget.SelectedItem is MergeChoice choice)
     {
       _preview.Text =
@@ -198,6 +268,18 @@ public sealed class AssignTagDialog : Form
 
   private AssignTagRequest BuildRequest()
   {
+    if (_joinTeam.Checked && _teamPicker.SelectedItem is TeamJoinChoice team)
+    {
+      return new AssignTagRequest
+      {
+        Mode = AssignTagMode.JoinTeam,
+        TeamKey = team.Key,
+        TeamTemplate = team.Racing ? null : team.Template,
+        MemberIndex = _memberPicker.SelectedIndex > 0 ? _memberPicker.SelectedIndex - 1 : null,
+        DropDuplicateCrossings = _dropDuplicates.Checked
+      };
+    }
+
     if (_merge.Checked && _mergeTarget.SelectedItem is MergeChoice choice)
     {
       return new AssignTagRequest
@@ -224,6 +306,17 @@ public sealed class AssignTagDialog : Form
   {
     public override string ToString() => $"{Rider.Label} - {Rider.TotalLaps} lap(s)";
   }
+}
+
+/// <summary>
+/// A team a transponder can be joined to. <paramref name="Template"/> is the
+/// team's entry when it is racing, or the entry it would start with when not.
+/// </summary>
+public sealed record TeamJoinChoice(string Key, RiderInfo Template, bool Racing)
+{
+  public override string ToString() => Racing
+    ? $"{Template.Label} - {Template.TotalLaps} lap(s)"
+    : $"{Template.Label}  (no laps yet)";
 }
 
 /// <summary>

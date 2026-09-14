@@ -32,6 +32,9 @@ public sealed class RaceRules
   /// <summary>The classes' start order and gaps when the race was started in waves; null otherwise.</summary>
   public WaveSchedule? Waves { get; init; }
 
+  /// <summary>Riders sharing a team name were scored as one entry. See TeamRoster.</summary>
+  public bool TeamEvent { get; init; }
+
   public bool IsTimedSession => SessionType != SessionType.Race;
 
   public static RaceRules FromRace(DbRace race) => new()
@@ -42,7 +45,8 @@ public sealed class RaceRules
     DnfTimeoutMinutes = race.DnfTimeoutMinutes,
     MinimumLapSeconds = race.MinimumLapSeconds,
     ManualStart = race.ManualStart,
-    Waves = WaveSchedule.FromRecords(race.Waves)
+    Waves = WaveSchedule.FromRecords(race.Waves),
+    TeamEvent = race.TeamEvent == true
   };
 
   /// <summary>
@@ -61,6 +65,12 @@ public sealed class RaceRules
         _ => "Race - ranked by laps completed, then by time"
       })
     };
+
+    // Only when it applies: on an ordinary sheet a "Teams: no" line would be
+    // noise, and a team sheet has to say why one row carries several names.
+    if (TeamEvent)
+      lines.Add(("Teams", "team event - riders sharing a team name score as one entry, " +
+                          "and every lap counts for the team whichever of them rode it"));
 
     if (IsTimedSession)
     {

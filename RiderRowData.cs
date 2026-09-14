@@ -12,7 +12,7 @@ namespace CrossMgrInterface;
 public sealed class RiderRowData
 {
   /// <summary>Number of columns in the riders grid.</summary>
-  public const int ColumnCount = 17;
+  public const int ColumnCount = 18;
 
   // Column indices, matching the order the columns are created in.
   public const int ColPosition = 0;
@@ -32,6 +32,12 @@ public sealed class RiderRowData
   public const int ColTimeToNext = 14;
   public const int ColTotalTime = 15;
   public const int ColGap = 16;
+
+  /// <summary>
+  /// A team's rider on track. Created last so every index above stays put, and
+  /// moved beside the name on screen; shown in team events only.
+  /// </summary>
+  public const int ColOnTrack = 17;
 
   public string TagID { get; init; } = "";
   public string[] Cells { get; init; } = new string[ColumnCount];

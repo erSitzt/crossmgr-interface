@@ -296,7 +296,8 @@ public class RaceReportGenerator
   private string SanitizeFileName(string fileName) =>
     ReportHelpers.SanitizeFileName(fileName);
 
-  private RaceReportData PrepareReportData(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
+  // Public so the tests can check the ranking and the statuses without printing.
+  public RaceReportData PrepareReportData(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
     DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle,
     DateTime? additionalLapsSignShown = null, DateTime? raceActuallyEnded = null, int additionalLapsCount = 0, RaceRules? rules = null)
   {
@@ -310,9 +311,16 @@ public class RaceReportGenerator
       GeneratedAt = DateTime.Now
     };
 
-    // Sort riders by final position
+    // In a timed session IsDNF only means the rider is no longer on track, so a
+    // rider who had pulled in before the flag was printed as DNF on the practice
+    // sheet. Nobody is DNF there. A DNS is a DNS in any session.
+    var timed = rules?.IsTimedSession == true;
+    bool Dnf(RiderInfo r) => !timed && r.IsDNF && !r.IsDNS;
+    bool Out(RiderInfo r) => r.IsDNS || Dnf(r);
+
+    // Sort riders by final position: classified, then DNF, then DNS
     var sortedRiders = riders.Values
-      .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF first
+      .OrderBy(r => r.IsDNS ? 2 : Dnf(r) ? 1 : 0)
       .ThenByDescending(r => r.TotalLaps)
       .ThenBy(r => r.TotalTime)
       .ToList();
@@ -326,10 +334,18 @@ public class RaceReportGenerator
       // Find rider info for this tag
       var riderInfo = riders.Values.FirstOrDefault(r => r.TagID == rider.TagID);
 
+      var groups = TransponderGroup.Of(rider.Members);
+
       var result = new RiderResult
       {
-        Position = rider.IsDNF ? "DNF" : (i + 1).ToString(),
+        Position = rider.IsDNS ? "DNS" : Dnf(rider) ? "DNF" : (i + 1).ToString(),
         TagID = rider.TagID,
+        TransponderText = rider.TransponderText,
+        IsTeam = rider.IsTeam,
+        MemberLine = rider.IsTeam ? string.Join(" · ", rider.Members!.Select(m => m.Label)) : "",
+        MemberLineShort = rider.IsTeam ? string.Join(" · ", rider.Members!.Select(m => m.ShortLabel)) : "",
+        BestLapBy = rider.IsTeam ? RiddenBy(rider, rider.BestLap?.CrossedBy) : null,
+        MemberBreakdown = TeamMemberStats.For(rider),
         RiderNumber = riderInfo?.RiderNumber ?? "",
         RiderName = riderInfo != null && !string.IsNullOrWhiteSpace(riderInfo.FirstName + riderInfo.LastName)
                     ? $"{riderInfo.FirstName} {riderInfo.LastName}".Trim()
@@ -341,17 +357,23 @@ public class RaceReportGenerator
         TotalTime = rider.TotalTime,
         BestLapTime = rider.BestLapTime,
         AverageLapTime = CalculateAverageLapTime(rider),
-        IsDNF = rider.IsDNF,
-        LapTimes = rider.Laps.Select(l => new LapResult
+        IsDNF = Dnf(rider),
+        IsDNS = rider.IsDNS,
+        LapTimes = rider.Laps.Select((l, index) => new LapResult
         {
           LapNumber = l.LapNumber,
           LapTime = l.LapTime,
-          CrossingTime = l.CrossingTime
+          CrossingTime = l.CrossingTime,
+          RiddenBy = rider.IsTeam ? RiddenBy(rider, l.CrossedBy) ?? "" : "",
+          Note = !rider.IsTeam ? ""
+            : l.IsSuspectedOverlap ? "two riders on track?"
+            : index > 0 && TwoOnTrackDetector.IsHandover(groups, rider.Laps[index - 1], l) ? "handover"
+            : ""
         }).ToList()
       };
 
       // Calculate gap to leader if not leader and not DNF
-      if (i > 0 && !rider.IsDNF && !sortedRiders[0].IsDNF)
+      if (i > 0 && !Out(rider) && !Out(sortedRiders[0]))
       {
         var leader = sortedRiders[0];
         if (rider.TotalLaps == leader.TotalLaps)
@@ -370,14 +392,17 @@ public class RaceReportGenerator
     }
 
     // Calculate race statistics
-    var finishedRiders = reportData.RiderResults.Where(r => !r.IsDNF).ToList();
+    var finishedRiders = reportData.RiderResults.Where(r => !r.IsDNF && !r.IsDNS).ToList();
     var dnfRiders = reportData.RiderResults.Where(r => r.IsDNF).ToList();
+    var dnsRiders = reportData.RiderResults.Where(r => r.IsDNS).ToList();
 
     reportData.RaceStatistics = new RaceStatistics
     {
       TotalRiders = reportData.RiderResults.Count,
       FinishedRiders = finishedRiders.Count,
       DNFRiders = raceFinished ? dnfRiders.Count : 0, // Only count DNF after race is finished
+      // An operator's decision, so counted whether or not the race is over.
+      DNSRiders = dnsRiders.Count,
       TotalLapsCompleted = reportData.RiderResults.Sum(r => r.TotalLaps),
       FastestLap = finishedRiders.Where(r => r.BestLapTime.HasValue)
                                 .OrderBy(r => r.BestLapTime ?? TimeSpan.MaxValue)
@@ -391,8 +416,48 @@ public class RaceReportGenerator
       AdditionalLapsCount = additionalLapsCount
     };
     reportData.Rules = rules;
+    reportData.TeamEvent = rules?.TeamEvent == true || reportData.RiderResults.Any(r => r.IsTeam);
+    reportData.PrintLines = BuildPrintLines(reportData.RiderResults);
 
     return reportData;
+  }
+
+  /// <summary>Who rode a team's lap, for the sheet: a rider, or the riders sharing that transponder.</summary>
+  private static string? RiddenBy(RiderInfo team, string? transponder)
+  {
+    if (transponder == null) return null;
+    if (team.MemberFor(transponder) is { } member) return member.Label;
+    return team.Members?.Any(m => m.Owns(transponder)) == true ? "shared transponder" : null;
+  }
+
+  /// <summary>"MSC Adler (#14 Ben Fischer)": who set the fastest lap, down to the team rider.</summary>
+  private static string DescribeFastest(RiderResult result) =>
+    result.BestLapBy != null ? $"{result.DisplayName} ({result.BestLapBy})" : result.DisplayName;
+
+  /// <summary>
+  /// What the printed table walks through: every result, then - when there are
+  /// teams - each team's riders in finishing order.
+  ///
+  /// One list with one cursor, rather than a second table with a second cursor:
+  /// this class keeps its page cursor on a long-lived instance, and a second one
+  /// would be one more thing every entry point has to remember to reset.
+  /// </summary>
+  public static List<ReportLine> BuildPrintLines(IReadOnlyList<RiderResult> results)
+  {
+    var lines = results.Select(r => new ReportLine { Kind = ReportLineKind.Result, Result = r }).ToList();
+
+    var teams = results.Where(r => r.IsTeam).ToList();
+    if (teams.Count == 0) return lines;
+
+    lines.Add(new ReportLine { Kind = ReportLineKind.TeamsHeading });
+    foreach (var team in teams)
+    {
+      lines.Add(new ReportLine { Kind = ReportLineKind.TeamHeading, Result = team });
+      lines.AddRange(team.MemberBreakdown.Select(m =>
+        new ReportLine { Kind = ReportLineKind.Member, Result = team, Member = m }));
+    }
+
+    return lines;
   }
 
   private void PrintDocument_PrintPage(object sender, PrintPageEventArgs e)
@@ -424,11 +489,11 @@ public class RaceReportGenerator
       yPos += titleSize.Height + 10;
 
       // Race Information
-      yPos = DrawRaceInformation(g, normalFont, headerFont, leftMargin, yPos);
+      yPos = DrawRaceInformation(g, normalFont, headerFont, leftMargin, yPos, printableArea.Width);
       yPos += 15;
 
       // Race Statistics
-      yPos = DrawRaceStatistics(g, normalFont, headerFont, leftMargin, yPos);
+      yPos = DrawRaceStatistics(g, normalFont, headerFont, leftMargin, yPos, printableArea.Width);
       yPos += 15;
 
       _headerHeight = yPos; // Store header height for subsequent pages
@@ -466,7 +531,8 @@ public class RaceReportGenerator
     }
   }
 
-  private float DrawRaceInformation(Graphics g, Font normalFont, Font headerFont, float leftMargin, float yPos)
+  private float DrawRaceInformation(Graphics g, Font normalFont, Font headerFont, float leftMargin, float yPos,
+    float width)
   {
     g.DrawString("Race Information", headerFont, Brushes.Black, leftMargin, yPos);
     yPos += g.MeasureString("Race Information", headerFont).Height + 5;
@@ -492,16 +558,41 @@ public class RaceReportGenerator
       foreach (var (caption, value) in _reportData.Rules.Describe())
         infoLines.Add($"{caption}: {value}");
 
-    foreach (var line in infoLines)
-    {
-      g.DrawString(line, normalFont, Brushes.Black, leftMargin + 20, yPos);
-      yPos += g.MeasureString(line, normalFont).Height + 2;
-    }
+    yPos = DrawWrappedLines(g, infoLines, normalFont, leftMargin + 20, yPos, width - 20);
 
     return yPos;
   }
 
-  private float DrawRaceStatistics(Graphics g, Font normalFont, Font headerFont, float leftMargin, float yPos)
+  /// <summary>
+  /// Lines that wrap at the right margin instead of running off the page. The
+  /// rules a race was scored under are whole sentences, and the longer ones did.
+  /// </summary>
+  private static float DrawWrappedLines(Graphics g, IEnumerable<string> lines, Font font, float left, float yPos,
+    float width)
+  {
+    foreach (var line in lines)
+    {
+      var size = g.MeasureString(line, font, (int)width);
+      g.DrawString(line, font, Brushes.Black, new RectangleF(left, yPos, width, size.Height));
+      yPos += size.Height + 2;
+    }
+    return yPos;
+  }
+
+  /// <summary>In a team event the table lists entries - teams and solo riders - not riders.</summary>
+  private string EntriesCaption => _reportData?.TeamEvent == true ? "Entries" : "Total Riders";
+
+  private string DescribeEntries(int total)
+  {
+    if (_reportData?.TeamEvent != true) return total.ToString();
+
+    var teams = _reportData.RiderResults.Count(r => r.IsTeam);
+    var solo = total - teams;
+    return $"{total} ({teams} {(teams == 1 ? "team" : "teams")}, {solo} solo {(solo == 1 ? "rider" : "riders")})";
+  }
+
+  private float DrawRaceStatistics(Graphics g, Font normalFont, Font headerFont, float leftMargin, float yPos,
+    float width)
   {
     g.DrawString("Race Statistics", headerFont, Brushes.Black, leftMargin, yPos);
     yPos += g.MeasureString("Race Statistics", headerFont).Height + 5;
@@ -511,7 +602,7 @@ public class RaceReportGenerator
 
     var statsLines = new List<string>
     {
-      $"Total Riders: {stats.TotalRiders}",
+      $"{EntriesCaption}: {DescribeEntries(stats.TotalRiders)}",
       $"Finished: {stats.FinishedRiders}"
     };
 
@@ -521,11 +612,16 @@ public class RaceReportGenerator
       statsLines.Add($"DNF: {stats.DNFRiders}");
     }
 
+    if (stats.DNSRiders > 0)
+    {
+      statsLines.Add($"DNS: {stats.DNSRiders}");
+    }
+
     statsLines.Add($"Total Laps Completed: {stats.TotalLapsCompleted}");
 
     if (stats.FastestLap != null)
     {
-      statsLines.Add($"Fastest Lap: {stats.FastestLap.TagID} - {TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")}");
+      statsLines.Add($"Fastest Lap: {DescribeFastest(stats.FastestLap)} - {TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")}");
     }
 
     // Add additional laps timing information
@@ -544,11 +640,7 @@ public class RaceReportGenerator
       statsLines.Add($"Race Actually Ended: {stats.RaceActuallyEnded.Value:yyyy-MM-dd HH:mm:ss}");
     }
 
-    foreach (var line in statsLines)
-    {
-      g.DrawString(line, normalFont, Brushes.Black, leftMargin + 20, yPos);
-      yPos += g.MeasureString(line, normalFont).Height + 2;
-    }
+    yPos = DrawWrappedLines(g, statsLines, normalFont, leftMargin + 20, yPos, width - 20);
 
     return yPos;
   }
@@ -556,6 +648,9 @@ public class RaceReportGenerator
   private bool DrawResultsTable(Graphics g, Font normalFont, Font headerFont, Font smallFont,
     Rectangle printableArea, ref float yPos)
   {
+    var lines = _reportData?.PrintLines ?? new List<ReportLine>();
+    var teamEvent = _reportData?.TeamEvent == true;
+
     // Only draw "Race Results" header on first page or if we're starting fresh
     if (_currentPage == 0 || _currentRiderIndex == 0)
     {
@@ -567,9 +662,18 @@ public class RaceReportGenerator
     // fixed units: the fixed ones were chosen for minute-long times and left a
     // third of the page unused, and the winner's row, drawn in the larger
     // header font, ran an hours-long total time into the next column.
-    var headers = new[] { "Pos", "Number", "Name", "Team", "Laps", "Total Time", "Best Lap", "Gap" };
-    var weights = new[] { 0.06f, 0.08f, 0.24f, 0.17f, 0.07f, 0.14f, 0.12f, 0.12f };
+    //
+    // In a team event the name cell has two lines - the team and its riders,
+    // or a solo rider and their club - so it takes the Team column's width,
+    // and the number column is wider for "101/102".
+    var headers = teamEvent
+      ? new[] { "Pos", "No.", "Team / Rider", "Laps", "Total Time", "Best Lap", "Gap" }
+      : new[] { "Pos", "No.", "Name", "Team", "Laps", "Total Time", "Best Lap", "Gap" };
+    var weights = teamEvent
+      ? new[] { 0.06f, 0.11f, 0.37f, 0.07f, 0.14f, 0.13f, 0.12f }
+      : new[] { 0.06f, 0.08f, 0.24f, 0.17f, 0.07f, 0.14f, 0.12f, 0.12f };
     var columnWidths = weights.Select(w => (int)(printableArea.Width * w)).ToArray();
+    var memberWidths = MemberWeights.Select(w => (int)(printableArea.Width * w)).ToArray();
 
     // Bold at the same size for the winner; the header font is two points
     // larger and was what overflowed.
@@ -584,87 +688,237 @@ public class RaceReportGenerator
       Trimming = StringTrimming.EllipsisCharacter,
       FormatFlags = StringFormatFlags.NoWrap
     };
+    using var leftFormat = new StringFormat(cellFormat) { Alignment = StringAlignment.Near };
 
-    // Draw headers
-    float xPos = printableArea.Left;
-    for (int i = 0; i < headers.Length; i++)
+    // A page starts with the headers of whichever table it continues.
+    if (_currentRiderIndex < lines.Count)
     {
-      var headerRect = new Rectangle((int)xPos, (int)yPos, columnWidths[i], 20);
-      g.FillRectangle(Brushes.LightGray, headerRect);
-      g.DrawRectangle(Pens.Black, headerRect);
-
-      g.DrawString(headers[i], normalFont, Brushes.Black, headerRect, cellFormat);
-
-      xPos += columnWidths[i];
+      var continuing = lines[_currentRiderIndex].Kind;
+      if (continuing == ReportLineKind.Result)
+        DrawHeaderRow(g, normalFont, cellFormat, headers, columnWidths, printableArea.Left, ref yPos);
+      else if (continuing != ReportLineKind.TeamsHeading)
+        DrawHeaderRow(g, normalFont, cellFormat, MemberHeaders, memberWidths, printableArea.Left, ref yPos);
     }
-    yPos += 20;
 
-    // Draw data rows starting from current rider index
-    var ridersLeft = _reportData?.RiderResults?.Skip(_currentRiderIndex) ?? new List<RiderResult>();
-    int rowsDrawn = 0;
-
-    foreach (var result in ridersLeft)
+    while (_currentRiderIndex < lines.Count)
     {
-      xPos = printableArea.Left;
-      var rowHeight = 18;
-
-      // Check if we have room for this row (need space for row + footer)
-      if (yPos + rowHeight > printableArea.Bottom - 60)
+      var line = lines[_currentRiderIndex];
+      var rowHeight = line.Kind switch
       {
-        // No room for this row, need a new page
-        return _currentRiderIndex < (_reportData?.RiderResults?.Count ?? 0);
-      }
-
-      var rowData = new[]
-      {
-        result.Position,
-        result.RiderNumber ?? "",
-        (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID).Length > 18
-          ? (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID)[..15] + "..."
-          : (!string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.TagID),
-        (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : "").Length > 15
-          ? (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : "")[..12] + "..."
-          : (!string.IsNullOrWhiteSpace(result.Team) ? result.Team : ""),
-        result.TotalLaps.ToString(),
-        TimeFormat.Precise(result.TotalTime),
-        TimeFormat.Precise(result.BestLapTime, "N/A"),
-        GetGapText(result)
+        ReportLineKind.Result => SecondLine(line.Result!, teamEvent).Length > 0 ? 32 : 18,
+        ReportLineKind.TeamsHeading => 60,
+        ReportLineKind.TeamHeading => 22,
+        _ => 18
       };
 
-      for (int i = 0; i < rowData.Length; i++)
+      // Room for this row and the footer. A team is kept together - its heading
+      // and all its riders - and the Team Members heading comes with its first
+      // team, so no page starts with a rider cut off from their team. A block
+      // taller than half a page may still break rather than waste the page.
+      var needed = line.Kind switch
       {
-        var cellRect = new Rectangle((int)xPos, (int)yPos, columnWidths[i], rowHeight);
+        ReportLineKind.TeamHeading => TeamBlockHeight(lines, _currentRiderIndex),
+        ReportLineKind.TeamsHeading => rowHeight +
+          (_currentRiderIndex + 1 < lines.Count ? TeamBlockHeight(lines, _currentRiderIndex + 1) : 0),
+        _ => rowHeight
+      };
+      needed = Math.Min(needed, printableArea.Height / 2);
 
-        // Color coding for position
-        Brush backgroundBrush = Brushes.White;
-        if (result.Position == "1") backgroundBrush = Brushes.LightGoldenrodYellow;
-        else if (result.Position == "2") backgroundBrush = Brushes.LightGray;
-        else if (result.Position == "3") backgroundBrush = Brushes.Wheat;
-        else if (result.IsDNF) backgroundBrush = Brushes.MistyRose;
+      if (yPos + needed > printableArea.Bottom - 60)
+        return true;
 
-        g.FillRectangle(backgroundBrush, cellRect);
-        g.DrawRectangle(Pens.Black, cellRect);
+      switch (line.Kind)
+      {
+        case ReportLineKind.Result:
+          DrawResultRow(g, normalFont, winnerFont, smallFont, cellFormat, leftFormat, line.Result!,
+            columnWidths, printableArea.Left, yPos, rowHeight, teamEvent);
+          break;
 
-        var textBrush = result.IsDNF ? Brushes.DarkRed : Brushes.Black;
-        var font = result.Position == "1" ? winnerFont : normalFont;
+        case ReportLineKind.TeamsHeading:
+          g.DrawString("Team Members", headerFont, Brushes.Black, printableArea.Left, yPos + 18);
+          var headerTop = yPos + 40;
+          DrawHeaderRow(g, normalFont, cellFormat, MemberHeaders, memberWidths, printableArea.Left, ref headerTop);
+          break;
 
-        g.DrawString(rowData[i], font, textBrush, cellRect, cellFormat);
+        case ReportLineKind.TeamHeading:
+          var team = line.Result!;
+          var headingRect = new Rectangle(printableArea.Left, (int)yPos, memberWidths.Sum(), rowHeight);
+          g.FillRectangle(Brushes.Gainsboro, headingRect);
+          g.DrawRectangle(Pens.Black, headingRect);
+          var name = team.RiderNumber.Length > 0 ? $"#{team.RiderNumber} {team.RiderName}" : team.RiderName;
+          var laps = team.TotalLaps == 1 ? "1 lap" : $"{team.TotalLaps} laps";
+          headingRect.Inflate(-6, 0);
+          g.DrawString($"{team.Position}.  {name}  -  {laps}", winnerFont, Brushes.Black, headingRect, leftFormat);
+          break;
 
-        xPos += columnWidths[i];
+        case ReportLineKind.Member:
+          DrawMemberRow(g, normalFont, smallFont, cellFormat, leftFormat, line.Member!, memberWidths,
+            printableArea.Left, yPos, rowHeight);
+          break;
       }
 
       yPos += rowHeight;
       _currentRiderIndex++;
-      rowsDrawn++;
     }
 
-    // Return false if we've drawn all riders
-    return _currentRiderIndex < (_reportData?.RiderResults?.Count ?? 0);
+    // Return false if we've drawn every line
+    return false;
+  }
+
+  /// <summary>A team's heading and the riders listed under it, in page units.</summary>
+  private static int TeamBlockHeight(List<ReportLine> lines, int headingIndex)
+  {
+    var height = 22;
+    for (var i = headingIndex + 1; i < lines.Count && lines[i].Kind == ReportLineKind.Member; i++)
+      height += 18;
+    return height;
+  }
+
+  /// <summary>
+  /// The end of a transponder code when the whole code does not fit. The end is
+  /// what differs from one tag to the next, and what is read off the tag.
+  /// </summary>
+  private static string FitTail(Graphics g, string text, Font font, float width)
+  {
+    if (g.MeasureString(text, font).Width <= width) return text;
+
+    for (var cut = 1; cut < text.Length; cut++)
+    {
+      var candidate = "…" + text[cut..];
+      if (g.MeasureString(candidate, font).Width <= width) return candidate;
+    }
+
+    return text;
+  }
+
+  private static readonly string[] MemberHeaders = { "Rider", "Transponder", "Laps", "Best Lap", "Avg Lap" };
+  private static readonly float[] MemberWeights = { 0.40f, 0.26f, 0.08f, 0.13f, 0.13f };
+
+  /// <summary>The smaller line under a name in a team event: a team's riders, or a solo rider's club.</summary>
+  private static string SecondLine(RiderResult result, bool teamEvent) =>
+    !teamEvent ? "" : result.IsTeam ? result.MemberLineShort : result.Team ?? "";
+
+  private static void DrawHeaderRow(Graphics g, Font font, StringFormat format, string[] headers, int[] widths,
+    float left, ref float yPos)
+  {
+    float xPos = left;
+    for (int i = 0; i < headers.Length; i++)
+    {
+      var headerRect = new Rectangle((int)xPos, (int)yPos, widths[i], 20);
+      g.FillRectangle(Brushes.LightGray, headerRect);
+      g.DrawRectangle(Pens.Black, headerRect);
+      g.DrawString(headers[i], font, Brushes.Black, headerRect, format);
+      xPos += widths[i];
+    }
+    yPos += 20;
+  }
+
+  private void DrawResultRow(Graphics g, Font normalFont, Font winnerFont, Font smallFont, StringFormat cellFormat,
+    StringFormat leftFormat, RiderResult result, int[] columnWidths, float left, float top, int rowHeight,
+    bool teamEvent)
+  {
+    var name = !string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : result.DisplayName;
+    var laps = result.TotalLaps.ToString();
+    var total = TimeFormat.Precise(result.TotalTime);
+    var best = TimeFormat.Precise(result.BestLapTime, "N/A");
+    var gap = GetGapText(result);
+
+    var rowData = teamEvent
+      ? new[] { result.Position, result.RiderNumber ?? "", name, laps, total, best, gap }
+      : new[] { result.Position, result.RiderNumber ?? "", name, result.Team ?? "", laps, total, best, gap };
+
+    // Color coding for position
+    Brush backgroundBrush = Brushes.White;
+    if (result.Position == "1") backgroundBrush = Brushes.LightGoldenrodYellow;
+    else if (result.Position == "2") backgroundBrush = Brushes.LightGray;
+    else if (result.Position == "3") backgroundBrush = Brushes.Wheat;
+    else if (result.IsDNF || result.IsDNS) backgroundBrush = Brushes.MistyRose;
+
+    var textBrush = result.IsDNF || result.IsDNS ? Brushes.DarkRed : Brushes.Black;
+    var font = result.Position == "1" ? winnerFont : normalFont;
+    var second = SecondLine(result, teamEvent);
+
+    float xPos = left;
+    for (int i = 0; i < rowData.Length; i++)
+    {
+      var cellRect = new Rectangle((int)xPos, (int)top, columnWidths[i], rowHeight);
+      g.FillRectangle(backgroundBrush, cellRect);
+      g.DrawRectangle(Pens.Black, cellRect);
+
+      if (teamEvent && i == 2)
+      {
+        // Left-aligned, so the riders line sits under the name it belongs to.
+        var nameRect = new Rectangle(cellRect.X + 6, cellRect.Y, cellRect.Width - 12, second.Length > 0 ? 18 : rowHeight);
+        g.DrawString(rowData[i], font, textBrush, nameRect, leftFormat);
+
+        if (second.Length > 0)
+        {
+          var secondRect = new Rectangle(cellRect.X + 6, cellRect.Y + 16, cellRect.Width - 12, rowHeight - 17);
+          g.DrawString(second, smallFont, result.IsDNF || result.IsDNS ? Brushes.DarkRed : Brushes.DimGray, secondRect, leftFormat);
+        }
+      }
+      else
+      {
+        g.DrawString(rowData[i], font, textBrush, cellRect, cellFormat);
+      }
+
+      xPos += columnWidths[i];
+    }
+  }
+
+  private static void DrawMemberRow(Graphics g, Font font, Font smallFont, StringFormat cellFormat,
+    StringFormat leftFormat, TeamMemberLine member, int[] widths, float left, float top, int rowHeight)
+  {
+    void Box(Rectangle r)
+    {
+      g.FillRectangle(Brushes.White, r);
+      g.DrawRectangle(Pens.Black, r);
+    }
+
+    var x = (int)left;
+    var y = (int)top;
+    var riderRect = new Rectangle(x, y, widths[0], rowHeight); x += widths[0];
+    var tagsRect = new Rectangle(x, y, widths[1], rowHeight); x += widths[1];
+    var lapsRect = new Rectangle(x, y, widths[2], rowHeight); x += widths[2];
+    var bestRect = new Rectangle(x, y, widths[3], rowHeight); x += widths[3];
+    var avgRect = new Rectangle(x, y, widths[4], rowHeight);
+
+    var brush = member.IsUnattributed ? Brushes.DimGray : Brushes.Black;
+
+    Box(riderRect);
+    Box(tagsRect);
+    Box(lapsRect);
+
+    // Indented under the team's heading.
+    var riderText = new Rectangle(riderRect.X + 14, riderRect.Y, riderRect.Width - 20, rowHeight);
+    // Riders sharing a transponder by surname, so both names fit.
+    var riderLabel = member.SharedTransponder
+      ? string.Join(" / ", member.Group!.Members.Select(m => m.ShortLabel))
+      : member.Label;
+    g.DrawString(riderLabel, font, brush, riderText, leftFormat);
+    g.DrawString(FitTail(g, string.Join(", ", member.Transponders), smallFont, tagsRect.Width - 8),
+      smallFont, Brushes.DimGray, tagsRect, cellFormat);
+    g.DrawString(member.LapsRidden.ToString(), font, brush, lapsRect, cellFormat);
+
+    if (member.SharedTransponder)
+    {
+      // One transponder cannot say which of them rode, so there is no time to give.
+      var both = Rectangle.Union(bestRect, avgRect);
+      Box(both);
+      g.DrawString("shared transponder - no times", smallFont, Brushes.DimGray, both, cellFormat);
+      return;
+    }
+
+    Box(bestRect);
+    Box(avgRect);
+    g.DrawString(TimeFormat.Precise(member.BestLap, "-"), font, brush, bestRect, cellFormat);
+    g.DrawString(TimeFormat.Precise(member.AverageLap, "-"), font, brush, avgRect, cellFormat);
   }
 
   private string GetGapText(RiderResult result)
   {
     if (result.Position == "1") return "Leader";
+    if (result.IsDNS) return "DNS";
     if (result.IsDNF) return "DNF";
 
     if (result.LapGapToLeader > 0)
@@ -716,7 +970,7 @@ public class RaceReportGenerator
     var stats = _reportData.RaceStatistics;
     if (stats != null)
     {
-      sb.AppendLine($"Total Riders:      {stats.TotalRiders}");
+      sb.AppendLine($"{EntriesCaption + ":",-19}{DescribeEntries(stats.TotalRiders)}");
       sb.AppendLine($"Finished:          {stats.FinishedRiders}");
 
       // Only show DNF count if race is finished
@@ -725,10 +979,15 @@ public class RaceReportGenerator
         sb.AppendLine($"DNF:               {stats.DNFRiders}");
       }
 
+      if (stats.DNSRiders > 0)
+      {
+        sb.AppendLine($"DNS:               {stats.DNSRiders}");
+      }
+
       sb.AppendLine($"Total Laps:        {stats.TotalLapsCompleted}");
 
       if (stats.FastestLap != null)
-        sb.AppendLine($"Fastest Lap:       {stats.FastestLap.TagID} - {TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")}");
+        sb.AppendLine($"Fastest Lap:       {DescribeFastest(stats.FastestLap)} - {TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")}");
 
       // Add additional laps timing information
       if (stats.AdditionalLapsSignShown.HasValue)
@@ -752,7 +1011,7 @@ public class RaceReportGenerator
     // Results table
     sb.AppendLine("RACE RESULTS:");
     sb.AppendLine(new string('=', 160)); // Increased width to accommodate longer tag IDs
-    sb.AppendLine($"{"Pos",-4} {"Tag ID",-35} {"Name",-20} {"Team",-15} {"Laps",-5} {"Total Time",-12} {"Best Lap",-10} {"Avg Lap",-10} {"Gap",-15}");
+    sb.AppendLine($"{"Pos",-4} {"Transponder",-35} {"Name",-20} {(_reportData.TeamEvent ? "Riders" : "Team"),-15} {"Laps",-5} {"Total Time",-12} {"Best Lap",-10} {"Avg Lap",-10} {"Gap",-15}");
     sb.AppendLine(new string('-', 160)); // Increased width to accommodate longer tag IDs
 
     foreach (var result in _reportData.RiderResults)
@@ -761,17 +1020,47 @@ public class RaceReportGenerator
       var bestLap = TimeFormat.Precise(result.BestLapTime, "N/A");
       var avgLap = TimeFormat.Precise(result.AverageLapTime, "N/A");
       var riderName = !string.IsNullOrWhiteSpace(result.RiderName) ? result.RiderName : "";
-      var team = !string.IsNullOrWhiteSpace(result.Team) ? result.Team : "";
+      var team = !result.IsTeam && !string.IsNullOrWhiteSpace(result.Team) ? result.Team : "";
 
       // Truncate long names/teams if needed to fit format
       if (riderName.Length > 19) riderName = riderName[..16] + "...";
       if (team.Length > 14) team = team[..11] + "...";
 
-      sb.AppendLine($"{result.Position,-4} {result.TagID,-35} {riderName,-20} {team,-15} {result.TotalLaps,-5} " +
+      var transponder = result.TransponderText.Length > 34 ? result.TransponderText[..31] + "..." : result.TransponderText;
+
+      sb.AppendLine($"{result.Position,-4} {transponder,-35} {riderName,-20} {team,-15} {result.TotalLaps,-5} " +
                    $"{TimeFormat.Precise(result.TotalTime),-12} {bestLap,-10} {avgLap,-10} {gapText,-15}");
+
+      if (result.IsTeam && result.MemberLine.Length > 0)
+        sb.AppendLine($"{"",-4} {"",-35} {result.MemberLine}");
     }
 
     sb.AppendLine(new string('=', 160)); // Increased width to accommodate longer tag IDs
+
+    var teams = _reportData.RiderResults.Where(r => r.IsTeam).ToList();
+    if (teams.Count > 0)
+    {
+      sb.AppendLine();
+      sb.AppendLine("TEAM MEMBERS:");
+      sb.AppendLine(new string('-', 100));
+
+      foreach (var result in teams)
+      {
+        sb.AppendLine($"{result.Position}.  #{result.RiderNumber} {result.RiderName} - " +
+                      (result.TotalLaps == 1 ? "1 lap" : $"{result.TotalLaps} laps"));
+        foreach (var member in result.MemberBreakdown)
+        {
+          var who = member.Label.Length > 44 ? member.Label[..41] + "..." : member.Label;
+          var tags = string.Join(", ", member.Transponders);
+          if (tags.Length > 34) tags = tags[..31] + "...";
+          var times = member.SharedTransponder
+            ? "shared transponder - no times"
+            : $"best {TimeFormat.Precise(member.BestLap, "-"),-10} avg {TimeFormat.Precise(member.AverageLap, "-")}";
+          sb.AppendLine($"     {who,-44} {tags,-34} {member.LapsRidden,3} laps   {times}");
+        }
+      }
+    }
+
     sb.AppendLine();
     sb.AppendLine($"Report generated: {_reportData.GeneratedAt:yyyy-MM-dd HH:mm:ss}");
 
@@ -819,6 +1108,10 @@ public class RaceReportGenerator
     // Create statistics worksheet
     var statsSheet = workbook.Worksheets.Add("Statistics");
     CreateStatisticsSheet(statsSheet);
+
+    // Who rode what, per team, in a team event.
+    if (_reportData.RiderResults.Any(r => r.IsTeam))
+      CreateTeamMembersSheet(workbook.Worksheets.Add("Team Members"));
 
     // Save the workbook
     workbook.SaveAs(fileName);
@@ -888,8 +1181,10 @@ public class RaceReportGenerator
     currentRow += 2;
 
     // Headers
-    var headers = new[] { "Position", "Tag ID", "Number", "Rider Name", "Team", "Category", "Laps", "Total Time", "Best Lap", "Avg Lap", "Gap", "Status" };
-    for (int i = 0; i < headers.Length; i++)
+    var tableStart = currentRow;
+    var headers = new List<string> { "Position", "Transponder", "Number", "Rider Name", "Team", "Category", "Laps", "Total Time", "Best Lap", "Avg Lap", "Gap", "Status" };
+    if (_reportData.TeamEvent) headers.Add("Riders");
+    for (int i = 0; i < headers.Count; i++)
     {
       var cell = sheet.Cell(currentRow, i + 1);
       cell.Value = headers[i];
@@ -903,17 +1198,21 @@ public class RaceReportGenerator
     foreach (var rider in _reportData.RiderResults)
     {
       sheet.Cell(currentRow, 1).Value = rider.Position;
-      sheet.Cell(currentRow, 2).Value = rider.TagID;
+      sheet.Cell(currentRow, 2).Value = rider.TransponderText;
       sheet.Cell(currentRow, 3).Value = rider.RiderNumber ?? "";
       sheet.Cell(currentRow, 4).Value = rider.RiderName ?? "";
-      sheet.Cell(currentRow, 5).Value = rider.Team ?? "";
+      // A team's name is already the rider name; the column is for a solo rider's club.
+      sheet.Cell(currentRow, 5).Value = rider.IsTeam ? "" : rider.Team ?? "";
       sheet.Cell(currentRow, 6).Value = rider.Category ?? "";
       sheet.Cell(currentRow, 7).Value = rider.TotalLaps;
       sheet.Cell(currentRow, 8).Value = rider.TotalTime.ToString(@"hh\:mm\:ss\.fff");
       sheet.Cell(currentRow, 9).Value = TimeFormat.Precise(rider.BestLapTime, "N/A");
       sheet.Cell(currentRow, 10).Value = TimeFormat.Precise(rider.AverageLapTime, "N/A");
-      sheet.Cell(currentRow, 11).Value = rider.Gap ?? "";
+      // The same words as the printed sheet. Gap only ever held a time, so a rider
+      // laps down had an empty cell.
+      sheet.Cell(currentRow, 11).Value = GetGapText(rider);
       sheet.Cell(currentRow, 12).Value = rider.Status;
+      if (_reportData.TeamEvent) sheet.Cell(currentRow, 13).Value = rider.MemberLine;
 
       // Color coding for positions
       if (rider.Position == "1" && rider.Status != "DNF")
@@ -922,17 +1221,18 @@ public class RaceReportGenerator
         sheet.Row(currentRow).Style.Fill.BackgroundColor = XLColor.Silver;
       else if (rider.Position == "3" && rider.Status != "DNF")
         sheet.Row(currentRow).Style.Fill.BackgroundColor = XLColor.FromArgb(205, 127, 50); // Bronze
-      else if (rider.Status == "DNF")
+      else if (rider.IsDNF || rider.IsDNS)
         sheet.Row(currentRow).Style.Fill.BackgroundColor = XLColor.LightGray;
 
       // Add borders
-      sheet.Range(currentRow, 1, currentRow, 12).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+      sheet.Range(currentRow, 1, currentRow, headers.Count).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
       currentRow++;
     }
 
-    // Auto-fit columns
-    sheet.Columns().AdjustToContents();
+    // Fitted to the table only: the rules above it are whole sentences, and
+    // fitting to those made the transponder column a hundred characters wide.
+    sheet.Columns().AdjustToContents(tableStart, currentRow);
   }
 
   /// <summary>
@@ -950,16 +1250,19 @@ public class RaceReportGenerator
     sheet.Cell(currentRow, 1).Style.Font.Bold = true;
     currentRow += 2;
 
+    // A team event says who rode each lap, and which laps were handovers.
+    var lapColumns = _reportData.TeamEvent ? 6 : 4;
+
     foreach (var rider in _reportData.RiderResults)
     {
       // Rider header
       var riderDisplay = !string.IsNullOrWhiteSpace(rider.RiderName)
-        ? $"{rider.RiderName} (Tag: {rider.TagID})"
-        : $"Tag: {rider.TagID}";
+        ? $"{rider.RiderName} (Transponder: {rider.TransponderText})"
+        : $"Transponder: {rider.TransponderText}";
       sheet.Cell(currentRow, 1).Value = $"Rider: {riderDisplay} (Position: {rider.Position})";
       sheet.Cell(currentRow, 1).Style.Font.Bold = true;
       sheet.Cell(currentRow, 1).Style.Fill.BackgroundColor = XLColor.LightBlue;
-      sheet.Range(currentRow, 1, currentRow, 4).Merge();
+      sheet.Range(currentRow, 1, currentRow, lapColumns).Merge();
       currentRow++;
 
       // Lap headers
@@ -967,9 +1270,14 @@ public class RaceReportGenerator
       sheet.Cell(currentRow, 2).Value = "Lap Time";
       sheet.Cell(currentRow, 3).Value = "Crossing Time";
       sheet.Cell(currentRow, 4).Value = "Total Time";
+      if (_reportData.TeamEvent)
+      {
+        sheet.Cell(currentRow, 5).Value = "Ridden By";
+        sheet.Cell(currentRow, 6).Value = "Note";
+      }
 
-      sheet.Range(currentRow, 1, currentRow, 4).Style.Font.Bold = true;
-      sheet.Range(currentRow, 1, currentRow, 4).Style.Fill.BackgroundColor = XLColor.LightGray;
+      sheet.Range(currentRow, 1, currentRow, lapColumns).Style.Font.Bold = true;
+      sheet.Range(currentRow, 1, currentRow, lapColumns).Style.Fill.BackgroundColor = XLColor.LightGray;
       currentRow++;
 
       var totalTime = TimeSpan.Zero;
@@ -983,6 +1291,12 @@ public class RaceReportGenerator
           totalTime += lap.LapTime.Value;
         sheet.Cell(currentRow, 4).Value = totalTime.ToString(@"hh\:mm\:ss\.fff");
 
+        if (_reportData.TeamEvent)
+        {
+          sheet.Cell(currentRow, 5).Value = lap.RiddenBy;
+          sheet.Cell(currentRow, 6).Value = lap.Note;
+        }
+
         currentRow++;
       }
 
@@ -990,6 +1304,46 @@ public class RaceReportGenerator
     }
 
     // Auto-fit columns
+    sheet.Columns().AdjustToContents();
+  }
+
+  /// <summary>
+  /// One row per team rider: the laps they rode and their own times. See
+  /// <see cref="TeamMemberStats"/> for which laps count as a rider's time.
+  /// </summary>
+  private void CreateTeamMembersSheet(IXLWorksheet sheet)
+  {
+    if (_reportData == null) return;
+
+    var headers = new[] { "Position", "Team", "Rider", "Transponder", "Laps Ridden", "Best Lap", "Avg Lap", "Note" };
+    for (int i = 0; i < headers.Length; i++)
+    {
+      var cell = sheet.Cell(1, i + 1);
+      cell.Value = headers[i];
+      cell.Style.Font.Bold = true;
+      cell.Style.Fill.BackgroundColor = XLColor.LightGray;
+      cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+    }
+
+    var row = 2;
+    foreach (var team in _reportData.RiderResults.Where(r => r.IsTeam))
+    {
+      foreach (var member in team.MemberBreakdown)
+      {
+        sheet.Cell(row, 1).Value = team.Position;
+        sheet.Cell(row, 2).Value = team.RiderName;
+        sheet.Cell(row, 3).Value = member.Label;
+        sheet.Cell(row, 4).Value = string.Join(", ", member.Transponders);
+        sheet.Cell(row, 5).Value = member.LapsRidden;
+        sheet.Cell(row, 6).Value = TimeFormat.Precise(member.BestLap, "-");
+        sheet.Cell(row, 7).Value = TimeFormat.Precise(member.AverageLap, "-");
+        sheet.Cell(row, 8).Value = member.SharedTransponder
+          ? "shared transponder - laps not split per rider"
+          : member.IsUnattributed ? "no recorded rider" : "";
+        row++;
+      }
+    }
+
     sheet.Columns().AdjustToContents();
   }
 
@@ -1010,11 +1364,11 @@ public class RaceReportGenerator
     currentRow += 2;
 
     // Overall statistics
-    sheet.Cell(currentRow, 1).Value = "Total Riders:";
+    sheet.Cell(currentRow, 1).Value = EntriesCaption + ":";
     sheet.Cell(currentRow, 2).Value = stats.TotalRiders;
     currentRow++;
 
-    sheet.Cell(currentRow, 1).Value = "Finished Riders:";
+    sheet.Cell(currentRow, 1).Value = "Finished:";
     sheet.Cell(currentRow, 2).Value = stats.FinishedRiders;
     currentRow++;
 
@@ -1025,6 +1379,13 @@ public class RaceReportGenerator
       currentRow++;
     }
 
+    if (stats.DNSRiders > 0)
+    {
+      sheet.Cell(currentRow, 1).Value = "DNS Riders:";
+      sheet.Cell(currentRow, 2).Value = stats.DNSRiders;
+      currentRow++;
+    }
+
     sheet.Cell(currentRow, 1).Value = "Total Laps Completed:";
     sheet.Cell(currentRow, 2).Value = stats.TotalLapsCompleted;
     currentRow++;
@@ -1032,7 +1393,7 @@ public class RaceReportGenerator
     if (stats.FastestLap != null)
     {
       sheet.Cell(currentRow, 1).Value = "Fastest Lap:";
-      sheet.Cell(currentRow, 2).Value = $"{TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")} by {stats.FastestLap.TagID}";
+      sheet.Cell(currentRow, 2).Value = $"{TimeFormat.Precise(stats.FastestLap.BestLapTime, "N/A")} by {DescribeFastest(stats.FastestLap)}";
       currentRow++;
     }
 
@@ -1091,6 +1452,35 @@ public class RaceReportData
 
   /// <summary>What the race was scored under, or null for a caller that did not say.</summary>
   public RaceRules? Rules { get; set; }
+
+  /// <summary>Riders sharing a team name were scored as one entry: the sheet names each team's riders.</summary>
+  public bool TeamEvent { get; set; }
+
+  /// <summary>What the printed table walks through, in order. See RaceReportGenerator.BuildPrintLines.</summary>
+  public List<ReportLine> PrintLines { get; set; } = new();
+}
+
+public enum ReportLineKind
+{
+  /// <summary>A row of the results table.</summary>
+  Result,
+  /// <summary>The start of the team members table.</summary>
+  TeamsHeading,
+  /// <summary>One team, above its riders.</summary>
+  TeamHeading,
+  /// <summary>One rider of a team, or riders sharing a transponder.</summary>
+  Member
+}
+
+/// <summary>One line of the printed results.</summary>
+public sealed class ReportLine
+{
+  public ReportLineKind Kind { get; init; }
+
+  /// <summary>The result the line belongs to; for a member, their team's.</summary>
+  public RiderResult? Result { get; init; }
+
+  public TeamMemberLine? Member { get; init; }
 }
 
 /// <summary>
@@ -1110,13 +1500,33 @@ public class RiderResult
   public TimeSpan? BestLapTime { get; set; }
   public TimeSpan? AverageLapTime { get; set; }
   public bool IsDNF { get; set; }
+  public bool IsDNS { get; set; }
   public TimeSpan? GapToLeader { get; set; }
   public int LapGapToLeader { get; set; }
   public List<LapResult> LapTimes { get; set; } = new();
 
+  /// <summary>The transponder code(s) to print. A team's TagID is its key, not a transponder.</summary>
+  public string TransponderText { get; set; } = "";
+
+  public bool IsTeam { get; set; }
+
+  /// <summary>A team's riders: "#11 Anna Berger · #14 Ben Fischer".</summary>
+  public string MemberLine { get; set; } = "";
+
+  /// <summary>
+  /// The same, by surname: "#11 Berger · #14 Fischer". The printed table has one
+  /// narrow line for it; the full names are in the Team Members section below.
+  /// </summary>
+  public string MemberLineShort { get; set; } = "";
+
+  /// <summary>Which team rider set the best lap, when that is known.</summary>
+  public string? BestLapBy { get; set; }
+
+  public IReadOnlyList<TeamMemberLine> MemberBreakdown { get; set; } = Array.Empty<TeamMemberLine>();
+
   // Additional properties for Excel export
   public string Gap => GapToLeader?.ToString(@"hh\:mm\:ss") ?? "";
-  public string Status => IsDNF ? "DNF" : "Finished";
+  public string Status => IsDNS ? "DNS" : IsDNF ? "DNF" : "Finished";
 
   /// <summary>
   /// Display name for the rider (name if available, otherwise tag ID)
@@ -1127,7 +1537,7 @@ public class RiderResult
     {
       if (!string.IsNullOrEmpty(RiderName))
         return RiderName;
-      return TagID;
+      return TransponderText.Length > 0 ? TransponderText : TagID;
     }
   }
 }
@@ -1140,6 +1550,12 @@ public class LapResult
   public int LapNumber { get; set; }
   public TimeSpan? LapTime { get; set; }
   public DateTime CrossingTime { get; set; }
+
+  /// <summary>For a team: the rider whose transponder ended the lap.</summary>
+  public string RiddenBy { get; set; } = "";
+
+  /// <summary>For a team: "handover" or "two riders on track?".</summary>
+  public string Note { get; set; } = "";
 }
 
 /// <summary>
@@ -1150,6 +1566,7 @@ public class RaceStatistics
   public int TotalRiders { get; set; }
   public int FinishedRiders { get; set; }
   public int DNFRiders { get; set; }
+  public int DNSRiders { get; set; }
   public int TotalLapsCompleted { get; set; }
   public RiderResult? FastestLap { get; set; }
   public TimeSpan? ActualRaceDuration { get; set; }

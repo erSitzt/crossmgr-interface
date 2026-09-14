@@ -31,6 +31,7 @@ public sealed class LapCorrectionDialog : Form
   private readonly Button _markDns = new();
   private readonly Button _clearStatus = new();
   private readonly Button _undo = new();
+  private readonly Button _redo = new();
 
   /// <summary>True if at least one correction was applied while the dialog was open.</summary>
   public bool AnyChangesApplied { get; private set; }
@@ -58,7 +59,7 @@ public sealed class LapCorrectionDialog : Form
     FormBorderStyle = FormBorderStyle.Sizable;
     StartPosition = FormStartPosition.CenterParent;
     MinimizeBox = false;
-    ClientSize = new Size(880, 560);
+    ClientSize = new Size(880, 600);
     MinimumSize = new Size(760, 420);
 
     var root = new TableLayoutPanel
@@ -124,6 +125,9 @@ public sealed class LapCorrectionDialog : Form
     _laps.Columns.Add("Crossing", "Crossing");
     _laps.Columns.Add("RaceTime", "Race time");
     _laps.Columns.Add("LapTime", "Lap time");
+    // Which member's transponder ended the lap. Teams only; hidden otherwise.
+    _laps.Columns.Add("Rider", "Rider");
+    _laps.Columns["Rider"]!.Visible = false;
     _laps.Columns.Add("Note", "Note");
 
     // Relative widths: the note column carries the explanation, so give it room.
@@ -131,6 +135,7 @@ public sealed class LapCorrectionDialog : Form
     SetWidth("Crossing", 75);
     SetWidth("RaceTime", 65);
     SetWidth("LapTime", 70);
+    SetWidth("Rider", 90);
     SetWidth("Note", 170);
 
     void SetWidth(string name, float weight)
@@ -174,6 +179,7 @@ public sealed class LapCorrectionDialog : Form
     Add(_clearStatus, "Back in the race", (_, _) => OnSetStatus(RiderStatus.Racing));
 
     Add(_undo, "Undo last change", (_, _) => OnUndo(), spaceAbove: true);
+    Add(_redo, "Redo", (_, _) => OnRedo());
 
     return column;
   }
@@ -196,7 +202,15 @@ public sealed class LapCorrectionDialog : Form
 
     var status = rider.StatusText.Length > 0 ? $" - {rider.StatusText}" : "";
     var best = TimeFormat.Precise(rider.BestLapTime, "no timed lap yet");
-    _header.Text = $"{rider.Label}{status}   |   {rider.TotalLaps} lap(s)   |   best {best}";
+    var onTrack = rider.OnTrackMember is { } member ? $"   |   on track: {member.Label}" : "";
+    _header.Text = $"{rider.Label}{status}   |   {rider.TotalLaps} lap(s)   |   best {best}{onTrack}";
+    _laps.Columns["Rider"]!.Visible = rider.IsTeam;
+
+    // The lap before a suspected overlap is the other half of the question.
+    var involved = rider.Laps
+      .Where(l => l.IsSuspectedOverlap && !l.OverlapDismissed)
+      .Select(l => l.LapNumber - 1)
+      .ToHashSet();
 
     var raceStart = _getRaceStartTime();
     var previouslySelected = SelectedRow();
@@ -226,12 +240,17 @@ public sealed class LapCorrectionDialog : Form
           lap.CrossingTime.ToString("HH:mm:ss.fff"),
           raceTime,
           TimeFormat.Precise(lap.LapTime, "-"),
-          DescribeLap(lap));
+          RiderText(rider, lap.CrossedBy),
+          DescribeLap(rider, lap));
 
         var row = _laps.Rows[index];
         row.Tag = entry.Row;
 
-        if (lap.IsSuggestedForSplit && !lap.SuggestionDismissed)
+        if (lap.IsSuspectedOverlap && !lap.OverlapDismissed)
+          row.DefaultCellStyle.BackColor = Color.MistyRose;
+        else if (involved.Contains(lap.LapNumber))
+          row.DefaultCellStyle.BackColor = Color.LavenderBlush;
+        else if (lap.IsSuggestedForSplit && !lap.SuggestionDismissed)
           row.DefaultCellStyle.BackColor = Color.PapayaWhip;
         else if (lap.IsSplitLap)
           row.DefaultCellStyle.BackColor = Color.Lavender;
@@ -249,6 +268,7 @@ public sealed class LapCorrectionDialog : Form
           rejected.CrossingTime.ToString("HH:mm:ss.fff"),
           raceTime,
           TimeFormat.Precise(rejected.GapToPrevious),
+          RiderText(rider, rejected.CrossedBy),
           $"Not counted: {rejected.Reason}");
 
         var row = _laps.Rows[index];
@@ -262,15 +282,23 @@ public sealed class LapCorrectionDialog : Form
     UpdateButtonStates();
   }
 
-  private static string DescribeLap(RiderLap lap)
+  private static string DescribeLap(RiderInfo rider, RiderLap lap)
   {
+    var previous = rider.Laps.FirstOrDefault(l => l.LapNumber == lap.LapNumber - 1);
+
+    if (lap.IsSuspectedOverlap && !lap.OverlapDismissed)
+    {
+      return $"Only {lap.LapTime?.TotalSeconds:F0}s after {RiderText(rider, previous?.CrossedBy)} crossed - " +
+             "two riders on track? Delete the lap that is not real, or keep this one";
+    }
+
     if (lap.IsSuggestedForSplit && !lap.SuggestionDismissed)
     {
       var each = lap.SuggestedSplitLapTime?.TotalSeconds ?? 0;
       return $"Looks like {lap.SuggestedSplitCount} laps of about {each:F0}s - a read was probably missed";
     }
 
-    return lap.Source switch
+    var note = lap.Source switch
     {
       LapSource.Split => "Created by splitting a long lap",
       LapSource.ManualInsert => "Added by hand",
@@ -280,6 +308,22 @@ public sealed class LapCorrectionDialog : Form
         ? $"Time changed from {lap.OriginalCrossingTime:HH:mm:ss.fff}"
         : ""
     };
+
+    // Says why a team's lap is a little long: it carries the changeover.
+    if (note.Length == 0 && rider.IsTeam && previous != null &&
+        TwoOnTrackDetector.IsHandover(TransponderGroup.Of(rider.Members), previous, lap))
+      note = $"Handover from {RiderText(rider, previous.CrossedBy)}";
+
+    return note;
+  }
+
+  /// <summary>Which team member a transponder is, for the Rider column. Empty for a solo rider.</summary>
+  private static string RiderText(RiderInfo rider, string? transponder)
+  {
+    if (!rider.IsTeam) return "";
+    if (transponder == null) return "-";
+    if (rider.MemberFor(transponder) is { } member) return member.Label;
+    return rider.Members!.Any(m => m.Owns(transponder)) ? "shared transponder" : transponder;
   }
 
   private RowRef? SelectedRow() =>
@@ -312,12 +356,13 @@ public sealed class LapCorrectionDialog : Form
     var lap = selected?.Lap;
     var rejected = selected?.Rejected;
     var pendingSuggestion = lap is { IsSuggestedForSplit: true, SuggestionDismissed: false };
+    var pendingOverlap = lap is { IsSuspectedOverlap: true, OverlapDismissed: false };
 
     _addLap.Enabled = rider != null;
     _editTime.Enabled = lap != null;
     _deleteLap.Enabled = lap != null;
     _splitLap.Enabled = lap is { LapTime: not null };
-    _dismiss.Enabled = pendingSuggestion;
+    _dismiss.Enabled = pendingSuggestion || pendingOverlap;
     _restore.Enabled = rejected != null;
 
     _markDnf.Enabled = rider is { IsDNF: false };
@@ -326,6 +371,8 @@ public sealed class LapCorrectionDialog : Form
 
     _undo.Enabled = _service.History.CanUndo;
     _undo.Text = _service.History.CanUndo ? "Undo last change" : "Nothing to undo";
+    _redo.Enabled = _service.History.CanRedo;
+    _redo.Text = _service.History.CanRedo ? "Redo" : "Nothing to redo";
   }
 
   // ---- Actions -------------------------------------------------------------
@@ -421,7 +468,12 @@ public sealed class LapCorrectionDialog : Form
     var lap = SelectedRow()?.Lap;
     if (lap == null) return;
 
-    Apply(_service.DismissSplitSuggestion(_tagId, lap.LapNumber));
+    // Either warning can be on the lap; keeping it answers both.
+    if (lap is { IsSuspectedOverlap: true, OverlapDismissed: false })
+      Apply(_service.DismissOverlapWarning(_tagId, lap.LapNumber));
+
+    if (lap is { IsSuggestedForSplit: true, SuggestionDismissed: false })
+      Apply(_service.DismissSplitSuggestion(_tagId, lap.LapNumber));
   }
 
   private void OnRestoreRejected()
@@ -429,7 +481,7 @@ public sealed class LapCorrectionDialog : Form
     var rejected = SelectedRow()?.Rejected;
     if (rejected == null) return;
 
-    var result = _service.RestoreRejectedRead(_tagId, rejected.CrossingTime);
+    var result = _service.RestoreRejectedRead(_tagId, rejected.CrossingTime, rejected.CrossedBy);
     if (result.Ok) rejected.Restored = true;
     Apply(result);
   }
@@ -442,6 +494,11 @@ public sealed class LapCorrectionDialog : Form
   private void OnUndo()
   {
     Apply(_service.Undo());
+  }
+
+  private void OnRedo()
+  {
+    Apply(_service.Redo());
   }
 
   // ---- Prompts -------------------------------------------------------------

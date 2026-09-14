@@ -282,9 +282,25 @@ public partial class Form1 : Form
 
     // Initialize tag filter controls
     textBoxTagFilter.PlaceholderText = "e.g., RIDER, 1000, BIKE (comma-separated)";
-    checkBoxFilterEnabled.Checked = false;
-    tagFilterEnabled = false;
-    AddMessage("🔍 Tag filter: Disabled (all tags will be processed)");
+    tagFilterPrefix = (_settings.TagFilterPrefix ?? "").Trim();
+    textBoxTagFilter.Text = tagFilterPrefix;
+    tagFilterEnabled = _settings.TagFilterEnabled && tagFilterPrefix.Length > 0;
+    // Detached while it is set: the handler would save and log the change as
+    // though the operator had just made it.
+    checkBoxFilterEnabled.CheckedChanged -= checkBoxFilterEnabled_CheckedChanged;
+    checkBoxFilterEnabled.Checked = tagFilterEnabled;
+    checkBoxFilterEnabled.CheckedChanged += checkBoxFilterEnabled_CheckedChanged;
+    if (tagFilterEnabled)
+    {
+      // Out loud: a filter left on from yesterday drops every rider whose tag
+      // does not match, and nothing else on screen would say why.
+      AddMessage($"🔍 Tag filter: ON - only transponders starting with {tagFilterPrefix} are counted");
+      RaiseNotice(NoticeLevel.Warning, $"Transponder filter is on: only tags starting with {tagFilterPrefix} count");
+    }
+    else
+    {
+      AddMessage("🔍 Tag filter: Disabled (all tags will be processed)");
+    }
     AddMessage($"⚙️ DNF timeout: {dnfTimeoutMinutes} minutes after leader finishes");
 
     // On record at startup, because a start mode that disagreed with the radio
@@ -429,12 +445,18 @@ public partial class Form1 : Form
   /// <summary>
   /// Ctrl+Z undoes the last correction from anywhere in the application, so an
   /// operator who has just made a mistake does not have to hunt for a menu.
+  /// Ctrl+Y - or Ctrl+Shift+Z - puts back what was just undone.
   /// </summary>
   protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
   {
     if (keyData == (Keys.Control | Keys.Z))
     {
       UndoLastCorrection();
+      return true;
+    }
+    if (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z))
+    {
+      RedoLastCorrection();
       return true;
     }
     return base.ProcessCmdKey(ref msg, keyData);
@@ -841,6 +863,10 @@ public partial class Form1 : Form
         lapInfoStr += $" ({TimeFormat.Precise(lapInfo.LapTime.Value)})";
       }
 
+      // A team member's read is scored on the team: say which entry it went to.
+      if (lapInfo.TagID != tagID)
+        lapInfoStr += $" for {GetRiderDisplayText(lapInfo.TagID)}";
+
       string formattedMessage = $"🏷️  Tag: {formattedTagID,-32} Time: {timeStr,-15} Count: {count,-8} Date: {date} {lapInfoStr} [Parsed: {crossingTime:HH:mm:ss.fff}]";
 
       AddTagEvent($"[{clientEndpoint}] {formattedMessage}", tagID);
@@ -874,7 +900,8 @@ public partial class Form1 : Form
     // ridersLock already - Monitor is reentrant, so taking it is safe either way.
     lock (ridersLock)
     {
-      return riders.TryGetValue(tagID, out var rider) ? rider.Label : tagID;
+      if (riders.TryGetValue(tagID, out var rider)) return rider.Label;
+      return DescribeTeamMember(tagID) ?? tagID;
     }
   }
 
@@ -887,12 +914,21 @@ public partial class Form1 : Form
     lock (ridersLock)
     {
       // A transponder the operator has merged onto a rider counts as that rider
-      // from here on, rather than spawning a fresh unknown entry every lap.
-      if (tagAliases.TryGetValue(tagID, out var canonicalTag))
-        tagID = canonicalTag;
+      // from here on, rather than spawning a fresh unknown entry every lap - and
+      // in a team event a member's transponder counts for their team. The
+      // transponder actually read is kept: for a team it is who crossed.
+      var (entryKey, crossedBy) = ResolveCrossing(tagID);
+      tagID = entryKey;
 
+      // Checked again on the entry: ignoring a team has to stop every member's
+      // reads, and the check before this one only saw the transponder.
+      if (crossedBy != tagID && ignoredTags.Contains(tagID))
+      {
+        ignoredTagCount++;
+        resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0, CrossedBy = crossedBy };
+      }
       // If race is finished, still record crossings but note they are post-race
-      if (raceFinished)
+      else if (raceFinished)
       {
         messagesToAdd.Add(($"🏁 Post-race crossing: {GetRiderDisplayText(tagID)} at {crossingTime:HH:mm:ss.fff} (recorded but not counted in final results)", true));
         messagesToAdd.Add(($"Post-race crossing: {GetRiderDisplayText(tagID)}", false));
@@ -919,7 +955,7 @@ public partial class Form1 : Form
         }
         else
         {
-          var processedLap = ProcessNormalCrossingInternal(tagID, crossingTime, messagesToAdd);
+          var processedLap = ProcessNormalCrossingInternal(tagID, crossedBy, crossingTime, messagesToAdd);
           resultLap = processedLap ?? new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
         }
       }
@@ -939,7 +975,7 @@ public partial class Form1 : Form
       }
       else
       {
-        var processedLap = ProcessNormalCrossingInternal(tagID, crossingTime, messagesToAdd);
+        var processedLap = ProcessNormalCrossingInternal(tagID, crossedBy, crossingTime, messagesToAdd);
         resultLap = processedLap ?? new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
     }
@@ -956,7 +992,8 @@ public partial class Form1 : Form
     return resultLap;
   }
 
-  private RiderLap? ProcessNormalCrossingInternal(string tagID, DateTime crossingTime, List<(string, bool)> messagesToAdd)
+  private RiderLap? ProcessNormalCrossingInternal(string tagID, string crossedBy, DateTime crossingTime,
+    List<(string, bool)> messagesToAdd)
   {
     // Track race start time on first crossing (only if not manual start mode)
     if (raceStartTime == null && !manualStartMode)
@@ -972,7 +1009,7 @@ public partial class Form1 : Form
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
 
-      messagesToAdd.Add(($"🏁 Race started! Duration: {raceDuration.TotalMinutes} minutes, End time: {raceEndTime:HH:mm:ss}", true));
+      messagesToAdd.Add(($"🏁 {(IsTimedSession ? "Session" : "Race")} started! Duration: {raceDuration.TotalMinutes} minutes, End time: {raceEndTime:HH:mm:ss}", true));
       messagesToAdd.Add(($"🎯 Predicted total laps will be calculated based on leader performance.", true));
     }
 
@@ -1018,41 +1055,57 @@ public partial class Form1 : Form
       }
     }
 
-    // Update last tag info
-    lastTagID = tagID;
+    // Update last tag info. The transponder, not the entry: for a team that is
+    // what the reader actually saw.
+    lastTagID = crossedBy;
     lastTagTime = crossingTime;
 
     if (!riders.ContainsKey(tagID))
     {
-      // Get imported rider data if available
-      var importedData = _riderDataImporter.GetRiderData(tagID);
+      RiderInfo entry;
+      if (_teams.TeamFor(tagID) is { } team)
+      {
+        // A team comes from the team list, never from the row of whichever
+        // member happened to cross first: named after the team, with everyone.
+        entry = team.ToRiderInfo();
+        entry.RaceStartTime = waves?.StartTimeFor(team.Category) ?? raceStartTime;
+      }
+      else
+      {
+        // Get imported rider data if available
+        var importedData = _riderDataImporter.GetRiderData(tagID);
 
-      // Their own class's gate in a staggered start; the race's otherwise.
-      var category = importedData?.Category ?? "";
-      var riderStart = waves?.StartTimeFor(category) ?? raceStartTime;
+        // Their own class's gate in a staggered start; the race's otherwise.
+        var category = importedData?.Category ?? "";
+
+        entry = new RiderInfo
+        {
+          TagID = tagID,
+          RiderNumber = importedData?.RiderNumber ?? "",
+          FirstName = importedData?.FirstName ?? "",
+          LastName = importedData?.LastName ?? "",
+          Team = importedData?.Team ?? "",
+          Category = category,
+          Machine = importedData?.Machine ?? "",
+          RaceStartTime = waves?.StartTimeFor(category) ?? raceStartTime
+        };
+      }
 
       // First time seeing this rider
-      riders[tagID] = new RiderInfo
-      {
-        TagID = tagID,
-        RiderNumber = importedData?.RiderNumber ?? "",
-        FirstName = importedData?.FirstName ?? "",
-        LastName = importedData?.LastName ?? "",
-        Team = importedData?.Team ?? "",
-        Category = category,
-        Machine = importedData?.Machine ?? "",
-        LastCrossingTime = crossingTime,
-        FirstCrossing = crossingTime,
-        LastCrossing = crossingTime,
-        RaceStartTime = riderStart
-      };
+      entry.LastCrossingTime = crossingTime;
+      entry.FirstCrossing = crossingTime;
+      entry.LastCrossing = crossingTime;
+      riders[tagID] = entry;
+      lastReadByTransponder[crossedBy] = crossingTime;
 
+      var riderStart = entry.RaceStartTime;
       var firstLap = new RiderLap
       {
         TagID = tagID,
         CrossingTime = crossingTime,
         LapNumber = 1,
-        LapTime = riderStart.HasValue ? crossingTime - riderStart.Value : (TimeSpan?)null
+        LapTime = riderStart.HasValue ? crossingTime - riderStart.Value : (TimeSpan?)null,
+        CrossedBy = crossedBy
       };
 
       riders[tagID].Laps.Add(firstLap);
@@ -1078,8 +1131,15 @@ public partial class Form1 : Form
       var previousCrossing = rider.LastCrossing;
       var lapTime = crossingTime - previousCrossing;
 
-      // Check for minimum lap time - ignore unrealistically short laps (likely RFID errors)
-      if (shortLapDetectionEnabled && lapTime < minimumLapTime)
+      // Check for minimum lap time - ignore unrealistically short laps (likely RFID errors).
+      // A team is also measured against the same transponder's last read: see ReadDebounce.
+      DateTime? transponderLastRead = lastReadByTransponder.TryGetValue(crossedBy, out var lastRead) ? lastRead : null;
+      lastReadByTransponder[crossedBy] = crossingTime;
+      var verdict = shortLapDetectionEnabled
+        ? ReadDebounce.Check(crossingTime, previousCrossing, transponderLastRead, minimumLapTime, rider.IsTeam)
+        : DebounceVerdict.Accept(lapTime);
+
+      if (verdict.Reject)
       {
         // Keep the read so the operator can review it and put it back - on a
         // short course a "too soon" read is sometimes a real lap.
@@ -1087,15 +1147,18 @@ public partial class Form1 : Form
         {
           TagID = tagID,
           CrossingTime = crossingTime,
-          GapToPrevious = lapTime,
-          Reason = $"Only {lapTime.TotalSeconds:F1}s after the previous read"
+          GapToPrevious = verdict.Gap,
+          Reason = verdict.Reason,
+          CrossedBy = crossedBy
         });
         if (rejectedReads.Count > MaxRejectedReads)
           rejectedReads.RemoveAt(0);
 
-        var logMessage = $"IGNORED SHORT LAP: {GetRiderDisplayText(tagID)} - {lapTime.TotalSeconds:F3}s " +
+        var logMessage = $"IGNORED SHORT LAP: {DescribeCrossing(tagID, crossedBy)} - {verdict.Gap.TotalSeconds:F3}s " +
           $"(minimum {minimumLapTime.TotalSeconds:F0}s) - review it under \"Fix laps\"";
         messagesToAdd.Add((logMessage, false));
+
+        if (rider.IsTeam) NoteWaitingMember(tagID, crossedBy, crossingTime, messagesToAdd);
 
         // Return null to indicate no lap was processed
         return null;
@@ -1106,7 +1169,8 @@ public partial class Form1 : Form
         TagID = tagID,
         CrossingTime = crossingTime,
         LapNumber = rider.TotalLaps + 1,
-        LapTime = lapTime
+        LapTime = lapTime,
+        CrossedBy = crossedBy
       };
 
       rider.Laps.Add(newLap);
@@ -1229,6 +1293,10 @@ public partial class Form1 : Form
   {
     if (!riders.TryGetValue(tagID, out var rider)) return;
 
+    // First, so a lap that is two riders out stays out of the pace the
+    // missed-read detector measures against.
+    if (rider.IsTeam) DetectTwoOnTrack(rider, messagesToAdd);
+
     var before = rider.Laps
       .Where(l => l.IsSuggestedForSplit)
       .Select(l => l.LapNumber)
@@ -1264,7 +1332,8 @@ public partial class Form1 : Form
     {
       // Skip first lap for each rider and collect lap times
       var lapTimes = rider.Laps.Skip(1) // Skip first lap
-          .Where(l => l.LapTime.HasValue)
+          // Not a lap suspected of being two team riders out: it is part of a lap.
+          .Where(l => l.LapTime.HasValue && !l.IsSuspectedOverlap)
           .Select(l => l.LapTime!.Value)
           .ToList();
 
@@ -1293,7 +1362,7 @@ public partial class Form1 : Form
 
         var sortedRiders = riders.Values
           .Where(r => !ignoredTags.Contains(r.TagID)) // Exclude ignored riders
-          .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first (0), DNF riders last (1)
+          .OrderBy(PositionCalculator.StatusRank) // Still racing, then DNF, then DNS
           .ThenByDescending(r => r.TotalLaps)
           .ThenBy(r => r.TotalTime)
           .ToList();
@@ -1361,6 +1430,8 @@ public partial class Form1 : Form
 
       // Reads rejected as too soon belong to the session they arrived in.
       rejectedReads.Clear();
+      lastReadByTransponder.Clear();
+      waitingMemberWarnedAt.Clear();
 
       // Reset warning flags
       fiveMinuteWarningShown = false;
@@ -1375,6 +1446,9 @@ public partial class Form1 : Form
 
     // The order and the gaps are setup and stay; who has actually gone is not.
     waves?.ResetStarts();
+
+    // From the rider list alone: nobody is racing any more.
+    RebuildTeamRoster();
 
     // After the in-memory reset: every database write is guarded by the
     // current race, so from here nothing can land in the finished session.
@@ -1663,6 +1737,18 @@ public partial class Form1 : Form
 
   private void buttonClearRiders_Click(object? sender, EventArgs e)
   {
+    // Not while the clock runs. The riders still out would lose every lap, and
+    // the next read would start a new session nobody set up.
+    if (raceStarted && !raceFinished)
+    {
+      MessageBox.Show(this,
+        IsTimedSession
+          ? "The session is still running. End it first with Race > End session now..., then delete it."
+          : "The race is still running. End it first with Race > End race now..., then delete it.",
+        "Delete session", MessageBoxButtons.OK, MessageBoxIcon.Information);
+      return;
+    }
+
     int riderCount;
     int lapCount;
     lock (ridersLock)
@@ -1812,6 +1898,11 @@ public partial class Form1 : Form
                 null);
             }
 
+            // Before the riders are updated: which entry a row belongs to depends on it.
+            ConfirmTeamEventForNewRiderList();
+            RebuildTeamRoster();
+            ReportTeamRoster();
+
             // Apply imported data to any existing riders
             ApplyImportedDataToExistingRiders();
 
@@ -1857,6 +1948,33 @@ public partial class Form1 : Form
 
       foreach (var rider in riders.Values)
       {
+        // A team takes its riders from the team list, which keeps every
+        // transponder the team has already been scoring with.
+        if (rider.IsTeam)
+        {
+          if (_teams.TeamFor(rider.TagID) is { } team)
+          {
+            rider.Members = team.Members;
+            rider.RiderNumber = team.NumbersText;
+            updatedCount++;
+            if (currentRaceId.HasValue) _raceDb.UpsertRider(rider);
+          }
+          continue;
+        }
+
+        // Read before the list said it belongs to a team member. Naming it after
+        // that member would pass it off as a solo rider; its laps have to be
+        // joined to the team instead.
+        if (_teams.EntryKeyFor(rider.TagID) is { } teamKey)
+        {
+          AddMessage($"👥 {DescribeTeamMember(rider.TagID)}: this transponder was read before the rider list " +
+                     $"was loaded. Right-click it in the Riders list and use Identify to join its " +
+                     $"{rider.TotalLaps} lap(s) to the team.");
+          RaiseNotice(NoticeLevel.Warning,
+            $"Transponder {rider.TagID} belongs to {_teams.TeamFor(teamKey)?.Name} - identify it");
+          continue;
+        }
+
         var importedData = _riderDataImporter.GetRiderData(rider.TagID);
         if (importedData != null)
         {
@@ -1958,6 +2076,9 @@ public partial class Form1 : Form
     dataGridViewRiders.Columns.Add("TimeToNext", "Due in");
     dataGridViewRiders.Columns.Add("TotalTime", "Total Time");
     dataGridViewRiders.Columns.Add("Gap", "Gap");
+    dataGridViewRiders.Columns.Add("OnTrack", "On track");
+    dataGridViewRiders.Columns["OnTrack"]!.Visible = false;
+    dataGridViewRiders.Columns["OnTrack"]!.DisplayIndex = dataGridViewRiders.Columns["RiderName"]!.DisplayIndex + 1;
 
     // Set column widths
     foreach (DataGridViewColumn column in dataGridViewRiders.Columns)
@@ -1967,6 +2088,7 @@ public partial class Form1 : Form
         case "Position": column.Width = 40; break;
         case "Status": column.Width = 90; break;
       case "RiderNumber": column.Width = 60; break;
+        case "OnTrack": column.Width = 150; break;
         case "TagID": column.Width = 200; break; // Increased to accommodate up to 32-character tag IDs
         case "RiderName": column.Width = 150; break;
         case "Team": column.Width = 120; break;
@@ -2012,11 +2134,15 @@ public partial class Form1 : Form
     var undoItem = new ToolStripMenuItem("Undo last change");
     undoItem.Click += (s, e) => UndoLastCorrection();
 
+    var redoItem = new ToolStripMenuItem("Redo");
+    redoItem.Click += (s, e) => RedoLastCorrection();
+
     contextMenu.Items.AddRange(new ToolStripItem[]
     {
       fixLapsItem,
       assignTagItem,
       undoItem,
+      redoItem,
       new ToolStripSeparator(),
       addToIgnoreItem,
       removeFromIgnoreItem,
@@ -2050,6 +2176,11 @@ public partial class Form1 : Form
         ? $"Undo: {_corrections.History.NextUndoDescription}"
         : "Nothing to undo";
 
+      redoItem.Enabled = _corrections.History.CanRedo;
+      redoItem.Text = _corrections.History.CanRedo
+        ? $"Redo: {_corrections.History.NextRedoDescription}"
+        : "Nothing to redo";
+
       addToIgnoreItem.Enabled = hasSelection && !isIgnored;
       addToIgnoreItem.Text = who != null ? $"Stop counting {who}..." : "Stop counting this rider...";
 
@@ -2076,6 +2207,17 @@ public partial class Form1 : Form
     if (!result.Ok)
     {
       MessageBox.Show(this, result.Error, "Nothing to undo",
+        MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+  }
+
+  /// <summary>Puts back the correction just undone. Also bound to Ctrl+Y.</summary>
+  private void RedoLastCorrection()
+  {
+    var result = _corrections.Redo();
+    if (!result.Ok)
+    {
+      MessageBox.Show(this, result.Error, "Nothing to redo",
         MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
   }
@@ -2174,24 +2316,10 @@ public partial class Form1 : Form
       riderSnapshot = riders.Values
         .Where(r => !ignoredTags.Contains(r.TagID))
         .Where(r => selectedClassFilter == "All Classes" || r.Category == selectedClassFilter)
-        .Select(r => new RiderInfo
-        {
-          TagID = r.TagID,
-          RiderNumber = r.RiderNumber,
-          FirstName = r.FirstName,
-          LastName = r.LastName,
-          Team = r.Team,
-          Category = r.Category,
-          Machine = r.Machine,
-          LastCrossingTime = r.LastCrossingTime,
-          FirstCrossing = r.FirstCrossing,
-          LastCrossing = r.LastCrossing,
-          RaceStartTime = r.RaceStartTime,
-          IsDNF = r.IsDNF,
-          FinalAllowedLap = r.FinalAllowedLap,
-          Laps = r.Laps.ToList() // Create copy of laps list
-                                 // Note: EstimatedNextCrossing and PredictedLapTime are computed properties
-        }).ToList();
+        // The shared copy, not a hand-rolled one: this used to build its own and
+        // dropped DNS, the operator's reason, and a team's members with it.
+        .Select(CloneRiderForDisplay)
+        .ToList();
 
       raceStartSnapshot = raceStartTime;
       raceFinishedSnapshot = raceFinished;
@@ -2297,10 +2425,29 @@ public partial class Form1 : Form
         // transponder cell as " (DNF)" / " *" / " ?" and parsed back off again.
         var statusText = "";
         var statusTooltip = "";
-        if (rider.IsDNF)
+        if (rider.IsDNS)
+        {
+          // It had no branch, so a rider marked DNS by hand showed nothing here.
+          statusText = "DNS";
+          statusTooltip = rider.StatusReason ?? "Did not start - marked by hand";
+        }
+        else if (rider.IsDNF && IsTimedSession)
+        {
+          // Not a DNF: in a timed session it means the rider is no longer on
+          // track, and any time they already set still counts.
+          statusText = "OFF";
+          statusTooltip = rider.StatusReason ?? "No longer on track - any time already set still counts";
+        }
+        else if (rider.IsDNF)
         {
           statusText = "DNF";
           statusTooltip = "Did not finish - timed out after the leader finished";
+        }
+        else if (rider.Laps.Any(l => l.IsSuspectedOverlap && !l.OverlapDismissed))
+        {
+          // Above CHECK: this one changes the lap count, and it is usually urgent.
+          statusText = "TWO OUT";
+          statusTooltip = "Two riders of this team look to have been on track at once. Right-click to review the laps.";
         }
         else if (hasSuggestedSplits)
         {
@@ -2318,10 +2465,13 @@ public partial class Form1 : Form
           statusTooltip = "This transponder is not in the imported rider list";
         }
 
-        var displayTagID = rider.TagID;
+        // Never a team's key: a team shows its members' transponders.
+        var displayTagID = rider.TransponderText;
 
         var riderName = rider.DisplayName != rider.TagID ? rider.DisplayName : "";
-        var teamName = rider.Team;
+        var teamName = rider.IsTeam
+          ? string.Join(" · ", rider.Members!.Select(m => m.Label))
+          : rider.Team;
         var categoryName = rider.Category;
 
         // Calculate projected position if splits were applied
@@ -2375,6 +2525,7 @@ public partial class Form1 : Form
         cells[RiderRowData.ColTimeToNext] = timeToNextStr;
         cells[RiderRowData.ColTotalTime] = TimeFormat.Precise(rider.TotalTime);
         cells[RiderRowData.ColGap] = gap;
+        cells[RiderRowData.ColOnTrack] = rider.IsTeam ? rider.OnTrackMember?.Label ?? "-" : "";
 
         var rowBack = Color.Empty;
         var rowFore = Color.Empty;
@@ -2457,9 +2608,11 @@ public partial class Form1 : Form
       case RiderRowData.ColStatus when row.StatusText.Length > 0:
         e.CellStyle.ForeColor = row.StatusText switch
         {
+          "TWO OUT" => Color.Red,
           "CHECK" => Color.DarkOrange,
           "FIXED" => Color.Red,
           "UNKNOWN" => Color.DarkOrange,
+          "OFF" => Color.Gray,
           _ => Color.DarkRed
         };
         e.CellStyle.Font = GetRidersGridBoldFont();
@@ -3020,6 +3173,8 @@ public partial class Form1 : Form
 
       tagFilterEnabled = checkBoxFilterEnabled.Checked;
     }
+
+    RememberTagFilter();
   }
 
   private void ComboBoxClassFilter_SelectedIndexChanged(object? sender, EventArgs e)
@@ -3056,9 +3211,14 @@ public partial class Form1 : Form
         .ToList();
     }
 
-    classes.AddRange(_riderDataImporter.GetAllRiderData().Values
-      .Where(r => !string.IsNullOrEmpty(r.Category))
-      .Select(r => r.Category)
+    // In a team event a team is scored in one class, so a member's own class
+    // must not add a filter under which nobody is listed.
+    var listed = teamEvent
+      ? _teams.Teams.Select(t => t.Category).Concat(_teams.Solos.Select(s => s.Category))
+      : _riderDataImporter.GetAllRiderData().Values.Select(r => r.Category);
+
+    classes.AddRange(listed
+      .Where(c => !string.IsNullOrEmpty(c))
       .Distinct()
       .Where(c => !classes.Contains(c))
       .OrderBy(c => c));
@@ -3095,6 +3255,7 @@ public partial class Form1 : Form
   private void checkBoxFilterEnabled_CheckedChanged(object? sender, EventArgs e)
   {
     tagFilterEnabled = checkBoxFilterEnabled.Checked;
+    RememberTagFilter();
 
     if (tagFilterEnabled && !string.IsNullOrEmpty(tagFilterPrefix))
     {
@@ -3226,11 +3387,11 @@ public partial class Form1 : Form
   {
     if (ignoredTags.Remove(tagID))
     {
-      AddMessage($"✅ Removed tag '{tagID}' from ignore list. Total ignored tags: {ignoredTags.Count}");
+      AddMessage($"✅ Removed {GetRiderDisplayText(tagID)} from ignore list. Total ignored tags: {ignoredTags.Count}");
     }
     else
     {
-      AddMessage($"⚠️ Tag '{tagID}' was not found in the ignore list.");
+      AddMessage($"⚠️ {GetRiderDisplayText(tagID)} was not found in the ignore list.");
     }
   }
 
@@ -3259,7 +3420,7 @@ public partial class Form1 : Form
     AddMessage($"📋 Current ignore list ({ignoredTags.Count} tags):");
     foreach (var tag in ignoredTags.OrderBy(t => t))
     {
-      AddMessage($"   ⛔ {tag}");
+      AddMessage($"   ⛔ {GetRiderDisplayText(tag)}");
     }
   }
 
@@ -3272,33 +3433,13 @@ public partial class Form1 : Form
   /// </summary>
   private void HandleAddTagToIgnoreList()
   {
-    if (dataGridViewRiders.SelectedRows.Count > 0)
-    {
-      var tagID = SelectedRiderTag();
-
-      if (!string.IsNullOrEmpty(tagID))
-      {
-        AddTagToIgnoreList(tagID);
-      }
-    }
-    else if (dataGridViewRiders.CurrentCell != null)
-    {
-      var currentRow = dataGridViewRiders.CurrentCell.OwningRow;
-      if (currentRow != null)
-      {
-        var tagIDCell = currentRow.Cells["TagID"];
-        var tagID = tagIDCell?.Value?.ToString();
-
-        if (!string.IsNullOrEmpty(tagID))
-        {
-          AddTagToIgnoreList(tagID);
-        }
-      }
-    }
+    // The row's key, never a cell's text: the grid is virtual, and a team's
+    // transponder cell lists its members' transponders rather than its key.
+    var tagID = SelectedRiderTag();
+    if (!string.IsNullOrEmpty(tagID))
+      AddTagToIgnoreList(tagID);
     else
-    {
       AddMessage("⚠️ No rider selected. Please select a rider first.");
-    }
   }
 
   /// <summary>
@@ -3306,33 +3447,13 @@ public partial class Form1 : Form
   /// </summary>
   private void HandleRemoveTagFromIgnoreList()
   {
-    if (dataGridViewRiders.SelectedRows.Count > 0)
-    {
-      var tagID = SelectedRiderTag();
-
-      if (!string.IsNullOrEmpty(tagID))
-      {
-        RemoveTagFromIgnoreList(tagID);
-      }
-    }
-    else if (dataGridViewRiders.CurrentCell != null)
-    {
-      var currentRow = dataGridViewRiders.CurrentCell.OwningRow;
-      if (currentRow != null)
-      {
-        var tagIDCell = currentRow.Cells["TagID"];
-        var tagID = tagIDCell?.Value?.ToString();
-
-        if (!string.IsNullOrEmpty(tagID))
-        {
-          RemoveTagFromIgnoreList(tagID);
-        }
-      }
-    }
+    // The row's key, never a cell's text: the grid is virtual, and a team's
+    // transponder cell lists its members' transponders rather than its key.
+    var tagID = SelectedRiderTag();
+    if (!string.IsNullOrEmpty(tagID))
+      RemoveTagFromIgnoreList(tagID);
     else
-    {
       AddMessage("⚠️ No rider selected. Please select a rider first.");
-    }
   }
 
   /// <summary>
@@ -3394,7 +3515,7 @@ public partial class Form1 : Form
       // RefreshLapChart. Painting straight from `riders` raced with the network
       // thread and threw "Collection was modified" mid-draw.
       _lapChartRenderer.DrawLapChart(e.Graphics, panelLapChart.ClientRectangle, _lapChartSnapshot,
-        raceStartTime, raceEndTime, raceDuration, panelLapChart);
+        raceStartTime, raceEndTime, raceDuration, panelLapChart, raceFinished);
     }
     catch (Exception ex)
     {
@@ -3595,9 +3716,9 @@ public partial class Form1 : Form
       }
 
       UpdateRaceStartControls();
-      AddMessage($"🏁 Race started manually at {raceStartTime.Value:HH:mm:ss}");
+      AddMessage($"🏁 {(IsTimedSession ? "Session" : "Race")} started manually at {raceStartTime.Value:HH:mm:ss}");
       if (waves != null) AnnounceWave(waves.First, raceStartTime.Value);
-    RaiseNotice(NoticeLevel.Info, "Race started");
+      RaiseNotice(NoticeLevel.Info, IsTimedSession ? "Session started" : "Race started");
 
       // Reset warnings
       fiveMinuteWarningShown = false;
@@ -4070,9 +4191,10 @@ public partial class Form1 : Form
   /// </summary>
   private void buttonSetShortLapSettings_Click(object? sender, EventArgs e)
   {
-    RememberRaceSetup();
     minimumLapTime = TimeSpan.FromSeconds((double)numericUpDownMinimumLapTime.Value);
     shortLapDetectionEnabled = checkBoxShortLapDetection.Checked;
+    // After the fields, which are what it writes down.
+    RememberRaceSetup();
 
     AddMessage(shortLapDetectionEnabled
       ? $"⚙️ Laps faster than {minimumLapTime.TotalSeconds:F0}s will be treated as double reads and ignored"
@@ -4611,6 +4733,10 @@ public partial class Form1 : Form
       // Races recorded before session types existed read back as Race, which
       // is what they were.
       sessionType = raceToRestore.SessionType;
+
+      // A team event comes back as one, or the next member's read would start a
+      // solo entry beside the team's laps.
+      teamEvent = raceToRestore.TeamEvent == true;
       raceFinished = raceToRestore.IsFinished;
       raceTimeExpired = raceToRestore.IsTimeExpired;
       waitingForLeaderFinish = raceToRestore.WaitingForLeaderFinish;
@@ -4633,6 +4759,37 @@ public partial class Form1 : Form
         additionalLapsAfterTimeExpiry = raceToRestore.AdditionalLaps.Value;
         numericUpDownAdditionalLaps.Value = Math.Clamp(additionalLapsAfterTimeExpiry,
           numericUpDownAdditionalLaps.Minimum, numericUpDownAdditionalLaps.Maximum);
+      }
+
+      // The settings tab shows what the session on screen is scored under. The
+      // duration was restored into the race but not into its control, so opening
+      // a 5-minute race showed whatever was last set up - and pressing Set there
+      // would have changed the race to it.
+      numericUpDownRaceDuration.Value = Math.Clamp((decimal)Math.Round(raceDuration.TotalMinutes),
+        numericUpDownRaceDuration.Minimum, numericUpDownRaceDuration.Maximum);
+
+      // Like the extra laps: only when the race recorded one.
+      if (raceToRestore.DnfTimeoutMinutes.HasValue)
+      {
+        dnfTimeoutMinutes = raceToRestore.DnfTimeoutMinutes.Value;
+        numericUpDownDnfTimeout.Value = Math.Clamp(dnfTimeoutMinutes,
+          numericUpDownDnfTimeout.Minimum, numericUpDownDnfTimeout.Maximum);
+      }
+
+      // And the minimum lap, stored as 0 when the check was off. A race that
+      // comes back after a crash has to go on rejecting double reads the way it
+      // started, not the way the settings tab was left.
+      if (raceToRestore.MinimumLapSeconds.HasValue)
+      {
+        var seconds = raceToRestore.MinimumLapSeconds.Value;
+        shortLapDetectionEnabled = seconds > 0;
+        checkBoxShortLapDetection.Checked = shortLapDetectionEnabled;
+        if (seconds > 0)
+        {
+          minimumLapTime = TimeSpan.FromSeconds(seconds);
+          numericUpDownMinimumLapTime.Value = Math.Clamp((decimal)Math.Round(seconds),
+            numericUpDownMinimumLapTime.Minimum, numericUpDownMinimumLapTime.Maximum);
+        }
       }
 
       // Mark race as started if it was in progress
@@ -4671,6 +4828,11 @@ public partial class Form1 : Form
         if (ignoredTags.Add(tag)) ignoredCount++;
       if (ignoredCount > 0)
         AddMessage($"⛔ {ignoredCount} ignored transponder(s) restored with the session.");
+
+      // From the restored teams as well as the rider list: after a crash the list
+      // may not be loaded yet, and a member's next read must still find its team.
+      lock (ridersLock) lastReadByTransponder.Clear();
+      RebuildTeamRoster();
 
       // Before the repaint: this rebuilds the tabs, which is what brings the
       // Qualifying tab back for a recovered qualifying session. Nothing else on

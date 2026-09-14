@@ -28,6 +28,14 @@ public class RiderDataImporter
 {
   private readonly Dictionary<string, RiderImportData> _riderDataLookup = new();
 
+  // Every row, in file order. The lookup above keeps only the last row for a
+  // transponder listed twice, which is exactly how a team sharing one tag is
+  // entered - and a team event needs all of its members.
+  private readonly List<RiderImportData> _rows = new();
+
+  /// <summary>Every imported row in file order, including rows that share a transponder.</summary>
+  public IReadOnlyList<RiderImportData> Rows => _rows;
+
   /// <summary>
   /// Data structure for imported rider information
   /// </summary>
@@ -70,6 +78,7 @@ public class RiderDataImporter
     try
     {
       _riderDataLookup.Clear();
+      _rows.Clear();
       int importedCount = 0;
 
       using (var workbook = new XLWorkbook(filePath))
@@ -107,6 +116,7 @@ public class RiderDataImporter
             if (!string.IsNullOrEmpty(riderData.TagID))
             {
               _riderDataLookup[riderData.TagID.ToUpper()] = riderData;
+              _rows.Add(riderData);
               result.Riders.Add(riderData);
               importedCount++;
             }
@@ -144,6 +154,7 @@ public class RiderDataImporter
     try
     {
       _riderDataLookup.Clear();
+      _rows.Clear();
       int importedCount = 0;
 
       var lines = File.ReadAllLines(filePath);
@@ -166,6 +177,7 @@ public class RiderDataImporter
           if (!string.IsNullOrEmpty(riderData.TagID))
           {
             _riderDataLookup[riderData.TagID.ToUpper()] = riderData;
+            _rows.Add(riderData);
             result.Riders.Add(riderData);
             importedCount++;
           }
@@ -224,6 +236,7 @@ public class RiderDataImporter
   public void Clear()
   {
     _riderDataLookup.Clear();
+    _rows.Clear();
   }
 
   /// <summary>

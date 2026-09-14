@@ -495,7 +495,17 @@ public partial class Form1
       lines.Add(rider.Label);
 
       if (!string.IsNullOrWhiteSpace(rider.Category)) lines.Add(rider.Category);
-      if (!string.IsNullOrWhiteSpace(rider.Team)) lines.Add(rider.Team);
+
+      if (rider.IsTeam)
+      {
+        // The team's name is already the label; say who is riding instead.
+        if (rider.OnTrackMember is { } member) lines.Add($"On track: {member.Label}");
+        lines.Add($"Riders: {string.Join(", ", rider.Members!.Select(m => m.Label))}");
+      }
+      else if (!string.IsNullOrWhiteSpace(rider.Team))
+      {
+        lines.Add(rider.Team);
+      }
 
       lines.Add($"Lap {rider.TotalLaps}" +
                 (rider.LastLapTime is { } last ? $"  -  last {last.TotalSeconds:F1}s" : ""));

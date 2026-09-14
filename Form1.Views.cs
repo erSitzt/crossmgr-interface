@@ -100,6 +100,7 @@ public partial class Form1
     StatusReason = r.StatusReason,
     Revision = r.Revision,
     FinalAllowedLap = r.FinalAllowedLap,
+    Members = r.Members,
     Laps = r.Laps.ToList()
   };
 

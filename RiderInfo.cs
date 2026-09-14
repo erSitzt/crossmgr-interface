@@ -45,7 +45,67 @@ public class RiderInfo
 
   /// <summary>True when any lap carries an operator correction or a pending warning.</summary>
   public bool HasAnomalies =>
-    Laps.Any(l => l.WasCorrected || (l.IsSuggestedForSplit && !l.SuggestionDismissed));
+    Laps.Any(l => l.WasCorrected ||
+                  (l.IsSuggestedForSplit && !l.SuggestionDismissed) ||
+                  (l.IsSuspectedOverlap && !l.OverlapDismissed));
+
+  /// <summary>
+  /// The riders of a team in a team event; null for a solo rider.
+  ///
+  /// A team is scored as one entry: TagID is its team key (see TeamRoster),
+  /// FirstName holds the team name so every view that composes a name shows it,
+  /// and RiderNumber holds the members' numbers ("11/14"). Each lap's CrossedBy
+  /// says which member's transponder ended it.
+  ///
+  /// Replaced, never changed in place, so snapshots and display copies can share
+  /// the list.
+  /// </summary>
+  public IReadOnlyList<TeamMember>? Members { get; set; }
+
+  public bool IsTeam => Members != null;
+
+  /// <summary>
+  /// The member a transponder belongs to, or null when it belongs to nobody on the
+  /// team or to several members at once - a shared transponder cannot say who rode.
+  /// </summary>
+  public TeamMember? MemberFor(string? transponder)
+  {
+    if (Members == null || transponder == null) return null;
+
+    TeamMember? found = null;
+    foreach (var member in Members)
+    {
+      if (!member.Owns(transponder)) continue;
+      if (found != null) return null;
+      found = member;
+    }
+    return found;
+  }
+
+  /// <summary>
+  /// The member whose transponder made the team's latest crossing: the rider out
+  /// on track, give or take a handover that has not reached the line yet.
+  /// </summary>
+  public TeamMember? OnTrackMember
+  {
+    get
+    {
+      for (var i = Laps.Count - 1; i >= 0; i--)
+      {
+        if (Laps[i].IsDeleted) continue;
+        return MemberFor(Laps[i].CrossedBy);
+      }
+      return null;
+    }
+  }
+
+  /// <summary>
+  /// The transponder code(s) to show a person. A team's TagID is its team key,
+  /// which is not a transponder and must never be printed as one.
+  /// </summary>
+  public string TransponderText => Members == null
+    ? TagID
+    : string.Join(", ", Members.SelectMany(m => m.Transponders).Distinct(StringComparer.OrdinalIgnoreCase));
 
   /// <summary>
   /// Display name combining first and last name, or just tag ID if no name available
@@ -128,19 +188,37 @@ public class RiderInfo
   {
     get
     {
-      RiderLap? best = null;
-
-      // Starts at 1 rather than 0: lap 1 is the run from the start to the first
-      // crossing, for the reason spelled out on BestLapTime above.
-      for (var i = 1; i < Laps.Count; i++)
-      {
-        var lap = Laps[i];
-        if (!lap.LapTime.HasValue) continue;
-        if (best is null || lap.LapTime.Value < best.LapTime!.Value) best = lap;
-      }
-
-      return best;
+      // A team's handover lap is not a lap anyone rode from line to line: it holds
+      // the changeover, or - when two riders were out - a fragment. Leave them out
+      // while the team has ordinary laps; a team that hands over every lap has
+      // nothing else to offer.
+      var groups = Members != null ? TransponderGroup.Of(Members) : null;
+      return BestLapWhere(groups) ?? (groups != null ? BestLapWhere(null) : null);
     }
+  }
+
+  private RiderLap? BestLapWhere(IReadOnlyList<TransponderGroup>? skipHandoversBetween)
+  {
+    RiderLap? best = null;
+
+    // Starts at 1 rather than 0: lap 1 is the run from the start to the first
+    // crossing, for the reason spelled out on BestLapTime above.
+    for (var i = 1; i < Laps.Count; i++)
+    {
+      var lap = Laps[i];
+      if (!lap.LapTime.HasValue) continue;
+
+      // A team lap suspected of being two riders out at once is a fragment of
+      // a lap, and would otherwise be printed as the fastest lap of the race.
+      if (lap.IsSuspectedOverlap) continue;
+
+      if (skipHandoversBetween != null && TwoOnTrackDetector.IsHandover(skipHandoversBetween, Laps[i - 1], lap))
+        continue;
+
+      if (best is null || lap.LapTime.Value < best.LapTime!.Value) best = lap;
+    }
+
+    return best;
   }
 
   /// <summary>Mean of the completed laps, ignoring the first for the same reason.</summary>

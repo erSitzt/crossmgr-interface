@@ -1,0 +1,67 @@
+namespace CrossMgrInterface;
+
+public enum HelpBlockKind
+{
+  Heading,
+  Paragraph,
+  Steps,
+  Bullets,
+  Tip,
+  Keys
+}
+
+/// <summary>
+/// One piece of a help topic. Plain data rather than rich text, so the words can
+/// be read, reviewed and tested without opening a window.
+/// </summary>
+public sealed record HelpBlock(HelpBlockKind Kind, string Text, IReadOnlyList<string> Items)
+{
+  public static HelpBlock Heading(string text) => new(HelpBlockKind.Heading, text, Array.Empty<string>());
+  public static HelpBlock Para(string text) => new(HelpBlockKind.Paragraph, text, Array.Empty<string>());
+  public static HelpBlock Tip(string text) => new(HelpBlockKind.Tip, text, Array.Empty<string>());
+
+  /// <summary>Numbered, in the order they are done.</summary>
+  public static HelpBlock Steps(params string[] steps) => new(HelpBlockKind.Steps, "", steps);
+
+  public static HelpBlock Bullets(params string[] items) => new(HelpBlockKind.Bullets, "", items);
+
+  /// <summary>Two columns: a word or key on the left, what it means on the right.</summary>
+  public static HelpBlock Keys(params (string Key, string Action)[] rows) =>
+    new(HelpBlockKind.Keys, "", rows.Select(r => $"{r.Key}\t{r.Action}").ToList());
+}
+
+/// <summary>A page of the in-application help.</summary>
+public sealed record HelpTopic(
+  string Id,
+  string Group,
+  string Title,
+  string Summary,
+  IReadOnlyList<HelpBlock> Blocks,
+  IReadOnlyList<string> SeeAlso);
+
+public static class HelpTopicIds
+{
+  public const string QuickStart = "quick-start";
+  public const string Screens = "screens";
+
+  public const string Race = "race";
+  public const string Qualifying = "qualifying";
+  public const string Practice = "practice";
+  public const string Waves = "waves";
+  public const string Teams = "teams";
+
+  public const string RaceDay = "race-day";
+  public const string Fixing = "fixing";
+  public const string Unknown = "unknown";
+  public const string TransponderCheck = "transponder-check";
+  public const string Track = "track";
+
+  public const string Results = "results";
+  public const string PastSessions = "past-sessions";
+
+  public const string RiderLists = "rider-lists";
+  public const string Reader = "reader";
+  public const string Settings = "settings";
+  public const string Shortcuts = "shortcuts";
+  public const string Troubleshooting = "troubleshooting";
+}

@@ -18,8 +18,14 @@ public class LapChartRenderer
   /// <summary>
   /// Draws the complete lap chart
   /// </summary>
+  /// <param name="raceFinished">
+  /// The race is over. Its chart then stops at <paramref name="raceEndTime"/>: measured against
+  /// the wall clock, a finished race - or one opened from the archive - showed "NOW" hours past
+  /// the finish, pinned to the right edge.
+  /// </param>
   public void DrawLapChart(Graphics g, Rectangle bounds, Dictionary<string, RiderInfo> riders,
-      DateTime? raceStartTime, DateTime? raceEndTime, TimeSpan raceDuration, Panel panelLapChart)
+      DateTime? raceStartTime, DateTime? raceEndTime, TimeSpan raceDuration, Panel panelLapChart,
+      bool raceFinished = false)
   {
     if (bounds.Width <= 0 || bounds.Height <= 0)
       return;
@@ -42,14 +48,28 @@ public class LapChartRenderer
     }
 
     // Calculate race duration and timing
+    var finished = raceFinished && raceEndTime.HasValue;
+    var clock = finished ? raceEndTime!.Value : DateTime.Now;
     var raceDurationMs = raceDuration.TotalMilliseconds;
-    var extendedDurationMs = CalculateExtendedChartDuration(raceDurationMs);
-    var raceElapsedMs = (DateTime.Now - raceStartTime.Value).TotalMilliseconds;
+
+    // The time axis always reaches the last crossing - the laps finished after
+    // the flag used to run off the right edge when a lap was longer than the
+    // extension. A finished race needs no room for predictions, so it fits.
+    var lastCrossingMs = riders.Values
+      .Where(r => r.Laps.Count > 0)
+      .Select(r => (r.LastCrossing - raceStartTime.Value).TotalMilliseconds)
+      .DefaultIfEmpty(0)
+      .Max();
+    var extendedDurationMs = finished
+      ? Math.Max(raceDurationMs, lastCrossingMs) * 1.05
+      : Math.Max(CalculateExtendedChartDuration(raceDurationMs), lastCrossingMs * 1.05);
+
+    var raceElapsedMs = (clock - raceStartTime.Value).TotalMilliseconds;
     var raceProgressPercent = Math.Min(raceElapsedMs / extendedDurationMs, 1.0);
 
     // Sort riders by position (same as leaderboard): finishing riders first, then DNF riders
     var sortedRiders = riders.Values
-        .OrderBy(r => r.IsDNF ? 1 : 0)
+        .OrderBy(PositionCalculator.StatusRank)
         .ThenByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .ToList();
@@ -68,7 +88,7 @@ public class LapChartRenderer
     panelLapChart.AutoScrollMinSize = new Size(minContentWidth, minContentHeight);
 
     // Draw title
-    DrawTitle(g, margin, raceElapsedMs, raceDuration);
+    DrawTitle(g, margin, raceElapsedMs, raceDuration, finished);
 
     var chartTop = margin + 60;
     var barFont = new Font("Arial", 10);
@@ -93,7 +113,7 @@ public class LapChartRenderer
 
     // Draw progress and time lines on top
     DrawProgressAndTimeLines(g, margin, labelWidth, chartWidth, chartTop, chartHeight,
-        raceProgressPercent, extendedDurationMs, raceDurationMs, raceElapsedMs, raceDuration);
+        raceProgressPercent, extendedDurationMs, raceDurationMs, raceElapsedMs, raceDuration, finished);
 
     // Draw hover tooltip if there's hovered lap info
     if (!string.IsNullOrEmpty(_hoveredLapInfo))
@@ -216,11 +236,13 @@ public class LapChartRenderer
     font.Dispose();
   }
 
-  private void DrawTitle(Graphics g, int margin, double raceElapsedMs, TimeSpan raceDuration)
+  private void DrawTitle(Graphics g, int margin, double raceElapsedMs, TimeSpan raceDuration, bool finished)
   {
     var titleFont = new Font("Arial", 14, FontStyle.Bold);
     var raceTimeElapsed = TimeSpan.FromMilliseconds(raceElapsedMs);
-    var title = $"Lap Visualization - Race: {TimeFormat.Clock(raceTimeElapsed)} / {TimeFormat.Clock(raceDuration)}";
+    var title = finished
+      ? $"Lap Visualization - Finished in {TimeFormat.Clock(raceTimeElapsed)} ({TimeFormat.Clock(raceDuration)} and the final laps)"
+      : $"Lap Visualization - Race: {TimeFormat.Clock(raceTimeElapsed)} / {TimeFormat.Clock(raceDuration)}";
     g.DrawString(title, titleFont, Brushes.Black, margin, margin);
     titleFont.Dispose();
   }
@@ -293,7 +315,7 @@ public class LapChartRenderer
 
   private void DrawProgressAndTimeLines(Graphics g, int margin, int labelWidth, int chartWidth,
       int chartTop, int chartHeight, double raceProgressPercent, double extendedDurationMs,
-      double raceDurationMs, double raceElapsedMs, TimeSpan raceDuration)
+      double raceDurationMs, double raceElapsedMs, TimeSpan raceDuration, bool finished)
   {
     // Draw race progress line - thick and prominent
     var progressX = margin + labelWidth + (int)(chartWidth * raceProgressPercent);
@@ -305,7 +327,9 @@ public class LapChartRenderer
     // Add current time indicator at the top
     var currentTimeFont = new Font("Arial", 10, FontStyle.Bold);
     var elapsedTime = TimeSpan.FromMilliseconds(raceElapsedMs);
-    var currentTimeText = $"NOW: {TimeFormat.Clock(elapsedTime)}";
+    var currentTimeText = finished
+      ? $"FINISH: {TimeFormat.Clock(elapsedTime)}"
+      : $"NOW: {TimeFormat.Clock(elapsedTime)}";
     var timeTextSize = g.MeasureString(currentTimeText, currentTimeFont);
     var timeTextX = progressX - timeTextSize.Width / 2;
     var timeTextY = chartTop - 45;
@@ -318,8 +342,8 @@ public class LapChartRenderer
     g.DrawString(currentTimeText, currentTimeFont, Brushes.White, timeTextX, timeTextY);
     currentTimeFont.Dispose();
 
-    // Add a semi-transparent overlay for future time
-    if (progressX < margin + labelWidth + chartWidth)
+    // Add a semi-transparent overlay for future time - there is none once the race is over
+    if (!finished && progressX < margin + labelWidth + chartWidth)
     {
       var futureRect = new Rectangle(progressX, chartTop,
           margin + labelWidth + chartWidth - progressX, chartHeight);

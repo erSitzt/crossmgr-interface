@@ -26,6 +26,10 @@ constraint shapes most of what follows.
   who should not be counted — each is fixable during the session, with undo.
 - **Rider lists and classes.** Import riders from CSV; filter and report by
   class.
+- **Team events.** Riders who share a team name take turns on track and score
+  as one team, whether they share one transponder or each carry their own. The
+  results say who rode which lap, and a warning appears when two riders of a
+  team look to be out at once.
 - **Crash recovery.** The race is written to a local database as it happens. If
   the laptop restarts mid-session, the race, the rider list and the reader
   connection all come back.
@@ -65,13 +69,36 @@ class's gate, so the per-class sheets compare like with like and the overall
 sheet ranks by laps and then by corrected time. One flag ends the race for
 everyone, as in any race.
 
+For a team race, tick **Team event** on the wizard's riders step. Riders who
+share a team name then race as one team; a team name on one rider's row only,
+or none, is a solo rider. The riders step shows what the list makes - "12
+teams, 3 solo riders" - and refuses a list that puts one transponder on two
+entries. Team members can share a transponder or have their own:
+
+- **Own transponders** tell the app who crossed. The Riders list and the Race
+  Day board show who is on track, the results end with a **Team members**
+  section (laps ridden, best and average lap per rider), and a handover that
+  comes far too soon is flagged `TWO OUT` - two riders of the team on track at
+  once. Riders waiting to take over must stay out of reader range; the app
+  warns when one keeps being read near the loop.
+- **A shared transponder** scores the team exactly as before, with its riders
+  named, but cannot say who rode which lap.
+
+A spare transponder that turns up mid-race can be joined to its team with
+**Identify** (right-click it). Team events are for races; they do not start
+in waves, and timed sessions score every rider on their own transponder.
+
 Every session is stored from the moment its clock starts. **Race → Past
 sessions…** (`Ctrl+O`) lists them all, so a whole day's sheets can be printed
 in one sitting after the last moto; a stored session can also be reopened,
 renamed, or deleted. **Race → Delete this session…** removes only the one on
 screen.
 
-Press `F1` for the in-application quick start.
+Press `F1` for the in-application help: a quick start, a topic for each session
+type (race, timed qualifying, free practice, classes in waves, team events), and
+fixing laps, the transponder check, the track map, results, rider lists, the
+reader, the settings and the keyboard shortcuts. The help window stays open
+beside the application, so the steps can be followed as they are read.
 
 ## The tabs
 
@@ -106,7 +133,7 @@ laps…** (`F2`), which opens the rider most in need of it.
 - **A rider who should not be scored** can be stopped, and started again later.
 - Laps can be added, edited, deleted, and a rider marked DNF.
 
-**Riders → Undo last change** (`Ctrl+Z`) reverses the last correction.
+**Riders → Undo last change** (`Ctrl+Z`) reverses the last correction, and **Redo** (`Ctrl+Y`) puts it back.
 
 Missed-read detection is configurable (**Race Settings → Missed read
 detection…**), as is the threshold below which a lap is too fast to be real.
@@ -122,6 +149,7 @@ club's entry system work as-is:
 | Name | `name`, `fullname`, `rider`, or `firstname`/`first` + `lastname`/`last`/`surname` |
 | Number | `number`, `ridernumber`, `bib` |
 | Class | `category`, `class`, `division` |
+| Team | `team`, `club`, `sponsor` — only groups riders in a team event |
 
 A row with no transponder ID is skipped and reported. A file with no recognisable
 transponder column is refused, and the import names the columns it did find

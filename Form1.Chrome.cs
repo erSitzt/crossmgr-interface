@@ -20,6 +20,7 @@ public partial class Form1
   private ToolStripMenuItem _menuStartReader = null!;
   private ToolStripMenuItem _menuStopReader = null!;
   private ToolStripMenuItem _menuUndo = null!;
+  private ToolStripMenuItem _menuRedo = null!;
   private ToolStripMenuItem _menuAdvanced = null!;
   private ToolStripMenuItem _menuShowTransponders = null!;
   private ToolStripMenuItem _menuDeleteSession = null!;
@@ -49,7 +50,13 @@ public partial class Form1
     numericUpDownDnfTimeout.Value = Math.Clamp(
       _settings.DnfTimeoutMinutes, numericUpDownDnfTimeout.Minimum, numericUpDownDnfTimeout.Maximum);
     dnfTimeoutMinutes = _settings.DnfTimeoutMinutes;
+    numericUpDownMinimumLapTime.Value = Math.Clamp(
+      _settings.MinimumLapSeconds, numericUpDownMinimumLapTime.Minimum, numericUpDownMinimumLapTime.Maximum);
+    checkBoxShortLapDetection.Checked = _settings.ShortLapDetection;
     sessionType = _settings.SessionType;
+
+    // A race only: a timed session scores every rider on their own transponder.
+    teamEvent = _settings.TeamEvent && sessionType == SessionType.Race;
     missedReadSettings = new LapAnomalySettings
     {
       MinRatio = _settings.MissedReadMinRatio,
@@ -70,7 +77,8 @@ public partial class Form1
 
     // The start order from last time, like the rest of the setup. A staggered
     // start is a manual one whatever the radio remembered.
-    if (_settings.StaggeredStart && _settings.WaveDelays.Count > 0)
+    // Never for a team event, which starts together.
+    if (_settings.StaggeredStart && _settings.WaveDelays.Count > 0 && !teamEvent)
     {
       waves = WaveSchedule.From(_settings.WaveDelays
         .Select(w => (w.Class, TimeSpan.FromMinutes(w.Minutes)))
@@ -127,7 +135,10 @@ public partial class Form1
     _settings.AdditionalLaps = additionalLapsAfterTimeExpiry;
     _settings.ManualStart = manualStartMode;
     _settings.DnfTimeoutMinutes = dnfTimeoutMinutes;
+    _settings.MinimumLapSeconds = (int)Math.Round(minimumLapTime.TotalSeconds);
+    _settings.ShortLapDetection = shortLapDetectionEnabled;
     _settings.SessionType = sessionType;
+    _settings.TeamEvent = teamEvent;
     _settings.MissedReadMinRatio = missedReadSettings.MinRatio;
     _settings.MissedReadMaxRatio = missedReadSettings.MaxRatio;
     _settings.MissedReadMinPriorLaps = missedReadSettings.MinPriorLaps;
@@ -151,6 +162,14 @@ public partial class Form1
     _settings.Save();
   }
 
+  /// <summary>Records the transponder filter, so a restart filters the same way.</summary>
+  private void RememberTagFilter()
+  {
+    _settings.TagFilterPrefix = tagFilterPrefix;
+    _settings.TagFilterEnabled = tagFilterEnabled;
+    _settings.Save();
+  }
+
   /// <summary>
   /// Puts back what was in place before the last shutdown: the rider list, and
   /// the reader connection. Runs after crash recovery so it does not fight it.
@@ -170,6 +189,8 @@ public partial class Form1
 
           if (result.ImportedCount > 0)
           {
+            RebuildTeamRoster();
+            ReportTeamRoster();
             ApplyImportedDataToExistingRiders();
             PopulateClassFilter();
             AddMessage($"📋 Reloaded {result.ImportedCount} riders from {Path.GetFileName(path)}");
@@ -331,6 +352,7 @@ public partial class Form1
 
     var fixLaps = Item("Fix laps...", Keys.F2, (s, e) => OpenLapCorrectionForMostUrgentRider());
     _menuUndo = Item("Undo last change", Keys.Control | Keys.Z, (s, e) => UndoLastCorrection());
+    _menuRedo = Item("Redo", Keys.Control | Keys.Y, (s, e) => RedoLastCorrection());
     var ignored = Item("Ignored transponders...", Keys.None, (s, e) => ShowIgnoreList());
 
     _menuShowTransponders = new ToolStripMenuItem("Show transponder IDs")
@@ -347,7 +369,7 @@ public partial class Form1
 
     ridersMenu.DropDownItems.AddRange(new ToolStripItem[]
     {
-      fixLaps, _menuUndo, new ToolStripSeparator(), ignored, _menuShowTransponders
+      fixLaps, _menuUndo, _menuRedo, new ToolStripSeparator(), ignored, _menuShowTransponders
     });
 
     // ---- Reader ----
@@ -394,13 +416,27 @@ public partial class Form1
     });
 
     // ---- Help ----
+    // One entry per session type, straight to its instructions: a volunteer
+    // setting up qualifying should not have to find it inside a race topic.
     var help = new ToolStripMenuItem("&Help");
     help.DropDownItems.AddRange(new ToolStripItem[]
     {
-      Item("Quick start...", Keys.F1, (s, e) => ShowQuickStart()),
+      Item("Quick start...", Keys.F1, (s, e) => ShowHelp(HelpTopicIds.QuickStart)),
+      new ToolStripSeparator(),
+      Item("Running a race...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.Race)),
+      Item("Timed qualifying...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.Qualifying)),
+      Item("Free practice...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.Practice)),
+      Item("Classes starting in waves (enduro)...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.Waves)),
+      Item("Team events...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.Teams)),
+      new ToolStripSeparator(),
+      Item("All help topics...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.QuickStart)),
+      Item("Keyboard shortcuts...", Keys.None, (s, e) => ShowHelp(HelpTopicIds.Shortcuts)),
+      new ToolStripSeparator(),
       Item("Open log folder", Keys.None, (s, e) => OpenLogFolder()),
       Item("About", Keys.None, (s, e) => MessageBox.Show(this,
-        "CrossMgr RFID Interface\n\nTimes motocross races from transponder reads.",
+        $"CrossMgr RFID Interface {Application.ProductVersion}\n\n" +
+        "Times motocross and enduro sessions from transponder reads: races, timed qualifying, " +
+        "free practice, classes in waves and team events.\n\nPress F1 for help.",
         "About", MessageBoxButtons.OK, MessageBoxIcon.Information))
     });
 
@@ -469,6 +505,11 @@ public partial class Form1
     _menuUndo.Text = _corrections.History.CanUndo
       ? $"Undo: {_corrections.History.NextUndoDescription}"
       : "Nothing to undo";
+
+    _menuRedo.Enabled = _corrections.History.CanRedo;
+    _menuRedo.Text = _corrections.History.CanRedo
+      ? $"Redo: {_corrections.History.NextRedoDescription}"
+      : "Nothing to redo";
   }
 
   /// <summary>Refreshes the status bar. Driven by the same heartbeat as the views.</summary>
@@ -563,20 +604,20 @@ public partial class Form1
     }
   }
 
-  private void ShowQuickStart()
+  /// <summary>The help window, kept open beside the application once shown.</summary>
+  private HelpDialog? _help;
+
+  /// <summary>Opens the help on a topic, or brings the open window forward on it.</summary>
+  private void ShowHelp(string topicId)
   {
-    MessageBox.Show(this,
-      "Running a race\n\n" +
-      "1. Reader > Start reader connection.\n" +
-      "2. Race > Import riders... and choose the rider list.\n" +
-      "3. Set the race length under Race Settings (advanced tabs).\n" +
-      "4. Either press START RACE, or let the clock start on the first rider.\n" +
-      "5. Watch the Race Day screen. The reader light turns red if reads stop.\n" +
-      "6. If a lap looks wrong, right-click the rider and choose Fix laps.\n" +
-      "   Every change can be undone with Ctrl+Z.\n" +
-      "7. When the race is over, press Results...\n" +
-      "8. Press NEW SESSION... for the next one. The finished session is kept:\n" +
-      "   Race > Past sessions... reprints, renames or deletes any stored session.",
-      "Quick start", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    if (_help == null || _help.IsDisposed)
+    {
+      _help = new HelpDialog();
+      _help.Show(this);
+    }
+
+    _help.ShowTopic(topicId);
+    if (_help.WindowState == FormWindowState.Minimized) _help.WindowState = FormWindowState.Normal;
+    _help.Activate();
   }
 }

@@ -54,4 +54,16 @@ public class PositionCalculatorTests
     Assert.Equal(2, PositionCalculator.CalculatePositionAtLapFromSnapshot(a, 2, field));
     Assert.Equal(3, PositionCalculator.CalculatePositionAtLapFromSnapshot(b, 2, field));
   }
+
+  [Fact]
+  public void DnsRidersSortBehindDnfRiders()
+  {
+    var dns = RiderBuilder.Rider("dns").Laps(10, 40).Dns().Build();
+    var dnf = RiderBuilder.Rider("dnf").Laps(2, 40).Dnf().Build();
+    var running = RiderBuilder.Rider("running").Laps(1, 40).Build();
+
+    var sorted = PositionCalculator.GetSortedRidersFromSnapshot(new[] { dns, dnf, running });
+
+    Assert.Equal(new[] { "running", "dnf", "dns" }, sorted.Select(r => r.TagID));
+  }
 }

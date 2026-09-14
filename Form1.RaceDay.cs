@@ -82,7 +82,9 @@ public partial class Form1
       sessionType,
       RosterClasses,
       _settings.StaggeredStart,
-      _settings.WaveDelays);
+      _settings.WaveDelays,
+      teamEvent,
+      () => _riderDataImporter.Rows);
 
     if (wizard.ShowDialog(this) != DialogResult.OK) return;
 
@@ -102,6 +104,7 @@ public partial class Form1
     // Before the settings handlers below: buttonSetAdditionalLaps_Click and the
     // start-mode radios both read the session type as they go.
     sessionType = setup.SessionType;
+    teamEvent = setup.TeamEvent;
 
     // Before the start-mode radios, which are locked to manual for a wave start.
     waves = WaveSchedule.From(setup.Waves);
@@ -111,8 +114,10 @@ public partial class Form1
       : $"CrossMgr - {raceName}";
 
     // Push the chosen values through the existing handlers rather than assigning
-    // the fields directly.
-    numericUpDownRaceDuration.Value = setup.DurationMinutes;
+    // the fields directly. Clamped, so a wizard that allows more than the
+    // settings tab can never throw here with the session half set up.
+    numericUpDownRaceDuration.Value = Math.Clamp(setup.DurationMinutes,
+      numericUpDownRaceDuration.Minimum, numericUpDownRaceDuration.Maximum);
     buttonSetDuration_Click(this, EventArgs.Empty);
 
     numericUpDownAdditionalLaps.Value = setup.AdditionalLaps;
@@ -121,6 +126,10 @@ public partial class Form1
     // Setting Checked fires RaceStartMode_CheckedChanged, which owns manualStartMode.
     radioButtonStartManual.Checked = setup.ManualStart;
     radioButtonStartOnFirstTag.Checked = !setup.ManualStart;
+
+    // Before the rider list is applied: which entry a row belongs to depends on it.
+    RebuildTeamRoster();
+    ReportTeamRoster();
 
     if (setup.ImportedFile != null)
     {
@@ -212,7 +221,8 @@ public partial class Form1
 
     _raceDayView.SetChecklist(
       raceName,
-      _riderDataImporter.Count,
+      // Entries, not rows: a team of three is one entry on the start list.
+      teamEvent ? _teams.EntryCount : _riderDataImporter.Count,
       raceDuration,
       isListening && ConnectedClientCount() > 0);
   }
@@ -366,7 +376,9 @@ public partial class Form1
     {
       target = riders.Values
         .Where(r => !ignoredTags.Contains(r.TagID))
-        .FirstOrDefault(r => r.Laps.Any(l => l.IsSuggestedForSplit && !l.SuggestionDismissed))
+        .FirstOrDefault(r => r.Laps.Any(l =>
+          (l.IsSuggestedForSplit && !l.SuggestionDismissed) ||
+          (l.IsSuspectedOverlap && !l.OverlapDismissed)))
         ?.TagID;
     }
 

@@ -21,6 +21,21 @@ public class LapAnomalyDetectorTests
   }
 
   [Fact]
+  public void ALapSuspectedOfBeingTwoTeamRidersOutIsNotPartOfThePace()
+  {
+    // True pace 40s, so a 200s lap is five laps. Counting the 5s fragment would
+    // bring the pace down to 28s and put the long lap beyond what is split.
+    var rider = RiderBuilder.Rider("A").Lap(40).Lap(40).Lap(40).Lap(5).Lap(200).Build();
+    rider.Laps[3].IsSuspectedOverlap = true;
+
+    LapAnomalyDetector.Analyze(rider, FieldAverage);
+
+    var flagged = rider.Laps.Single(l => l.IsSuggestedForSplit);
+    Assert.Equal(5, flagged.LapNumber);
+    Assert.Equal(5, flagged.SuggestedSplitCount);
+  }
+
+  [Fact]
   public void LeavesNormalLapsAlone()
   {
     var rider = RiderBuilder.Rider("A").Laps(8, 40).Build();

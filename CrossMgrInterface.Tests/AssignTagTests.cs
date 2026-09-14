@@ -152,4 +152,58 @@ public class AssignTagTests
 
     Assert.False(result.Ok);
   }
+
+  private static (RaceCorrectionService Service, Dictionary<string, RiderInfo> Field, Dictionary<string, string> Aliases)
+    MergeStrayIntoKnown()
+  {
+    var known = RiderBuilder.Rider("KNOWN", "12", "Max Mustermann").Laps(3, 40).Build();
+    var stray = RiderBuilder.Rider("STRAY").Build();
+    stray.Laps.Add(new RiderLap { TagID = "STRAY", CrossingTime = Start.AddSeconds(200) });
+
+    var field = new[] { known, stray }.ToDictionary(r => r.TagID, r => r);
+    var aliases = new Dictionary<string, string>();
+    var service = new RaceCorrectionService(field, new object(), () => Start, _ => { }, aliases);
+
+    var result = service.AssignTag("STRAY", new AssignTagRequest
+    {
+      Mode = AssignTagMode.MergeIntoRider,
+      MergeTargetTag = "KNOWN"
+    }, MinimumLap);
+    Assert.True(result.Ok, result.Error);
+
+    return (service, field, aliases);
+  }
+
+  [Fact]
+  public void MergingRoutesLaterReadsOfTheStrayTransponder()
+  {
+    var (_, _, aliases) = MergeStrayIntoKnown();
+
+    Assert.Equal("KNOWN", aliases["STRAY"]);
+  }
+
+  [Fact]
+  public void UndoingAMergeStopsRoutingTheStrayTransponderAndRedoRoutesItAgain()
+  {
+    var (service, field, aliases) = MergeStrayIntoKnown();
+
+    Assert.True(service.Undo().Ok);
+    Assert.False(aliases.ContainsKey("STRAY"));
+    Assert.True(field.ContainsKey("STRAY"));
+
+    Assert.True(service.Redo().Ok);
+    Assert.Equal("KNOWN", aliases["STRAY"]);
+    Assert.False(field.ContainsKey("STRAY"));
+  }
+
+  [Fact]
+  public void UndoLeavesARouteThatWasPointedElsewhereSince()
+  {
+    var (service, _, aliases) = MergeStrayIntoKnown();
+    aliases["STRAY"] = "OTHER";
+
+    service.Undo();
+
+    Assert.Equal("OTHER", aliases["STRAY"]);
+  }
 }

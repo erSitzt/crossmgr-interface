@@ -162,12 +162,18 @@ public static class PositionCalculator
   }
 
   /// <summary>
+  /// Where a rider's status puts them in the order: still racing (0), DNF (1),
+  /// DNS (2). A DNS used to be ranked on laps like anyone still racing.
+  /// </summary>
+  public static int StatusRank(RiderInfo rider) => rider.IsDNS ? 2 : rider.IsDNF ? 1 : 0;
+
+  /// <summary>
   /// Calculate current position based on current standings
   /// </summary>
   public static int CalculateCurrentPosition(string riderId, Dictionary<string, RiderInfo> riders)
   {
     var sortedRiders = riders.Values
-        .OrderBy(r => r.IsDNF ? 1 : 0) // Non-DNF riders first
+        .OrderBy(StatusRank) // Still racing first, then DNF, then DNS
         .ThenByDescending(r => r.TotalLaps)
         .ThenBy(r => r.TotalTime)
         .ToList();
@@ -198,8 +204,8 @@ public static class PositionCalculator
   {
     // Keys are projected once rather than recomputed inside each comparison.
     return riderSnapshot
-        .Select(r => (Rider: r, Dnf: r.IsDNF ? 1 : 0, Laps: r.Laps.Count, Time: r.TotalTime))
-        .OrderBy(x => x.Dnf) // Non-DNF riders first (0), DNF riders last (1)
+        .Select(r => (Rider: r, Status: StatusRank(r), Laps: r.Laps.Count, Time: r.TotalTime))
+        .OrderBy(x => x.Status) // Still racing (0), then DNF (1), then DNS (2)
         .ThenByDescending(x => x.Laps)
         .ThenBy(x => x.Time)
         .Select(x => x.Rider)
@@ -240,6 +246,7 @@ public static class PositionCalculator
         LastName = rider.LastName,
         Category = rider.Category,
         IsDNF = rider.IsDNF,
+        IsDNS = rider.IsDNS,
         LastCrossing = rider.LastCrossing,
         RaceStartTime = rider.RaceStartTime
       };

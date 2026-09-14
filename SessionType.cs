@@ -21,7 +21,7 @@ public enum SessionType
   /// </summary>
   Race = 0,
 
-  /// <summary>Timed, but no timing sheet comes out of it.</summary>
+  /// <summary>Timed, but not ranked: no gate pick order comes out of it.</summary>
   FreePractice = 1,
 
   /// <summary>Timed, and the gate pick order is derived from the best laps.</summary>
