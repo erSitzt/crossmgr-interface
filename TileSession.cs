@@ -16,12 +16,12 @@ public sealed class TileSession : IDisposable
   public TileFetcher Fetcher { get; }
   public TileLayer Layer { get; }
 
-  public TileSession(Control host, TileProvider provider, Action<string>? log = null)
+  public TileSession(Control host, TileProvider provider, Action<string>? log = null, TileSessionOptions? options = null)
   {
     Provider = provider;
-    Store = new TileStore(provider.UrlTemplate);
+    Store = new TileStore(provider.UrlTemplate, options?.CacheRoot);
     Fetcher = new TileFetcher(Store, provider.UrlTemplate, log);
-    Layer = new TileLayer(host, Fetcher);
+    Layer = new TileLayer(host, Fetcher) { AllowNetwork = options?.AllowNetwork ?? true };
   }
 
   public void Dispose()
@@ -30,3 +30,11 @@ public sealed class TileSession : IDisposable
     Fetcher.Dispose();
   }
 }
+
+/// <summary>
+/// Where a tile session keeps its tiles, and whether it may download more. Left
+/// out, a session uses the application's own cache and goes online as needed.
+/// The help screenshots use it so a CI run renders the map without asking the
+/// tile servers for anything.
+/// </summary>
+public sealed record TileSessionOptions(string? CacheRoot = null, bool AllowNetwork = true);

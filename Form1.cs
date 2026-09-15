@@ -77,6 +77,9 @@ public partial class Form1 : Form
   private const int MaxRejectedReads = 500;
   private readonly List<RejectedRead> rejectedReads = new();
 
+  /// <summary>When each rider marked DNF was last said to have crossed anyway, so the banner does not repeat every lap.</summary>
+  private readonly Dictionary<string, DateTime> _dnfReadNoticedAt = new();
+
   /// <summary>TCP port the reader connects on. Persisted; edited under Reader > Connection settings.</summary>
   private int readerPort = 53135;
 
@@ -927,6 +930,7 @@ public partial class Form1 : Form
     // Collect messages to send after lock is released
     var messagesToAdd = new List<(string message, bool isRaceEvent)>();
     RiderLap resultLap;
+    string? dnfNotice = null;
 
     lock (ridersLock)
     {
@@ -956,6 +960,31 @@ public partial class Form1 : Form
       {
         messagesToAdd.Add(($"🚫 Tag read ignored: {GetRiderDisplayText(tagID)} is marked as DNF (Did Not Finish) - crossing at {crossingTime:HH:mm:ss.fff}", true));
         messagesToAdd.Add(($"DNF rider crossing ignored: {GetRiderDisplayText(tagID)}", false));
+
+        // Kept, not dropped. A rider is marked DNF on someone's word - race control
+        // says they have retired - and sometimes they had only stopped. Dropping the
+        // read hid the one sign they were riding again, and the laps along with it.
+        var dnfRider = riders[tagID];
+        rejectedReads.Add(new RejectedRead
+        {
+          TagID = tagID,
+          CrossingTime = crossingTime,
+          GapToPrevious = crossingTime - dnfRider.LastCrossing,
+          Reason = "the rider was marked DNF",
+          CrossedBy = crossedBy,
+          WhileDnf = true
+        });
+        if (rejectedReads.Count > MaxRejectedReads)
+          rejectedReads.RemoveAt(0);
+
+        // Once, not every lap they ride while still marked DNF.
+        if (!_dnfReadNoticedAt.TryGetValue(tagID, out var noticed) || crossingTime - noticed > TimeSpan.FromMinutes(2))
+        {
+          _dnfReadNoticedAt[tagID] = crossingTime;
+          dnfNotice = $"{GetRiderDisplayText(tagID)} is marked DNF but crossed the line - racing again? " +
+                      "Fix laps: Back in the race, then Count this read";
+        }
+
         resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
       // Check if we're in final laps phase and this rider has exceeded their allowed laps
@@ -1005,6 +1034,8 @@ public partial class Form1 : Form
       else
         AddTagEvent(message);
     }
+
+    if (dnfNotice != null) RaiseNotice(NoticeLevel.Warning, dnfNotice);
 
     return resultLap;
   }
@@ -1125,7 +1156,7 @@ public partial class Form1 : Form
         CrossedBy = crossedBy
       };
 
-      riders[tagID].Laps.Add(firstLap);
+      riders[tagID].AddReadLap(firstLap);
 
       // Save to database for crash recovery
       if (currentRaceId.HasValue)
@@ -1190,8 +1221,7 @@ public partial class Form1 : Form
         CrossedBy = crossedBy
       };
 
-      rider.Laps.Add(newLap);
-      rider.LastCrossing = crossingTime;
+      rider.AddReadLap(newLap);
 
       // Check for missed reads and mark for potential splitting BEFORE saving to database
       DetectAndMarkPotentialSplits(tagID, messagesToAdd);
@@ -1447,6 +1477,7 @@ public partial class Form1 : Form
 
       // Reads rejected as too soon belong to the session they arrived in.
       rejectedReads.Clear();
+      _dnfReadNoticedAt.Clear();
       lastReadByTransponder.Clear();
       waitingMemberWarnedAt.Clear();
 

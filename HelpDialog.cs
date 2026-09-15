@@ -1,3 +1,8 @@
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Text;
+
 namespace CrossMgrInterface;
 
 /// <summary>
@@ -23,6 +28,12 @@ public sealed class HelpDialog : Form
   private readonly Font _spacerFont;
   private readonly Font _listFont;
   private readonly Font _groupFont;
+  private readonly Font _captionFont;
+
+  private HelpTopic? _current;
+
+  /// <summary>Room left beside a picture, so it never reaches under the scroll bar.</summary>
+  private const int PictureMargin = 24;
 
   public HelpDialog()
   {
@@ -42,6 +53,7 @@ public sealed class HelpDialog : Form
     _spacerFont = new Font("Segoe UI", 4F);
     _listFont = new Font("Segoe UI", 10.5F);
     _groupFont = new Font("Segoe UI", 10.5F, FontStyle.Bold);
+    _captionFont = new Font("Segoe UI", 9.5F, FontStyle.Italic);
 
     var split = new SplitContainer
     {
@@ -56,6 +68,17 @@ public sealed class HelpDialog : Form
     {
       split.Panel1MinSize = 240;
       split.SplitterDistance = 300;
+
+      // Drawn again at the real width: the first topic is rendered in the
+      // constructor, before there is a window to fit its pictures to.
+      if (_current != null) Render(_current);
+    };
+
+    // Pictures are scaled to the width of the text, so a resized window gets them
+    // fitted again. Only when there are any: re-rendering jumps back to the top.
+    ResizeEnd += (_, _) =>
+    {
+      if (_current?.Blocks.Any(b => b.Kind == HelpBlockKind.Picture) == true) Render(_current);
     };
 
     _topics.Dock = DockStyle.Fill;
@@ -124,8 +147,12 @@ public sealed class HelpDialog : Form
     nodes[0].EnsureVisible();
   }
 
+  /// <summary>The text pane, for tests that need to look at what was rendered.</summary>
+  internal RichTextBox Content => _text;
+
   private void Render(HelpTopic topic)
   {
+    _current = topic;
     _text.SuspendLayout();
     _text.Clear();
 
@@ -181,6 +208,10 @@ public sealed class HelpDialog : Form
           }
           Spacer();
           break;
+
+        case HelpBlockKind.Picture:
+          AppendPicture(block.Items.Count > 0 ? block.Items[0] : "", block.Text);
+          break;
       }
     }
 
@@ -219,6 +250,105 @@ public sealed class HelpDialog : Form
     _text.SelectionTabs = tab > 0 ? new[] { tab } : Array.Empty<int>();
   }
 
+  /// <summary>
+  /// A screenshot, scaled down to the width of the text, with its caption beneath.
+  ///
+  /// Inserted as rich text rather than pasted in: pasting goes through the
+  /// clipboard, and would throw away whatever the operator had just copied.
+  /// </summary>
+  private void AppendPicture(string name, string caption)
+  {
+    var png = HelpImages.Load(name);
+    if (png is null) return;
+
+    string rtf;
+    try
+    {
+      using var stream = new MemoryStream(png, writable: false);
+      using var image = Image.FromStream(stream);
+
+      // Never wider than the text and never enlarged: a blown-up screenshot is
+      // both blurred and bigger than the window it shows.
+      var available = Math.Max(240, _text.ClientSize.Width - PictureMargin);
+      var scale = Math.Min(1.0, (double)available / image.Width);
+      var size = new Size(
+        Math.Max(1, (int)Math.Round(image.Width * scale)),
+        Math.Max(1, (int)Math.Round(image.Height * scale)));
+
+      rtf = PictureRtf(image, size, _text.DeviceDpi);
+    }
+    catch (Exception)
+    {
+      return;
+    }
+
+    _text.Select(_text.TextLength, 0);
+    _text.SelectedRtf = rtf;
+
+    Append(caption, _captionFont, Color.DimGray);
+    Spacer();
+  }
+
+  /// <summary>
+  /// A picture as rich text: a 24-bit device-independent bitmap, already scaled to
+  /// the size it is shown at.
+  ///
+  /// Not PNG. The rich edit control behind RichTextBox silently drops a \pngblip
+  /// picture - the insert succeeds and nothing appears - while a plain DIB is
+  /// kept and drawn. Scaled here rather than by the control, which resamples
+  /// crudely and would blur the small print in a screenshot.
+  /// </summary>
+  internal static string PictureRtf(Image image, Size size, int dpi)
+  {
+    using var bitmap = new Bitmap(size.Width, size.Height, PixelFormat.Format24bppRgb);
+    using (var g = Graphics.FromImage(bitmap))
+    {
+      g.Clear(Color.White);
+      g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+      g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+      g.DrawImage(image, new Rectangle(Point.Empty, size));
+    }
+
+    var width = size.Width;
+    var height = size.Height;
+    var stride = (width * 3 + 3) / 4 * 4;
+
+    // BITMAPINFOHEADER. A positive height means the rows run bottom-up.
+    var header = new byte[40];
+    BitConverter.TryWriteBytes(header.AsSpan(0), 40);
+    BitConverter.TryWriteBytes(header.AsSpan(4), width);
+    BitConverter.TryWriteBytes(header.AsSpan(8), height);
+    BitConverter.TryWriteBytes(header.AsSpan(12), (short)1);
+    BitConverter.TryWriteBytes(header.AsSpan(14), (short)24);
+    BitConverter.TryWriteBytes(header.AsSpan(20), stride * height);
+
+    var twipsPerPixel = 1440.0 / Math.Max(1, dpi);
+    var rtf = new StringBuilder(80 + 2 * (header.Length + stride * height));
+    rtf.Append(@"{\rtf1\ansi{\pict\dibitmap0")
+      .Append(@"\picw").Append(width).Append(@"\pich").Append(height)
+      .Append(@"\picwgoal").Append((int)Math.Round(width * twipsPerPixel))
+      .Append(@"\pichgoal").Append((int)Math.Round(height * twipsPerPixel))
+      .Append(' ')
+      .Append(Convert.ToHexString(header));
+
+    var bits = bitmap.LockBits(new Rectangle(Point.Empty, size), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+    try
+    {
+      var row = new byte[stride];
+      for (var y = height - 1; y >= 0; y--)
+      {
+        Marshal.Copy(bits.Scan0 + y * bits.Stride, row, 0, Math.Min(stride, Math.Abs(bits.Stride)));
+        rtf.Append(Convert.ToHexString(row));
+      }
+    }
+    finally
+    {
+      bitmap.UnlockBits(bits);
+    }
+
+    return rtf.Append(@"}\par}").ToString();
+  }
+
   /// <summary>A short blank line: the rich text box has no paragraph spacing of its own.</summary>
   private void Spacer() => Append("", _spacerFont, Color.Black);
 
@@ -255,6 +385,7 @@ public sealed class HelpDialog : Form
       _spacerFont.Dispose();
       _listFont.Dispose();
       _groupFont.Dispose();
+      _captionFont.Dispose();
     }
     base.Dispose(disposing);
   }

@@ -75,3 +75,6 @@ enduro_sent.jsonl
 
 # Python bytecode from the simulator scripts
 __pycache__/
+
+# Local code-graph cache from the tokensave MCP server
+.tokensave/

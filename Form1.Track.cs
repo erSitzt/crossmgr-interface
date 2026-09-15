@@ -182,7 +182,7 @@ public partial class Form1
     {
       Title = "Export circuit",
       FileName = safeName,
-      Filter = "GPX track (*.gpx)|*.gpx|CrossMgr circuit, keeps sectors (*.cmtrack)|*.cmtrack",
+      Filter = TrackGpxExporter.ExportFilter,
       DefaultExt = "gpx",
       AddExtension = true
     };
@@ -206,11 +206,7 @@ public partial class Form1
 
     AddMessage($"Circuit \"{track.Name}\" exported to {Path.GetFileName(save.FileName)}.");
 
-    var caveat = asCircuitFile
-      ? "Sectors and the start/finish line are all preserved."
-      : "GPX carries the shape of the loop. It has no way to record a start/finish " +
-        "line or sectors, so those are written as waypoints for reference only and " +
-        "will need setting again after importing.";
+    var caveat = TrackGpxExporter.ExportCaveat(track, asCircuitFile);
 
     MessageBox.Show(this, $"Saved to {Path.GetFileName(save.FileName)}.\n\n{caveat}",
       "Circuit exported", MessageBoxButtons.OK, MessageBoxIcon.Information);

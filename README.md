@@ -173,7 +173,7 @@ Everything lives under `%LOCALAPPDATA%\CrossMgrInterface\`:
 |---|---|
 | `races.db` | The race database. |
 | `settings.json` | Reader port, advanced mode, last rider list, and so on. |
-| `tracks.json` | Surveyed circuits. A plain file, so a club can email one to the next club using the same venue. |
+| `tracks.json` | Surveyed circuits, including any reference image traced over in the editor. A plain file, so a club can email one to the next club using the same venue. |
 | `tiles\` | Cached map tiles, kept indefinitely. |
 | `logs\` | Rolling text logs: every race event, every correction, window layout, and a render-cost summary every 30 seconds. |
 

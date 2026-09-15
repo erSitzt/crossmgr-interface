@@ -239,8 +239,9 @@ public sealed class RaceCorrectionService
   }
 
   /// <summary>Marks a flagged lap as genuinely long so it stops being re-flagged.</summary>
-  public CorrectionResult DismissSplitSuggestion(string tagId, int lapNumber)
-    => Mutate(tagId, expectedRevision: -1, CorrectionKind.DismissSuggestion, rider =>
+  /// <param name="expectedRevision">The revision the operator was looking at, or -1 not to check.</param>
+  public CorrectionResult DismissSplitSuggestion(string tagId, int lapNumber, int expectedRevision = -1)
+    => Mutate(tagId, expectedRevision, CorrectionKind.DismissSuggestion, rider =>
     {
       var lap = rider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber && !l.IsDeleted);
       if (lap == null) throw new CorrectionException($"Lap {lapNumber} no longer exists.");
@@ -257,8 +258,9 @@ public sealed class RaceCorrectionService
   /// Keeps a lap flagged as two team riders out at once: the operator checked, and
   /// it is real. Stops the detector flagging it again after every crossing.
   /// </summary>
-  public CorrectionResult DismissOverlapWarning(string tagId, int lapNumber)
-    => Mutate(tagId, expectedRevision: -1, CorrectionKind.DismissOverlap, rider =>
+  /// <param name="expectedRevision">The revision the operator was looking at, or -1 not to check.</param>
+  public CorrectionResult DismissOverlapWarning(string tagId, int lapNumber, int expectedRevision = -1)
+    => Mutate(tagId, expectedRevision, CorrectionKind.DismissOverlap, rider =>
     {
       var lap = rider.Laps.FirstOrDefault(l => l.LapNumber == lapNumber && !l.IsDeleted);
       if (lap == null) throw new CorrectionException($"Lap {lapNumber} no longer exists.");
@@ -446,7 +448,7 @@ public sealed class RaceCorrectionService
     var command = History.PopUndo();
     if (command == null) return CorrectionResult.Failure("There is nothing to undo.");
 
-    ApplySnapshots(command.Before);
+    ApplySnapshots(command.Before, left: command.After);
     RouteAliases(command, add: false);
     _log($"↩️ Undone: {command.Description}");
     NotifyApplied(command);
@@ -458,20 +460,60 @@ public sealed class RaceCorrectionService
     var command = History.PopRedo();
     if (command == null) return CorrectionResult.Failure("There is nothing to redo.");
 
-    ApplySnapshots(command.After);
+    ApplySnapshots(command.After, left: command.Before);
     RouteAliases(command, add: true);
     _log($"↪️ Redone: {command.Description}");
     NotifyApplied(command);
     return CorrectionResult.Success(command);
   }
 
-  private void ApplySnapshots(IEnumerable<RiderSnapshot> snapshots)
+  /// <summary>
+  /// Puts riders back the way a snapshot has them - keeping every lap read since.
+  ///
+  /// A snapshot is the whole rider, laps included, so restoring one used to throw
+  /// away every lap recorded after the correction it belonged to: undoing a split
+  /// one lap later cost the rider the lap they had just ridden. The laps read
+  /// since are the live reads on the rider now that <paramref name="left"/> - the
+  /// state the command, or its undo, left behind - does not have. They go back on
+  /// top of the restored laps.
+  /// </summary>
+  private void ApplySnapshots(IEnumerable<RiderSnapshot> snapshots, IEnumerable<RiderSnapshot> left)
   {
     lock (_ridersLock)
     {
+      var leftBehind = left.ToDictionary(s => s.TagID);
+
       foreach (var snapshot in snapshots)
+      {
+        var readSince = ReadsSince(snapshot.TagID, leftBehind);
+        var revision = _riders.TryGetValue(snapshot.TagID, out var current) ? current.Revision : 0;
+
         snapshot.RestoreInto(_riders);
+        if (!_riders.TryGetValue(snapshot.TagID, out var rider)) continue;
+
+        rider.Laps.AddRange(readSince);
+        RecomputeRider(rider, _getRaceStartTime());
+
+        // Never back to a number a Fix laps window may already have seen with
+        // different laps: it compares revisions to know its list is out of date.
+        rider.Revision = Math.Max(rider.Revision, revision + 1);
+      }
     }
+  }
+
+  /// <summary>Live reads on a rider now that were not there when <paramref name="leftBehind"/> was taken.</summary>
+  private List<RiderLap> ReadsSince(string tagId, Dictionary<string, RiderSnapshot> leftBehind)
+  {
+    if (!_riders.TryGetValue(tagId, out var current) ||
+        !leftBehind.TryGetValue(tagId, out var then) || !then.Existed)
+      return new List<RiderLap>();
+
+    var known = then.Laps.Select(l => (l.CrossingTime, l.CrossedBy)).ToHashSet();
+
+    return current.Laps
+      .Where(l => !l.IsDeleted && l.Source == LapSource.Read && !known.Contains((l.CrossingTime, l.CrossedBy)))
+      .Select(l => l.Clone())
+      .ToList();
   }
 
   /// <summary>

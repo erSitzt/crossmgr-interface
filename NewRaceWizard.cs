@@ -679,7 +679,8 @@ public sealed class NewRaceWizard : Form
 
   // ---- Navigation ----------------------------------------------------------
 
-  private void Show(int index)
+  /// <summary>Goes to a step. Internal so the help's screenshot can open on the Riders step.</summary>
+  internal void Show(int index)
   {
     _current = Math.Clamp(index, 0, _steps.Length - 1);
 
@@ -808,7 +809,16 @@ public sealed class NewRaceWizard : Form
       return;
     }
 
-    _importedFile = dialog.FileName;
+    ShowImport(dialog.FileName, result);
+  }
+
+  /// <summary>
+  /// Shows what a rider list gave: the preview, the count, and any rows that were
+  /// skipped. Internal so the help's screenshot can show a list already loaded.
+  /// </summary>
+  internal void ShowImport(string fileName, ImportResult result)
+  {
+    _importedFile = fileName;
     _importedCount = result.ImportedCount;
 
     FillPreview(result.Riders);
@@ -827,7 +837,7 @@ public sealed class NewRaceWizard : Form
       return;
     }
 
-    _importSummary.Text = $"{result.ImportedCount} riders read from {Path.GetFileName(dialog.FileName)}";
+    _importSummary.Text = $"{result.ImportedCount} riders read from {Path.GetFileName(fileName)}";
     _importSummary.ForeColor = Color.DarkGreen;
 
     // Skipped rows used to be written to a console nobody sees, so a

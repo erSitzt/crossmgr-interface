@@ -17,9 +17,22 @@ public sealed class RejectedRead
 
   public string Reason { get; init; } = "";
 
+  /// <summary>
+  /// Read while the rider was marked DNF, rather than too soon after a lap. Not a
+  /// double read, so the transponder check leaves it out of that count.
+  /// </summary>
+  public bool WhileDnf { get; init; }
+
   /// <summary>The transponder that was read, when TagID names a team. See <see cref="RiderLap.CrossedBy"/>.</summary>
   public string? CrossedBy { get; init; }
 
-  /// <summary>Set once an operator has put this read back as a lap.</summary>
-  public bool Restored { get; set; }
+  /// <summary>
+  /// Whether an operator has put this read back as a lap.
+  ///
+  /// Worked out from the rider's laps rather than remembered in a flag. The flag
+  /// was set when Count this read was pressed and nothing cleared it on undo, so
+  /// an undone read vanished from Fix laps for good.
+  /// </summary>
+  public bool IsCountedIn(RiderInfo? rider) =>
+    rider != null && rider.Laps.Any(l => l.Source == LapSource.RestoredShortRead && l.CrossingTime == CrossingTime);
 }

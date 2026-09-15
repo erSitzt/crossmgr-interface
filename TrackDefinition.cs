@@ -178,6 +178,12 @@ public sealed class TrackDefinition
   public string? SourceGpxFile { get; set; }
   public string? Notes { get; set; }
 
+  /// <summary>
+  /// A picture of the circuit to trace over, or null. Only the circuit editor
+  /// draws it; the race-day map never does.
+  /// </summary>
+  public TrackReferenceImage? ReferenceImage { get; set; }
+
   /// <summary>Measured form of the loop. Rebuilt lazily after any edit.</summary>
   [JsonIgnore]
   public TrackGeometry Geometry => _geometry ??= TrackGeometry.Build(Points);
@@ -318,7 +324,8 @@ public sealed class TrackDefinition
     CreatedUtc = CreatedUtc,
     ModifiedUtc = ModifiedUtc,
     SourceGpxFile = SourceGpxFile,
-    Notes = Notes
+    Notes = Notes,
+    ReferenceImage = ReferenceImage?.Clone()
   };
 
   /// <summary>

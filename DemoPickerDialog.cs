@@ -29,13 +29,15 @@ public sealed class DemoPickerDialog : Form
              "needed. The demo opens in a window of its own and runs in real time. Nothing in it touches your " +
              "real races, rider lists or reader settings.",
       Location = new Point(14, 12),
-      Size = new Size(672, 44)
+
+      // Three lines of text. At 44 the last one was cut in half.
+      Size = new Size(672, 54)
     };
 
     _list = new ListBox
     {
-      Location = new Point(14, 66),
-      Size = new Size(210, 300),
+      Location = new Point(14, 70),
+      Size = new Size(210, 296),
       IntegralHeight = false,
       Font = new Font("Segoe UI", 11F),
       ItemHeight = 26,
@@ -45,8 +47,8 @@ public sealed class DemoPickerDialog : Form
 
     _details = new FlowLayoutPanel
     {
-      Location = new Point(238, 66),
-      Size = new Size(448, 300),
+      Location = new Point(238, 70),
+      Size = new Size(448, 296),
       FlowDirection = FlowDirection.TopDown,
       WrapContents = false,
       AutoScroll = true

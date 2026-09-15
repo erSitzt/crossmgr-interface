@@ -21,7 +21,10 @@ public enum DemoReadKind
   Waiting,
 
   /// <summary>A team rider going out while their teammate is still on track.</summary>
-  SecondRiderOut
+  SecondRiderOut,
+
+  /// <summary>A transponder that is nobody's on the rider list and not a rider at all - a marshal's bike over the loop.</summary>
+  Stray
 }
 
 /// <summary>One row of a demo's rider list.</summary>
@@ -67,6 +70,9 @@ public sealed class DemoScenario
   /// <summary>Every read, in the order the reader plans to send them.</summary>
   public required IReadOnlyList<DemoCrossing> Crossings { get; init; }
 
+  /// <summary>The problems planted for the operator to put right, in the order they happen. Empty for most demos.</summary>
+  public IReadOnlyList<DemoProblem> Problems { get; init; } = Array.Empty<DemoProblem>();
+
   /// <summary>A wave start is always a manual one: the operator sends the first class.</summary>
   public bool ManualStart => WaveGap.HasValue;
 
@@ -99,4 +105,79 @@ public sealed class DemoScenario
     StartReader = true,
     ImportedFile = riderListPath
   };
+}
+
+/// <summary>What goes wrong in a problem the problems demo plants - each has its own test of being put right.</summary>
+public enum DemoProblemKind
+{
+  /// <summary>A rider on a spare transponder that is not on the rider list: identify it as them.</summary>
+  IdentifySpare,
+
+  /// <summary>A transponder that is nobody's - a marshal's bike: stop counting it.</summary>
+  StopCounting,
+
+  /// <summary>A pass read twice: nothing to do.</summary>
+  ReadTwice,
+
+  /// <summary>A lap long enough to be two or three: split it.</summary>
+  SplitMissedRead,
+
+  /// <summary>A team rider read while a teammate was still out: delete that lap.</summary>
+  DeleteSecondRider,
+
+  /// <summary>A rider who carries on with a spare transponder: merge the spare into them.</summary>
+  MergeSpare,
+
+  /// <summary>Race control reports a rider retired: mark them DNF.</summary>
+  MarkDnf,
+
+  /// <summary>That rider crosses the line again: back in the race, and count the reads.</summary>
+  BackInTheRace,
+
+  /// <summary>The reader sends nothing for a while: nothing to do but notice.</summary>
+  ReaderOutage,
+
+  /// <summary>The long laps an outage leaves: split every one.</summary>
+  SplitAfterOutage,
+
+  /// <summary>A rider who really does retire: nothing to do, the finish makes them DNF.</summary>
+  Retires
+}
+
+/// <summary>
+/// One problem a demo plants: when it happens, what it is, and what the operator
+/// should do about it - for the demo's checklist, see <see cref="DemoChecklist"/>.
+/// <see cref="At"/> counts from the demo reader's start, as a read's does.
+/// </summary>
+public sealed record DemoProblem(DemoProblemKind Kind, TimeSpan At, string Title, string HowTo)
+{
+  /// <summary>The transponder, or a team's entry, the problem is about.</summary>
+  public string Tag { get; init; } = "";
+
+  /// <summary>A second transponder: the spare merged in, or the team rider read too early.</summary>
+  public string? OtherTag { get; init; }
+
+  /// <summary>The start number a spare should be identified as.</summary>
+  public string? Number { get; init; }
+
+  /// <summary>How many laps a long lap should be split into.</summary>
+  public int Laps { get; init; }
+
+  /// <summary>When the stretch of track the problem is about began - a long lap's start, an outage's.</summary>
+  public TimeSpan Since { get; init; }
+
+  /// <summary>When an outage ends.</summary>
+  public TimeSpan Until { get; init; }
+
+  /// <summary>After this there is no longer any point doing it: the rider marked DNF is already back.</summary>
+  public TimeSpan? Deadline { get; init; }
+
+  /// <summary>Every entry an outage left a long lap on.</summary>
+  public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
+
+  /// <summary>Said in a banner the moment it happens, as race control would say it over the radio.</summary>
+  public string? Announce { get; init; }
+
+  /// <summary>Something to see rather than to put right, so not counted among the fixes.</summary>
+  public bool JustWatch => Kind is DemoProblemKind.ReadTwice or DemoProblemKind.ReaderOutage or DemoProblemKind.Retires;
 }

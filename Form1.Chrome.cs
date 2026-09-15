@@ -451,7 +451,7 @@ public partial class Form1
       new ToolStripSeparator(),
       Item("Open log folder", Keys.None, (s, e) => OpenLogFolder()),
       Item("About", Keys.None, (s, e) => MessageBox.Show(this,
-        $"CrossMgr RFID Interface {Application.ProductVersion}\n\n" +
+        $"CrossMgr RFID Interface {AppVersion.Display}\nBuild {AppVersion.Full}\n\n" +
         "Times motocross and enduro sessions from transponder reads: races, timed qualifying, " +
         "free practice, classes in waves and team events.\n\nPress F1 for help.",
         "About", MessageBoxButtons.OK, MessageBoxIcon.Information))
@@ -484,11 +484,20 @@ public partial class Form1
     _statusNotice = new ToolStripStatusLabel("") { Spring = true, TextAlign = ContentAlignment.MiddleRight };
     _statusRaceName = new ToolStripStatusLabel("") { ForeColor = Color.DimGray };
 
+    // Last, where it is out of the way but always there to read out when someone
+    // asks which build the timing laptop is running. Hover for the full version.
+    var version = new ToolStripStatusLabel(AppVersion.Display)
+    {
+      ForeColor = Color.Gray,
+      ToolTipText = $"CrossMgr RFID Interface {AppVersion.Full}"
+    };
+    _statusBar.ShowItemToolTips = true;
+
     _statusBar.Items.AddRange(new ToolStripItem[]
     {
       _statusReader, Separator(), _statusLastRead, Separator(),
       _statusRaceState, Separator(), _statusRiders,
-      _statusNotice, Separator(), _statusRaceName
+      _statusNotice, Separator(), _statusRaceName, Separator(), version
     });
   }
 

@@ -56,6 +56,7 @@ public static class HelpTopics
         "every rider needs a transponder. For a team race, tick Team event here.",
         "Press Finish. The SET UP checklist on the Race Day screen shows the name, the riders, the length " +
         "and the reader."),
+      Picture("new-race-wizard", "The wizard's Riders step, with a rider list loaded."),
 
       Heading("During the session"),
       Steps(
@@ -63,8 +64,8 @@ public static class HelpTopics
         "drops - or F5. Otherwise the clock starts on the first transponder read.",
         "Watch the Race Day screen: time left, the state of the session, the reader and the top ten. A " +
         "banner at the top tells you about anything that needs attention.",
-        "If a lap looks wrong - a rider shows CHECK or TWO OUT on the Riders tab - press Fix laps... (F2). " +
-        "Every change can be undone with Ctrl+Z.",
+        "If a lap looks wrong - a rider shows CHECK or TWO OUT on the Riders tab - press Fix laps... (F2) and " +
+        "then the suggested fix at the top of the window. Every change can be undone with Ctrl+Z.",
         "When the clock runs out the application runs the finish: the flag, the last laps, and the riders " +
         "who do not come round. Wait for Race finished (Session over)."),
 
@@ -93,6 +94,7 @@ public static class HelpTopics
            "along the top."),
 
       Heading("The demos"),
+      Picture("demo-picker", "Help > Try a demo race..."),
       Bullets(
         "A short motocross race - 16 riders in two classes, 6 minutes and one lap, with a missed read, a rider " +
         "on a spare transponder, a pass read twice and a rider who retires. About 10 minutes.",
@@ -100,13 +102,17 @@ public static class HelpTopics
         "and still counts, and two riders with the same best lap. About 7 minutes.",
         "Enduro in waves - 24 riders in three classes a minute apart. You press START RACE. About 13 minutes.",
         "Team event - six teams of two and two solo riders, with handovers, two riders of one team out at " +
-        "once, and a rider waiting by the loop. About 10 minutes."),
+        "once, and a rider waiting by the loop. About 10 minutes.",
+        "Problems to fix - two teams and six solo riders, and nearly everything that goes wrong on a race day, " +
+        "one thing after another: missed reads, transponder mix-ups, a rider reported retired who is not, and " +
+        "a reader that goes quiet. A checklist says what each problem is and ticks it off once it is put " +
+        "right. About 16 minutes."),
 
       Heading("How a demo runs"),
       Bullets(
         "In real time: a demo takes as long as the session it shows.",
         "A card at the start says what is going to happen and what to try. What's happening? on the DEMO bar " +
-        "shows it again.",
+        "shows it again. In Problems to fix, the checklist opens beside the race, and again from the DEMO bar.",
         "Everything works as it does on a race day: fixing laps, identifying a transponder, undo, the results " +
         "and the gate pick order.",
         "Close the demo's window to end it. Start it again from the Help menu to see it again."),
@@ -376,7 +382,7 @@ public static class HelpTopics
         "and if one keeps being read the banner says they are waiting too close to the loop.",
         "TWO OUT on the Riders tab (TWO ON TRACK? in Race Events) means a different rider of the team crossed " +
         "far too soon after the last one, so two of them look to have been out at once. Nothing is removed by " +
-        "itself: open Fix laps and delete the lap that is not real, or press Keep lap as is if it was real."),
+        "itself: Fix laps offers to delete the lap that is not real - or to keep it, if it was real."),
 
       Heading("Results"),
       Para("The results list each team with its riders under its name, followed by a Team Members section: " +
@@ -400,6 +406,8 @@ public static class HelpTopics
     "buttons that make sense at that moment.",
     new[]
     {
+      Picture("race-day", "The Race Day screen during a race."),
+
       Heading("The tiles"),
       Bullets(
         "TIME LEFT counts down while the session runs - dark red with five minutes left, red with one. " +
@@ -417,7 +425,8 @@ public static class HelpTopics
         "START RACE / START SESSION (F5) - only when the clock is started by hand and has not started yet.",
         "START <class> NOW - only in a race in waves, while a class is still waiting.",
         "End race now... / End session now... (Ctrl+E) - ends the session on your word.",
-        "Fix laps... (F2) - opens a rider with a warning waiting (CHECK or TWO OUT), or says there is nothing to fix.",
+        "Fix laps... (F2) - opens the rider who most needs it (TWO OUT before CHECK, the leaders first), or says " +
+        "there is nothing to fix.",
         "Results... / Gate pick order... - turns green once the session is over.",
         "NEW SESSION... - after the session: sets up the next one. The finished one is kept.",
         "Set up race... / Set up session... - opens the wizard. A session that is still running is ended first, " +
@@ -442,7 +451,9 @@ public static class HelpTopics
       Heading("Opening it"),
       Bullets(
         "Right-click a rider on the Riders tab and choose Fix laps for ..., or double-click the rider.",
-        "Riders > Fix laps... (F2) or Fix laps... on the Race Day screen opens a rider with a warning waiting."),
+        "Riders > Fix laps... (F2) or Fix laps... on the Race Day screen opens the rider who most needs it: two " +
+        "riders on track (TWO OUT) before a missed read (CHECK), and the leaders first. Press it again after each " +
+        "fix for the next one."),
 
       Heading("The Status column on the Riders tab"),
       Keys(
@@ -455,6 +466,10 @@ public static class HelpTopics
         ("UNKNOWN", "this transponder is not on the rider list")),
 
       Heading("The Fix laps window"),
+      Picture("fix-laps", "Fix laps with the suggested fix for a missed read at the top, and a read that came too soon in grey."),
+      Para("A warning comes with its fix, at the top of the window: Split lap 5 into 2 laps for a missed read, " +
+           "Delete lap 5 for two riders on track. Press it and the laps are corrected - or press Keep lap 5 if " +
+           "the lap really was like that. The lap it is about is already selected in the list."),
       Para("Every lap in time order. Reads that were not counted are shown as grey rows among them. Select a " +
            "row, then:"),
       Bullets(
@@ -467,11 +482,12 @@ public static class HelpTopics
         "Count this read - a grey read rejected as too soon that was a real lap after all.",
         "Mark as DNF, Mark as DNS, Back in the race - set the rider's status by hand. The automatic timeout " +
         "never overrides it; Back in the race hands the rider back to it.",
-        "Undo last change and Redo - also Ctrl+Z and Ctrl+Y anywhere in the application, for the last 50 " +
+        "Undo last change and Redo - also Ctrl+Z and Ctrl+Y, in this window or anywhere in the application, for the last 50 " +
         "changes. Redo is there until the next change is made."),
       Para("Changes apply at once and are saved straight away; the standings behind the window move with " +
-           "them. If the rider crosses the line while the window is open, the change is refused and the list " +
-           "refreshed - check it and do it again. After the session is over a correction changes the sheet; " +
+           "them. The list keeps up by itself when the rider crosses the line while the window is open; a change " +
+           "made just as they cross is refused - check the list and do it again. A lap ridden after a change " +
+           "stays when that change is undone. After the session is over a correction changes the sheet; " +
            "it does not restart the session."),
 
       Heading("Missed reads"),
@@ -482,7 +498,12 @@ public static class HelpTopics
       Heading("Reads that come too soon"),
       Para("A read sooner than the minimum lap time after the rider's last counted crossing (10 seconds unless " +
            "changed) is the same pass seen twice. It is not counted, but it stays in Fix laps as a grey row " +
-           "in case it was real.")
+           "in case it was real."),
+
+      Heading("A rider marked DNF crosses the line"),
+      Para("Their read is not counted, but it stays in Fix laps as a grey row, and a banner says a rider marked " +
+           "DNF crossed the line - someone who was reported retired may only have stopped. If they are racing " +
+           "again, press Back in the race, then Count this read on each grey row.")
     },
     HelpTopicIds.Unknown, HelpTopicIds.Teams, HelpTopicIds.Settings);
 
@@ -493,6 +514,7 @@ public static class HelpTopics
     new[]
     {
       Heading("Identify a transponder"),
+      Picture("unknown-transponder", "Identify transponder, for a rider out on a spare transponder."),
       Para("A transponder that is not on the rider list is timed anyway and shows as UNKNOWN. Right-click it " +
            "on the Riders tab, choose Identify this transponder..., then one of:"),
       Bullets(
@@ -554,7 +576,28 @@ public static class HelpTopics
         "Move points: drag a point, Ctrl+click the line to add one, Delete to remove the selected one. Ctrl+Z undoes.",
         "Import... reads a GPX trace (the first lap is used; place the start/finish afterwards) or a CrossMgr " +
         "circuit file (.cmtrack) from another club.",
-        "Export... writes GPX (the shape only) or a .cmtrack file that keeps the start/finish and the sectors."),
+        "Export... writes GPX (the shape only) or a .cmtrack file that keeps the start/finish, the sectors and " +
+        "the reference image."),
+
+      Heading("Tracing over a picture"),
+      Para("A screenshot of an online map with the track drawn on it, or the club's plan of the circuit, can be " +
+           "laid over the map and traced. Zoom the map to the venue first."),
+      Picture("circuit-editor", "Set up circuit, with a reference image being lined up."),
+      Steps(
+        "Under Reference image, press Import image..., or copy the picture and press Ctrl+V in the editor.",
+        "Match 2 points: click a landmark on the picture - a corner, a jump, a building - then the same spot on " +
+        "the map. Do the same with a second landmark far from the first, and the picture lines itself up.",
+        "Align image, to adjust it by hand: drag the picture to move it, a corner to resize it, the round handle " +
+        "to turn it. Drag with the right mouse button to move the map instead.",
+        "Draw loop over it. Opacity sets how much of the map shows through; untick Show to hide the picture."),
+      Bullets(
+        "The picture is saved with the circuit and travels in a .cmtrack export. Only the editor shows it - " +
+        "never the Track tab.",
+        "Tick Lock once it is lined up, so a stray drag while tracing cannot move it. A locked picture cannot be " +
+        "aligned, matched, replaced or removed until Lock is unticked, and it stays locked when the circuit is saved.",
+        "Remove takes it off the circuit. Ctrl+Z brings it back, and undoes a move, a resize, a match or a lock."),
+      Tip("Matching is exact for a flat, top-down screenshot of an online map. A tilted or 3D view, or a plan " +
+          "that was not drawn to scale, only fits roughly - line it up where the track matters most."),
 
       Heading("Without internet"),
       Para("Map tiles are kept on this computer once they have been shown. Before going to a venue with no " +
@@ -562,6 +605,7 @@ public static class HelpTopics
            "(14 to 17 unless changed)."),
 
       Heading("Reading the map"),
+      Picture("track-map", "The Track tab during a race, with the riders in each sector counted on the left."),
       Keys(
         ("Blue dot", "on track - estimated from the last crossing and the rider's recent pace"),
         ("Orange", "overdue - should have crossed by now; waits on the line showing how late"),
@@ -620,6 +664,7 @@ public static class HelpTopics
     new[]
     {
       Heading("Past sessions"),
+      Picture("past-sessions", "Race > Past sessions..., listing a day's sessions."),
       Para("Race > Past sessions... (Ctrl+O) lists every stored session, newest first, with its date, name, " +
            "type, length, riders, laps and status."),
       Bullets(
@@ -697,6 +742,8 @@ public static class HelpTopics
         "The reader's clock is checked when it connects, and each crossing is timed by the reader's own timestamp.",
         "More than one reader can be connected at once."),
 
+      Picture("reader-settings", "Reader > Connection settings..."),
+
       Heading("No reads?"),
       Steps(
         "Look at the READER tile. Grey: press Reader > Start reader connection. Orange, Waiting for reader: " +
@@ -754,6 +801,9 @@ public static class HelpTopics
         ("Backspace", "remove the last point while drawing the loop"),
         ("Ctrl+click", "add a point on the line"),
         ("Delete", "remove the selected point"),
+        ("Ctrl+V", "paste a reference image"),
+        ("Right-drag", "move the map, whichever tool is chosen"),
+        ("Esc", "stop matching points"),
         ("Ctrl+Z", "undo"))
     },
     HelpTopicIds.QuickStart);
@@ -771,11 +821,13 @@ public static class HelpTopics
            "identify the transponder - see Unknown transponders."),
 
       Heading("A lap is flagged CHECK"),
-      Para("Probably a missed read. Fix laps, then Split this lap... - or Keep lap as is if the lap really was slow."),
+      Para("Probably a missed read. Press Fix laps... (F2): the fix at the top splits the lap into the laps it " +
+           "looks like - or keeps it, if the lap really was that slow."),
 
       Heading("A read was not counted"),
-      Para("It came too soon after the rider's last crossing, or after their final lap. Fix laps shows it as " +
-           "a grey row: Count this read if it was a real lap."),
+      Para("A read too soon after the rider's last crossing is taken as the same pass seen twice. Fix laps " +
+           "shows it as a grey row: Count this read if it was a real lap. A read of a rider marked DNF is a grey " +
+           "row too, and a banner says so. A read after the rider's final lap is not kept."),
 
       Heading("The clock shows 00:00 but the race goes on"),
       Para("A race notices the clock has run out on the next crossing; then the leader rides the lap in " +
