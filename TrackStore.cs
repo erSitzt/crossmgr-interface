@@ -17,7 +17,9 @@ namespace CrossMgrInterface;
 ///     venue next month. A JSON file is an attachment; a LiteDB page file is not.
 ///
 /// A thinned loop is a few hundred points, so rewriting the whole file per save
-/// costs nothing and no incremental-write machinery is needed.
+/// costs nothing and no incremental-write machinery is needed. A reference image
+/// adds at most a few megabytes to its circuit (ReferenceImageLayer shrinks it on
+/// import), which is still nothing to rewrite.
 /// </summary>
 public sealed class TrackStore
 {

@@ -1,6 +1,6 @@
 namespace CrossMgrInterface;
 
-public enum MapHitKind { RiderDot, RiderCluster, TrackVertex, SectorHandle, StartFinish }
+public enum MapHitKind { RiderDot, RiderCluster, TrackVertex, SectorHandle, StartFinish, ImageScaleHandle, ImageRotateHandle }
 
 /// <summary>
 /// One clickable thing on the map, in screen coordinates, rebuilt on every paint.
@@ -109,3 +109,14 @@ public sealed class MapVertexDragEventArgs : EventArgs
   public required LatLon Location { get; init; }
   public required bool Finished { get; init; }
 }
+
+public sealed class MapReferenceImageEventArgs : EventArgs
+{
+  /// <summary>Where the gesture puts the picture: a new placement, the circuit's own is left untouched.</summary>
+  public required TrackReferenceImage Placement { get; init; }
+
+  public required bool Finished { get; init; }
+}
+
+/// <summary>A lettered marker on the map, such as a landmark picked for a two-point match.</summary>
+public readonly record struct MapPin(LatLon Location, string Label, Color Color);

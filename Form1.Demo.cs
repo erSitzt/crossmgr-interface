@@ -15,6 +15,13 @@ public partial class Form1
 
   private Panel? _demoBanner;
   private CancellationTokenSource? _demoReaderStop;
+  private DemoReader? _demoReader;
+
+  // The problems demo's checklist, and the link on the DEMO bar that opens it.
+  private DemoChecklistTracker? _demoChecklist;
+  private DemoChecklistDialog? _demoChecklistDialog;
+  private LinkLabel? _demoChecklistLink;
+  private System.Windows.Forms.Timer? _demoChecklistTimer;
 
   /// <summary>Help > Try a demo race..., and the link on the Race Day screen.</summary>
   private void ShowDemoPicker()
@@ -69,6 +76,21 @@ public partial class Form1
     // has to go last.
     banner.Controls.Add(words);
     banner.Controls.Add(about);
+
+    if (_demo is { Scenario.Problems.Count: > 0 })
+    {
+      _demoChecklistLink = new LinkLabel
+      {
+        Text = "Problems to fix",
+        Dock = DockStyle.Right,
+        Width = 170,
+        TextAlign = ContentAlignment.MiddleRight,
+        Font = new Font("Segoe UI", 9.75F, FontStyle.Bold)
+      };
+      _demoChecklistLink.LinkClicked += (_, _) => ShowDemoChecklist();
+      banner.Controls.Add(_demoChecklistLink);
+    }
+
     return banner;
   }
 
@@ -100,6 +122,7 @@ public partial class Form1
     }
 
     StartDemoReader();
+    StartDemoChecklist();
   }
 
   /// <summary>The demo's intro card. True when the operator pressed Start demo.</summary>
@@ -116,6 +139,7 @@ public partial class Form1
     var stop = _demoReaderStop.Token;
 
     var reader = new DemoReader(readerPort, demo.Scenario.Crossings, DemoWaveStartedAt, () => raceFinished);
+    _demoReader = reader;
     reader.Connected += () =>
     {
       AddMessage(demo.Scenario.ManualStart
@@ -144,6 +168,83 @@ public partial class Form1
     });
   }
 
+  /// <summary>
+  /// The problems demo's checklist. Looks at the race once a second, ticks off
+  /// what has been put right, and says in a banner what race control would say
+  /// over the radio. Opens beside the race unless the demo runs unattended.
+  /// </summary>
+  private void StartDemoChecklist()
+  {
+    var demo = _demo!;
+    if (demo.Scenario.Problems.Count == 0) return;
+
+    _demoChecklist = new DemoChecklistTracker(demo.Scenario.Problems);
+    _demoChecklistTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+    _demoChecklistTimer.Tick += (_, _) => UpdateDemoChecklist();
+    _demoChecklistTimer.Start();
+
+    if (!demo.Unattended) ShowDemoChecklist();
+  }
+
+  private void UpdateDemoChecklist()
+  {
+    if (_demoChecklist is not { } checklist) return;
+
+    foreach (var problem in checklist.Update(DemoRace()))
+    {
+      AddMessage($"🎬 {problem.Announce}");
+      RaiseNotice(NoticeLevel.Warning, problem.Announce!);
+    }
+
+    if (_demoChecklistLink != null)
+    {
+      var text = checklist.LeftToFix > 0 ? $"Problems to fix ({checklist.LeftToFix})" : "Problems to fix";
+      if (_demoChecklistLink.Text != text) _demoChecklistLink.Text = text;
+    }
+
+    if (_demoChecklistDialog is { IsDisposed: false, Visible: true } dialog) dialog.Render();
+  }
+
+  private void ShowDemoChecklist()
+  {
+    if (_demoChecklist is not { } checklist) return;
+
+    if (_demoChecklistDialog is not { IsDisposed: false })
+    {
+      _demoChecklistDialog = new DemoChecklistDialog(checklist) { StartPosition = FormStartPosition.Manual };
+
+      // Beside the race rather than over it: the Riders tab and Fix laps are what it is about.
+      var area = Screen.FromControl(this).WorkingArea;
+      _demoChecklistDialog.Location = new Point(
+        Math.Max(area.Left, Math.Min(Right - _demoChecklistDialog.Width - 16, area.Right - _demoChecklistDialog.Width)),
+        Math.Max(area.Top, Top + 90));
+
+      _demoChecklistDialog.Show(this);
+    }
+    else if (!_demoChecklistDialog.Visible)
+    {
+      _demoChecklistDialog.Visible = true;
+    }
+
+    _demoChecklistDialog.Render();
+    _demoChecklistDialog.Activate();
+  }
+
+  /// <summary>What the checklist needs to see of the race, copied under the lock.</summary>
+  private DemoRaceView DemoRace()
+  {
+    lock (ridersLock)
+    {
+      return new DemoRaceView(
+        _demoReader?.StartedAt,
+        DateTime.Now,
+        riders.ToDictionary(p => p.Key, p => CloneRiderForDisplay(p.Value)),
+        ignoredTags.ToHashSet(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, string>(tagAliases),
+        rejectedReads.ToList());
+    }
+  }
+
   /// <summary>When a class left the gate, asked from the demo reader's thread.</summary>
   private DateTime? DemoWaveStartedAt(string className)
   {
@@ -153,5 +254,9 @@ public partial class Form1
     }
   }
 
-  private void StopDemoReader() => _demoReaderStop?.Cancel();
+  private void StopDemoReader()
+  {
+    _demoReaderStop?.Cancel();
+    _demoChecklistTimer?.Stop();
+  }
 }

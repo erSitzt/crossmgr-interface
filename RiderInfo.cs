@@ -40,6 +40,18 @@ public class RiderInfo
   /// </summary>
   public int Revision { get; set; }
 
+  /// <summary>
+  /// Adds a lap from a live read. Moves <see cref="Revision"/> on, as a correction
+  /// does: a read used to add the lap and leave the revision alone, so a Fix laps
+  /// window open on this rider could not tell its list had gone out of date.
+  /// </summary>
+  public void AddReadLap(RiderLap lap)
+  {
+    Laps.Add(lap);
+    LastCrossing = lap.CrossingTime;
+    Revision++;
+  }
+
   /// <summary>Status as shown to a person: "DNF", "DNS", or empty while racing.</summary>
   public string StatusText => IsDNS ? "DNS" : IsDNF ? "DNF" : "";
 

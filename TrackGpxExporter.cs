@@ -29,6 +29,34 @@ public static class TrackGpxExporter
   public static string FileExtension => ".gpx";
   public static string CircuitFileExtension => ".cmtrack";
 
+  /// <summary>
+  /// GPX first because it is the one other software reads. The circuit file is
+  /// the lossless one, and the filter name is not enough to say so - hence
+  /// <see cref="ExportCaveat"/>.
+  /// </summary>
+  public const string ExportFilter =
+    "GPX track (*.gpx)|*.gpx|CrossMgr circuit, keeps sectors and picture (*.cmtrack)|*.cmtrack";
+
+  /// <summary>
+  /// What an export kept and what it could not, for the confirmation. The two
+  /// formats are not equivalent, so it says which one was actually written rather
+  /// than trusting the filter name to have been read.
+  /// </summary>
+  public static string ExportCaveat(TrackDefinition track, bool asCircuitFile)
+  {
+    var picture = track.ReferenceImage is not null;
+
+    if (asCircuitFile)
+      return picture
+        ? "Sectors, the start/finish line and the reference image are all preserved."
+        : "Sectors and the start/finish line are all preserved.";
+
+    return "GPX carries the shape of the loop. It has no way to record a start/finish " +
+           "line or sectors, so those are written as waypoints for reference only and " +
+           "will need setting again after importing." +
+           (picture ? " The reference image is not included." : "");
+  }
+
   public static string ToGpx(TrackDefinition track)
   {
     XNamespace ns = Ns;

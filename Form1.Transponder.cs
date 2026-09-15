@@ -36,7 +36,7 @@ public partial class Form1
     {
       foreach (var read in rejectedReads)
       {
-        if (read.Restored) continue;
+        if (read.WhileDnf || read.IsCountedIn(riders.GetValueOrDefault(read.TagID))) continue;
         counts[read.TagID] = counts.TryGetValue(read.TagID, out var n) ? n + 1 : 1;
       }
     }

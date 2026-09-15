@@ -112,11 +112,16 @@ public partial class Form1
     dialog.ShowDialog(this);
   }
 
+  /// <summary>
+  /// A copy of one rider, taken under the lock. The Fix laps window reads the
+  /// laps while riders are still crossing; handing it the live list let a read on
+  /// the network thread change the list while the window was drawing it.
+  /// </summary>
   private RiderInfo? LookupRider(string tagId)
   {
     lock (ridersLock)
     {
-      return riders.TryGetValue(tagId, out var rider) ? rider : null;
+      return riders.TryGetValue(tagId, out var rider) ? CloneRiderForDisplay(rider) : null;
     }
   }
 

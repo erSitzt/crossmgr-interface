@@ -52,14 +52,18 @@ public sealed class TrackTabView : IDisposable
   private IReadOnlyList<MapRiderMarker> _field = Array.Empty<MapRiderMarker>();
   private bool _suppressTrackEvent;
 
-  public TrackTabView(TileProvider provider, MapLabelParts labelParts, Action<string>? log = null)
+  /// <param name="tileOptions">Where map tiles come from. Left out, the application's own cache, online.</param>
+  public TrackTabView(TileProvider provider, MapLabelParts labelParts, Action<string>? log = null,
+    TileSessionOptions? tileOptions = null)
   {
     _log = log;
     _startProvider = provider;
+    _tileOptions = tileOptions;
     InitialLabelParts = labelParts;
   }
 
   private readonly TileProvider _startProvider;
+  private readonly TileSessionOptions? _tileOptions;
 
   /// <summary>Read once while the toolbar is built, before the checkboxes exist.</summary>
   private MapLabelParts InitialLabelParts { get; }
@@ -330,7 +334,7 @@ public sealed class TrackTabView : IDisposable
 
     _mapPanel = new Panel { Dock = DockStyle.Fill, BackColor = MapDrawResources.LandColor };
 
-    _session = new TileSession(_mapPanel, _startProvider, _log);
+    _session = new TileSession(_mapPanel, _startProvider, _log, _tileOptions);
     _mapCombo.SelectedItem = TileProvider.All.First(p => p.Id == _session.Provider.Id);
 
     _renderer = new TrackMapRenderer(_mapPanel, _session)
@@ -546,7 +550,7 @@ public sealed class TrackTabView : IDisposable
     // The whole tile stack goes at once - cache folder, backoff state and decoded
     // tiles are all per-provider, and a half-swapped map draws the old imagery.
     var previous = _session;
-    _session = new TileSession(_mapPanel, provider, _log);
+    _session = new TileSession(_mapPanel, provider, _log, _tileOptions);
     _renderer.SetTiles(_session);
     previous.Dispose();
 

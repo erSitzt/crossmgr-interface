@@ -376,21 +376,19 @@ public partial class Form1
   }
 
   /// <summary>
-  /// The Race Day "Fix laps..." button. Opens the rider who most needs looking
-  /// at - the one with an outstanding missed-read warning - rather than asking
-  /// the operator to go and find them.
+  /// The Race Day "Fix laps..." button and F2. Opens the rider who most needs
+  /// looking at rather than asking the operator to go and find them - two riders
+  /// on track before a missed read, the leaders first (see LapFixAdvisor). It used
+  /// to open whichever warned rider the dictionary happened to list first.
   /// </summary>
   private void OpenLapCorrectionForMostUrgentRider()
   {
     string? target;
     lock (ridersLock)
     {
-      target = riders.Values
-        .Where(r => !ignoredTags.Contains(r.TagID))
-        .FirstOrDefault(r => r.Laps.Any(l =>
-          (l.IsSuggestedForSplit && !l.SuggestionDismissed) ||
-          (l.IsSuspectedOverlap && !l.OverlapDismissed)))
-        ?.TagID;
+      var runningOrder = PositionCalculator.GetSortedRidersFromSnapshot(
+        riders.Values.Where(r => !ignoredTags.Contains(r.TagID)));
+      target = LapFixAdvisor.MostUrgent(runningOrder)?.TagID;
     }
 
     if (target == null)

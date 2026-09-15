@@ -15,7 +15,10 @@ public enum MapInteractionMode
   MoveVertex,
 
   /// <summary>Clicking places the start/finish line, or a sector boundary.</summary>
-  PlaceAnchor
+  PlaceAnchor,
+
+  /// <summary>The reference image is dragged by its body, resized by its corners and turned by its round handle.</summary>
+  AlignImage
 }
 
 /// <summary>
@@ -42,6 +45,12 @@ public sealed class TrackMapRenderer : IDisposable
   private const int CullMarginPx = 32;
   private const int VertexHandlePx = 9;
   private const float SegmentPickTolerancePx = 7f;
+  private const float RotateHandleOffsetPx = 28f;
+  private const float RotateHandleRadiusPx = 6f;
+  private const float MinPictureForCornerHandlesPx = 60f;
+  private const float PinRadiusPx = 10f;
+
+  private static readonly Color HandleColor = Color.FromArgb(25, 118, 210);
 
   private readonly Panel _host;
 
@@ -72,6 +81,16 @@ public sealed class TrackMapRenderer : IDisposable
   private bool _suppressNextClick;
   private bool _disposed;
 
+  private enum ImageGesture { None, Move, Scale, Rotate }
+
+  /// <summary>What the left button is doing to the reference image. Decided on MouseDown, started past the drag threshold.</summary>
+  private ImageGesture _imageGesture;
+
+  /// <summary>The placement when the gesture began. Every step is computed from this, never from the step before.</summary>
+  private TrackReferenceImage? _imageOrigin;
+
+  private bool _rightPanning;
+
   public TrackMapRenderer(Panel host, TileSession session)
   {
     _host = host;
@@ -98,6 +117,7 @@ public sealed class TrackMapRenderer : IDisposable
     host.MouseLeave += OnMouseLeave;
     host.KeyDown += OnKeyDown;
     host.PreviewKeyDown += OnPreviewKeyDown;
+    host.MouseCaptureChanged += OnMouseCaptureChanged;
 
     // A Panel does not receive MouseWheel unless it has focus. Without this,
     // wheel zoom silently does nothing and it looks like a maths bug.
@@ -137,6 +157,9 @@ public sealed class TrackMapRenderer : IDisposable
   // ---- Camera --------------------------------------------------------------
 
   public MapViewport Viewport => _viewport;
+
+  /// <summary>Tiles still queued or downloading. The help screenshots wait for this to reach zero.</summary>
+  internal int PendingTileCount => _tiles.PendingCount;
   public int MinZoom { get; set; } = 3;
   public int MaxZoom { get; set; } = TileMath.MaxZoom;
 
@@ -144,6 +167,7 @@ public sealed class TrackMapRenderer : IDisposable
   public event EventHandler<MapClickEventArgs>? MapClicked;
   public event EventHandler<MapPickEventArgs>? Picked;
   public event EventHandler<MapVertexDragEventArgs>? VertexDragged;
+  public event EventHandler<MapReferenceImageEventArgs>? ReferenceImageChanged;
 
   // ---- Content (owned by the host; the renderer only reads) ----------------
 
@@ -166,6 +190,24 @@ public sealed class TrackMapRenderer : IDisposable
   public int? SelectedVertexIndex { get; set; }
   public bool ShowVertices { get; set; }
   public bool DashClosingSegment { get; set; }
+
+  /// <summary>
+  /// The decoded picture for <see cref="TrackDefinition.ReferenceImage"/>, or null
+  /// to draw none. Owned by whoever set it - the circuit editor - rather than by
+  /// the renderer. The race-day tab never sets it.
+  /// </summary>
+  public ReferenceImageLayer? ReferenceLayer { get; set; }
+
+  public float ReferenceOpacity { get; set; } = 0.6f;
+
+  /// <summary>Draws the picture at a third of its opacity, so the map shows through while a spot on the map is being clicked.</summary>
+  public bool ReferenceFaded { get; set; }
+
+  /// <summary>The picture's outline, corner handles and rotate handle.</summary>
+  public bool ShowReferenceHandles { get; set; }
+
+  /// <summary>Lettered markers, such as the landmarks of a two-point match.</summary>
+  public IReadOnlyList<MapPin> Pins { get; set; } = Array.Empty<MapPin>();
 
   /// <summary>Shown centred when there is no circuit to draw.</summary>
   public string? EmptyStateText { get; set; }
@@ -311,6 +353,12 @@ public sealed class TrackMapRenderer : IDisposable
     g.InterpolationMode = InterpolationMode.HighQualityBicubic;
     g.TextRenderingHint = MapDrawResources.TextHint;
 
+    // Above the tiles and below the loop, so the line being traced over it always
+    // shows. After the mode reset above, not straight after the tiles: the tile
+    // pass leaves SourceCopy set.
+    var picture = VisibleReferenceImage;
+    if (picture is not null) DrawReferenceImage(g, picture, bounds);
+
     if (Track is { Points.Count: >= 2 })
     {
       DrawTrack(g, bounds);
@@ -321,8 +369,15 @@ public sealed class TrackMapRenderer : IDisposable
     else
     {
       _screenPolyline = Array.Empty<PointF>();
-      DrawEmptyState(g, bounds);
+
+      // A picture to trace over is not an empty map, and the prompt would sit on it.
+      if (picture is null) DrawEmptyState(g, bounds);
     }
+
+    // After the vertices, so a handle wins the hit test where the two overlap, and
+    // outside the loop's block, because the picture usually comes before any points.
+    if (picture is not null && ShowReferenceHandles) DrawReferenceHandles(g, picture);
+    DrawPins(g);
 
     DrawRiders(g);
     DrawWatermark(g, bounds);
@@ -551,6 +606,112 @@ public sealed class TrackMapRenderer : IDisposable
       });
     }
   }
+
+  /// <summary>
+  /// The picture, when there is one to show. The size check guards against a layer
+  /// that does not belong to this placement: drawing it would put the wrong picture
+  /// in the wrong place, with total confidence.
+  /// </summary>
+  private TrackReferenceImage? VisibleReferenceImage =>
+    ReferenceLayer is { } layer && Track?.ReferenceImage is { } image &&
+    image.PixelWidth == layer.Width && image.PixelHeight == layer.Height
+      ? image
+      : null;
+
+  private void DrawReferenceImage(Graphics g, TrackReferenceImage picture, Rectangle bounds)
+  {
+    try
+    {
+      var opacity = ReferenceFaded ? ReferenceOpacity / 3 : ReferenceOpacity;
+
+      // Cheaper filtering while anything is dragged: nobody judges the picture
+      // mid-drag, and the drag has to keep up with the mouse.
+      ReferenceLayer!.Draw(g, _viewport, picture, opacity, bounds, fast: _dragging);
+    }
+    catch (Exception ex)
+    {
+      // Its own catch rather than OnPaint's, which drops the whole frame. Losing
+      // the loop being traced along with a picture that would not draw is worse
+      // than losing the picture alone.
+      g.DrawString($"Reference image could not be drawn: {ex.Message}", _res.StatusFont,
+        _res.AttributionBrush, bounds.Left + 8, bounds.Bottom - 48);
+    }
+  }
+
+  private void DrawReferenceHandles(Graphics g, TrackReferenceImage picture)
+  {
+    var corners = picture.ScreenCorners(_viewport);
+
+    // Zoomed deep into a big picture its corners are far off screen, and GDI+
+    // throws on coordinates that large rather than clipping them.
+    if (corners.Any(c => !double.IsFinite(c.X) || !double.IsFinite(c.Y) || Math.Abs(c.X) > 1e5 || Math.Abs(c.Y) > 1e5))
+      return;
+
+    var points = corners.Select(c => new PointF((float)c.X, (float)c.Y)).ToArray();
+    var pen = _res.PenFor(HandleColor, 1.5f);
+
+    g.DrawPolygon(pen, points);
+
+    // The rotate handle stands out from the middle of the top edge. "Up" for the
+    // picture is its own y axis reversed, so the handle turns with it.
+    var theta = picture.RotationDegrees * Math.PI / 180;
+    var topMiddle = new PointF((points[0].X + points[1].X) / 2, (points[0].Y + points[1].Y) / 2);
+    var knob = new PointF(
+      topMiddle.X + (float)Math.Sin(theta) * RotateHandleOffsetPx,
+      topMiddle.Y - (float)Math.Cos(theta) * RotateHandleOffsetPx);
+
+    g.DrawLine(pen, topMiddle, knob);
+
+    var knobBox = new RectangleF(knob.X - RotateHandleRadiusPx, knob.Y - RotateHandleRadiusPx,
+      RotateHandleRadiusPx * 2, RotateHandleRadiusPx * 2);
+    g.FillEllipse(_res.WhiteBrush, knobBox);
+    g.DrawEllipse(_res.PenFor(HandleColor, 2f), knobBox);
+
+    // Corner handles only when the picture is big enough to tell them apart: pick
+    // boxes are at least 20px, and on a small picture four of them cover it.
+    var longestSide = Math.Max(Distance(points[0], points[1]), Distance(points[1], points[2]));
+    if (longestSide >= MinPictureForCornerHandlesPx)
+    {
+      for (var i = 0; i < points.Length; i++)
+      {
+        var box = new RectangleF(points[i].X - VertexHandlePx / 2f, points[i].Y - VertexHandlePx / 2f,
+          VertexHandlePx, VertexHandlePx);
+
+        g.FillRectangle(_res.WhiteBrush, box);
+        g.DrawRectangle(pen, box.X, box.Y, box.Width, box.Height);
+
+        _hits.Add(new MapHitElement
+        {
+          Kind = MapHitKind.ImageScaleHandle,
+          Bounds = MapHitElement.Around(points[i], VertexHandlePx),
+          VertexIndex = i
+        });
+      }
+    }
+
+    // Added last, so it wins where it overlaps a corner of a small or turned picture.
+    _hits.Add(new MapHitElement
+    {
+      Kind = MapHitKind.ImageRotateHandle,
+      Bounds = MapHitElement.Around(knob, RotateHandleRadiusPx)
+    });
+  }
+
+  private void DrawPins(Graphics g)
+  {
+    foreach (var pin in Pins)
+    {
+      var p = _viewport.ToScreen(pin.Location);
+      var box = new RectangleF(p.X - PinRadiusPx, p.Y - PinRadiusPx, PinRadiusPx * 2, PinRadiusPx * 2);
+
+      g.FillEllipse(_res.BrushFor(pin.Color), box);
+      g.DrawEllipse(_res.PenFor(Color.White, 2f), box);
+      g.DrawString(pin.Label, _res.ClusterFont, _res.WhiteBrush, p, _res.Centred);
+    }
+  }
+
+  private static float Distance(PointF a, PointF b) =>
+    MathF.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
   private void DrawRiders(Graphics g)
   {
@@ -1000,12 +1161,41 @@ public sealed class TrackMapRenderer : IDisposable
 
   private void OnMouseDown(object? sender, MouseEventArgs e)
   {
+    if (e.Button == MouseButtons.Right)
+    {
+      // Right-drag always pans. Needed once a picture being aligned fills the
+      // view: the left button then always lands on the picture, and there is no
+      // empty map left to drag.
+      _dragStart = e.Location;
+      _dragOrigin = _viewport;
+      _dragging = false;
+      _rightPanning = true;
+      return;
+    }
+
     if (e.Button != MouseButtons.Left) return;
 
     _dragStart = e.Location;
     _dragOrigin = _viewport;
     _dragging = false;
     _draggingVertex = false;
+    _imageGesture = ImageGesture.None;
+    _imageOrigin = null;
+
+    if (Mode == MapInteractionMode.AlignImage && VisibleReferenceImage is { } picture)
+    {
+      // Handles first: they sit on the picture's edge, so a hit on one is a hit on
+      // the picture too. Off the picture altogether, the drag pans as usual.
+      _imageGesture = HitTest(e.Location, MapHitKind.ImageScaleHandle, MapHitKind.ImageRotateHandle)?.Kind switch
+      {
+        MapHitKind.ImageScaleHandle => ImageGesture.Scale,
+        MapHitKind.ImageRotateHandle => ImageGesture.Rotate,
+        _ => picture.Contains(_viewport, e.Location) ? ImageGesture.Move : ImageGesture.None
+      };
+
+      if (_imageGesture != ImageGesture.None) _imageOrigin = picture;
+      return;
+    }
 
     if (Mode == MapInteractionMode.MoveVertex)
     {
@@ -1021,6 +1211,27 @@ public sealed class TrackMapRenderer : IDisposable
 
   private void OnMouseMove(object? sender, MouseEventArgs e)
   {
+    if (_rightPanning && e.Button == MouseButtons.Right)
+    {
+      if (_dragging || PastDragThreshold(e.Location)) PanFromDragOrigin(e.Location);
+      return;
+    }
+
+    if (_imageGesture != ImageGesture.None && _imageOrigin is { } origin && e.Button == MouseButtons.Left)
+    {
+      // Only past the drag threshold: a click on a handle must neither nudge the
+      // picture nor leave an undo entry behind.
+      if (!_dragging && !PastDragThreshold(e.Location)) return;
+
+      _dragging = true;
+      ReferenceImageChanged?.Invoke(this, new MapReferenceImageEventArgs
+      {
+        Placement = ApplyImageGesture(origin, e.Location),
+        Finished = false
+      });
+      return;
+    }
+
     if (e.Button == MouseButtons.Left && (_dragging || _draggingVertex || PastDragThreshold(e.Location)))
     {
       _dragging = true;
@@ -1036,13 +1247,7 @@ public sealed class TrackMapRenderer : IDisposable
         return;
       }
 
-      _host.Cursor = Cursors.SizeAll;
-      ReleaseFraming();
-
-      // Recomputed from the ORIGINAL viewport and the cumulative delta, never
-      // incrementally: integer rounding accumulates visible drift over a long drag.
-      _viewport = _dragOrigin.PannedByPixels(_dragStart.X - e.X, _dragStart.Y - e.Y);
-      _host.Invalidate();
+      PanFromDragOrigin(e.Location);
       return;
     }
 
@@ -1058,14 +1263,84 @@ public sealed class TrackMapRenderer : IDisposable
     _host.Cursor = hovered is not null || (Mode == MapInteractionMode.MoveVertex &&
                                            HitTest(e.Location, MapHitKind.TrackVertex) is not null)
       ? Cursors.Hand
-      : Cursors.Default;
+      : Mode == MapInteractionMode.AlignImage
+        ? ImageCursor(e.Location)
+        : Cursors.Default;
+  }
+
+  private void PanFromDragOrigin(Point location)
+  {
+    _dragging = true;
+    _host.Cursor = Cursors.SizeAll;
+    ReleaseFraming();
+
+    // Recomputed from the ORIGINAL viewport and the cumulative delta, never
+    // incrementally: integer rounding accumulates visible drift over a long drag.
+    _viewport = _dragOrigin.PannedByPixels(_dragStart.X - location.X, _dragStart.Y - location.Y);
+    _host.Invalidate();
+  }
+
+  /// <summary>
+  /// What the pointer would do to the picture from here. The resize cursor follows
+  /// where the corner actually points, because a picture turned 90 degrees has its
+  /// top-left corner at the top right.
+  /// </summary>
+  private Cursor ImageCursor(Point location)
+  {
+    if (VisibleReferenceImage is not { } picture) return Cursors.Default;
+
+    var handle = HitTest(location, MapHitKind.ImageScaleHandle, MapHitKind.ImageRotateHandle);
+    if (handle?.Kind == MapHitKind.ImageRotateHandle) return Cursors.Hand;
+
+    if (handle?.Kind == MapHitKind.ImageScaleHandle)
+    {
+      var centre = _viewport.ToScreenD(picture.Center);
+      var corner = picture.ScreenCorners(_viewport)[handle.VertexIndex];
+      return (corner.X - centre.X) * (corner.Y - centre.Y) >= 0 ? Cursors.SizeNWSE : Cursors.SizeNESW;
+    }
+
+    return picture.Contains(_viewport, location) ? Cursors.SizeAll : Cursors.Default;
+  }
+
+  private TrackReferenceImage ApplyImageGesture(TrackReferenceImage origin, Point location)
+  {
+    var from = new PointD(_dragStart.X, _dragStart.Y);
+    var to = new PointD(location.X, location.Y);
+
+    return _imageGesture switch
+    {
+      ImageGesture.Scale => origin.ScaledAboutCentre(_viewport, from, to),
+      ImageGesture.Rotate => origin.RotatedAboutCentre(_viewport, from, to),
+      _ => origin.MovedBy(_viewport, to.X - from.X, to.Y - from.Y)
+    };
   }
 
   private void OnMouseUp(object? sender, MouseEventArgs e)
   {
+    if (e.Button == MouseButtons.Right)
+    {
+      if (!_rightPanning) return;
+
+      _rightPanning = false;
+      if (!_dragging) return;
+
+      _dragging = false;
+      _host.Cursor = Cursors.Default;
+      AfterViewChange();
+      return;
+    }
+
     if (e.Button != MouseButtons.Left) return;
 
     _host.Cursor = Cursors.Default;
+
+    if (_imageGesture != ImageGesture.None)
+    {
+      // Consumed whether it moved or not: a press on the picture is never a click
+      // on the map underneath it.
+      FinishImageGesture(e.Location);
+      return;
+    }
 
     if (_draggingVertex && SelectedVertexIndex is { } index)
     {
@@ -1116,6 +1391,34 @@ public sealed class TrackMapRenderer : IDisposable
     });
   }
 
+  private void FinishImageGesture(Point location)
+  {
+    var final = _imageOrigin is { } origin && _dragging ? ApplyImageGesture(origin, location) : null;
+
+    _imageGesture = ImageGesture.None;
+    _imageOrigin = null;
+    _dragging = false;
+
+    if (final is not null)
+      ReferenceImageChanged?.Invoke(this, new MapReferenceImageEventArgs { Placement = final, Finished = true });
+
+    _host.Invalidate();
+  }
+
+  /// <summary>
+  /// A message box or Alt+Tab can take the mouse mid-drag, and then no MouseUp ever
+  /// arrives: the picture would stay stuck to a gesture that has ended, and the
+  /// editor's one-undo-per-gesture would never close. Only while the button is
+  /// still held - on an ordinary release, MouseUp has already finished the gesture.
+  /// </summary>
+  private void OnMouseCaptureChanged(object? sender, EventArgs e)
+  {
+    if (_imageGesture == ImageGesture.None || _host.Capture) return;
+    if ((Control.MouseButtons & MouseButtons.Left) == 0) return;
+
+    FinishImageGesture(_host.PointToClient(Control.MousePosition));
+  }
+
   private void OnMouseDoubleClick(object? sender, MouseEventArgs e)
   {
     if (e.Button != MouseButtons.Left) return;
@@ -1128,6 +1431,14 @@ public sealed class TrackMapRenderer : IDisposable
       {
         Element = element, Screen = e.Location, DoubleClick = true
       });
+      return;
+    }
+
+    // Places once, not twice: otherwise one double-click spends two steps of a
+    // two-point match on the same landmark.
+    if (Mode == MapInteractionMode.PlaceAnchor)
+    {
+      _suppressNextClick = true;
       return;
     }
 
@@ -1231,6 +1542,7 @@ public sealed class TrackMapRenderer : IDisposable
     _host.MouseLeave -= OnMouseLeave;
     _host.KeyDown -= OnKeyDown;
     _host.PreviewKeyDown -= OnPreviewKeyDown;
+    _host.MouseCaptureChanged -= OnMouseCaptureChanged;
     _tiles.TilesChanged -= OnTilesChanged;
 
     _res.Dispose();

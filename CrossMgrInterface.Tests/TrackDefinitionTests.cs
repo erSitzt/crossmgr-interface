@@ -12,6 +12,33 @@ public class TrackDefinitionTests
     Assert.True(TrackBuilder.Metres(expected, actual) <= toleranceMetres,
       $"{what}: {TrackBuilder.Metres(expected, actual):F2}m adrift (tolerance {toleranceMetres}m)");
 
+  // ---- Reference image -----------------------------------------------------
+
+  [Fact]
+  public void CloningCopiesThePicturesPlacementButSharesItsBytes()
+  {
+    // Every undo snapshot is a clone. Copying megabytes of picture into each of
+    // fifty would be absurd; sharing the placement would let a drag rewrite history.
+    var track = TrackBuilder.Square();
+    track.ReferenceImage = new TrackReferenceImage
+    {
+      ImageData = new byte[] { 1, 2, 3 },
+      PixelWidth = 10,
+      PixelHeight = 10,
+      Center = TrackBuilder.SouthMid,
+      Scale = 1e-5,
+      RotationDegrees = 5
+    };
+
+    var clone = track.Clone();
+
+    Assert.NotSame(track.ReferenceImage, clone.ReferenceImage);
+    Assert.Same(track.ReferenceImage.ImageData, clone.ReferenceImage!.ImageData);
+
+    clone.ReferenceImage.RotationDegrees = 45;
+    Assert.Equal(5, track.ReferenceImage.RotationDegrees);
+  }
+
   // ---- Anchors survive re-editing ------------------------------------------
 
   [Fact]

@@ -16,11 +16,18 @@ public static class DemoScenarios
   public const string QualifyingId = "qualifying";
   public const string EnduroId = "enduro";
   public const string TeamsId = "teams";
+  public const string ProblemsId = "problems";
 
   /// <summary>The spare transponder the race demo's forgetful rider borrows. Not on the rider list.</summary>
   public const string SpareTransponder = "20269999";
 
-  public static IReadOnlyList<DemoScenario> All { get; } = new[] { Race(), Qualifying(), Enduro(), Teams() };
+  /// <summary>The spare the problems demo's rider carries on with after losing his own. Not on the rider list.</summary>
+  public const string SwapSpareTransponder = "20269998";
+
+  /// <summary>The marshal's bike that crosses the loop in the problems demo. Not on the rider list.</summary>
+  public const string MarshalTransponder = "20269990";
+
+  public static IReadOnlyList<DemoScenario> All { get; } = new[] { Race(), Qualifying(), Enduro(), Teams(), ProblemsToFix() };
 
   public static DemoScenario? Find(string? id) =>
     All.FirstOrDefault(s => string.Equals(s.Id, id?.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -32,6 +39,7 @@ public static class DemoScenarios
     QualifyingId => Qualifying(),
     EnduroId => Enduro(),
     TeamsId => Teams(),
+    ProblemsId => ProblemsToFix(),
     _ => throw new ArgumentException($"There is no demo called {id}.", nameof(id))
   };
 
@@ -426,7 +434,303 @@ public static class DemoScenarios
     };
   }
 
+  // ---- Problems to fix -----------------------------------------------------
+
+  /// <summary>
+  /// Nearly everything that goes wrong on a race day, one thing after another,
+  /// for someone learning to put it right. A team event, because two riders of a
+  /// team on track at once is one of those things.
+  ///
+  /// Each problem is planned at a time of its own, half a minute or more after
+  /// the one before, so a volunteer can fix one before the next arrives. The
+  /// checklist the demo opens (see <see cref="DemoChecklist"/>) says what each
+  /// problem is and ticks it off once it has been put right.
+  /// </summary>
+  private static DemoScenario ProblemsToFix()
+  {
+    const int minutes = 12;
+    const double start = 5.0;
+    const double outageFrom = 560.0;
+    const double outageUntil = 645.0;
+    var rng = new Random(7070);
+    var flag = start + minutes * 60;
+    var until = flag + 2.5 * 60;
+
+    var teams = new (string Name, int Stint, (string Number, string Name, double Pace)[] Riders)[]
+    {
+      ("MSC Adler", 8, new[] { ("11", "Anna Berger", 49.0), ("12", "Ben Fischer", 51.0) }),
+      ("RC Falke", 4, new[] { ("21", "Carla Hoff", 52.0), ("22", "David Kern", 50.0) })
+    };
+
+    // Club names used once, or none: in a team event those are solo riders.
+    var solos = new (string Number, string Name, string Club, double Pace)[]
+    {
+      ("7", "Lukas Brandt", "RSV Blitz", 50.0),
+      ("23", "Jan Keller", "MX Team Nord", 52.0),
+      ("57", "Lea Richter", "", 55.0),
+      ("88", "Max Schröder", "", 53.0),
+      ("68", "Paul Neumann", "", 56.0),
+      ("101", "Felix Bauer", "", 54.0)
+    };
+
+    var roster = new List<DemoRider>();
+    var reads = new List<DemoCrossing>();
+    var problems = new List<DemoProblem>();
+    var order = 0;
+
+    foreach (var (team, stint, riders) in teams)
+    {
+      var tags = riders.Select(r => Tag(r.Number)).ToArray();
+      roster.AddRange(riders.Select((r, i) => new DemoRider(tags[i], r.Number, r.Name, team, "Open")));
+
+      var t = start + order++ * 0.8;
+      var who = 0;
+      reads.Add(new DemoCrossing(Seconds(t), tags[who]));
+
+      for (var laps = 0; ; laps++)
+      {
+        // A handover every few laps, away from the line: that lap carries the changeover.
+        var changeover = 0.0;
+        if (laps > 0 && laps % stint == 0)
+        {
+          who = 1 - who;
+          changeover = 8.0;
+        }
+
+        var duration = riders[who].Pace + Jitter(rng, 1.0) + changeover;
+
+        // Late enough in the first rider's stint for the team to have a pace of
+        // its own. Early enough in the lap that the one after it is not short too.
+        if (team == "MSC Adler" && laps == 6)
+        {
+          var early = t + duration * 0.35;
+          reads.Add(new DemoCrossing(Seconds(early), tags[1], DemoReadKind.SecondRiderOut));
+          problems.Add(new DemoProblem(DemoProblemKind.DeleteSecondRider, Seconds(early),
+            $"{team} sent #{riders[1].Number} {riders[1].Name} out while #{riders[0].Number} {riders[0].Name} was still riding",
+            "The team shows TWO OUT, and that read is not a real lap. Press Fix laps... (F2), then the Delete " +
+            "button at the top.")
+          {
+            Tag = TeamRoster.KeyFor(team),
+            OtherTag = tags[1]
+          });
+        }
+
+        t += duration;
+        if (t > until) break;
+        reads.Add(new DemoCrossing(Seconds(t), tags[who]));
+      }
+    }
+
+    foreach (var (number, name, club, pace) in solos)
+    {
+      var own = Tag(number);
+      var who = $"#{number} {name}";
+      roster.Add(new DemoRider(own, number, name, club, "Open"));
+
+      var times = GoRound(rng, start + order++ * 0.8, pace, 1.0, until);
+
+      switch (number)
+      {
+        case "7":
+        {
+          var missed = Nearest(times, 190);
+          times.RemoveAt(missed);
+          problems.Add(new DemoProblem(DemoProblemKind.SplitMissedRead, Seconds(times[missed]),
+            $"{who}'s transponder was missed once",
+            "His lap shows CHECK. Press Fix laps... (F2), then the Split button at the top.")
+          {
+            Tag = own,
+            Laps = 2,
+            Since = Seconds(times[missed - 1])
+          });
+          break;
+        }
+
+        case "23":
+        {
+          var missed = Nearest(times, 255);
+          times.RemoveRange(missed, 2);
+          problems.Add(new DemoProblem(DemoProblemKind.SplitMissedRead, Seconds(times[missed]),
+            $"{who}'s transponder was missed twice in a row",
+            "His lap shows CHECK and looks like three laps. Press Fix laps... (F2), then the Split button at the top.")
+          {
+            Tag = own,
+            Laps = 3,
+            Since = Seconds(times[missed - 1])
+          });
+          break;
+        }
+
+        case "57":
+          // Her own transponder is on the rider list and never read.
+          reads.AddRange(times.Select(t => new DemoCrossing(Seconds(t), SpareTransponder, DemoReadKind.Unknown)));
+          problems.Add(new DemoProblem(DemoProblemKind.IdentifySpare, Seconds(times[0]),
+            $"{who} rides on a spare transponder that is not on the rider list",
+            $"It shows as UNKNOWN ({SpareTransponder}) on the Riders tab. Right-click it, choose Identify this " +
+            $"transponder... and pick {who} from the list.")
+          {
+            Tag = SpareTransponder,
+            Number = number
+          });
+          continue;
+
+        case "88":
+        {
+          // A stop at the pits for the spare makes that lap a little long, not a missed read.
+          var lost = Nearest(times, 335);
+          var spareFrom = times[lost] + pace + 18.0;
+          times.RemoveRange(lost + 1, times.Count - lost - 1);
+
+          var spare = GoRound(rng, spareFrom, pace, 1.0, until);
+          reads.AddRange(spare.Select(t => new DemoCrossing(Seconds(t), SwapSpareTransponder, DemoReadKind.Unknown)));
+          problems.Add(new DemoProblem(DemoProblemKind.MergeSpare, Seconds(spareFrom),
+            $"{who} lost his transponder and carries on with a spare",
+            $"The spare ({SwapSpareTransponder}) shows as UNKNOWN. Right-click it, choose Identify this " +
+            $"transponder..., then These laps belong to a rider already in the race, and pick {who}.")
+          {
+            Tag = own,
+            OtherTag = SwapSpareTransponder
+          });
+          break;
+        }
+
+        case "68":
+        {
+          // Race control calls him in as retired. He had only stopped to fix his
+          // chain - a lap not long enough to look like a missed read.
+          var stops = Nearest(times, 430);
+          var back = times[stops] + pace + 25.0;
+          var called = times[stops] + 15.0;
+          times.RemoveRange(stops + 1, times.Count - stops - 1);
+          times.AddRange(GoRound(rng, back, pace, 1.0, until));
+
+          problems.Add(new DemoProblem(DemoProblemKind.MarkDnf, Seconds(called),
+            $"Race control: {who} has pulled off the track",
+            "Mark him DNF: right-click him on the Riders tab, Fix laps for him, then Mark as DNF.")
+          {
+            Tag = own,
+            Deadline = Seconds(back),
+            Announce = $"Race control: {who} has pulled off the track"
+          });
+          problems.Add(new DemoProblem(DemoProblemKind.BackInTheRace, Seconds(back),
+            $"{who} crosses the line again",
+            "He had only stopped to fix his chain. A banner says a rider marked DNF crossed the line: open Fix " +
+            "laps for him, press Back in the race, then Count this read on each grey row.")
+          {
+            Tag = own
+          });
+          break;
+        }
+
+        case "101":
+        {
+          var twice = times[Nearest(times, 150)] + 4.0;
+          reads.Add(new DemoCrossing(Seconds(twice), own, DemoReadKind.TooSoon));
+          problems.Add(new DemoProblem(DemoProblemKind.ReadTwice, Seconds(twice),
+            $"{who} was read twice in one pass",
+            "Nothing to fix: the second read is not counted. Fix laps shows it as a grey row.")
+          {
+            Tag = own
+          });
+
+          // Pulls off for good a few minutes before the outage. Not near the end: a
+          // rider who stops within a lap or two of the flag still looks due at the
+          // line once the rest of the field has finished and nothing more is read,
+          // and the finish sounded the no-reads alarm for him - straight after the
+          // outage has taught what that alarm means.
+          var last = Nearest(times, 420);
+          times.RemoveRange(last + 1, times.Count - last - 1);
+          problems.Add(new DemoProblem(DemoProblemKind.Retires, Seconds(times[^1] + pace),
+            $"{who} retires",
+            "Nothing to do: once the finish has waited long enough for him, he becomes DNF by himself.")
+          {
+            Tag = own
+          });
+          break;
+        }
+      }
+
+      reads.AddRange(times.Select(t => new DemoCrossing(Seconds(t), own)));
+    }
+
+    // A marshal's bike, over the loop and back again.
+    reads.Add(new DemoCrossing(Seconds(95.0), MarshalTransponder, DemoReadKind.Stray));
+    reads.Add(new DemoCrossing(Seconds(138.5), MarshalTransponder, DemoReadKind.Stray));
+    problems.Add(new DemoProblem(DemoProblemKind.StopCounting, Seconds(95.0),
+      "A marshal's bike crossed the loop",
+      $"Transponder {MarshalTransponder} is nobody on the rider list. Right-click it on the Riders tab and " +
+      "choose Stop counting it.")
+    {
+      Tag = MarshalTransponder
+    });
+
+    // The reader goes quiet: nothing at all for a minute and a half.
+    reads.RemoveAll(r => r.At > Seconds(outageFrom) && r.At < Seconds(outageUntil));
+
+    var teamOf = roster
+      .Where(r => teams.Any(t => t.Name == r.Team))
+      .ToDictionary(r => r.Tag, r => TeamRoster.KeyFor(r.Team));
+
+    var cutShort = reads
+      .Where(r => r.Kind is DemoReadKind.Lap or DemoReadKind.Unknown)
+      .GroupBy(r => teamOf.GetValueOrDefault(r.Tag, r.Tag))
+      .Where(g => g.Any(r => r.At < Seconds(outageFrom)) && g.Any(r => r.At > Seconds(outageUntil)))
+      .Select(g => g.Key)
+      .ToList();
+
+    problems.Add(new DemoProblem(DemoProblemKind.ReaderOutage, Seconds(outageFrom),
+      "The reader goes quiet",
+      "Nothing is read. Watch the READER tile turn orange, then red with a banner, as riders are due at the " +
+      "line. It comes back by itself after about a minute and a half.")
+    {
+      Until = Seconds(outageUntil)
+    });
+    problems.Add(new DemoProblem(DemoProblemKind.SplitAfterOutage, Seconds(outageUntil),
+      "The outage left every rider with a long lap",
+      "Press Fix laps... (F2) and the Split button at the top, then F2 again for the next rider, until " +
+      "nobody is left.")
+    {
+      Since = Seconds(outageFrom),
+      Until = Seconds(outageUntil),
+      Tags = cutShort
+    });
+
+    return new DemoScenario
+    {
+      Id = ProblemsId,
+      Title = "Problems to fix",
+      Length = "About 16 minutes",
+      Summary = "Two teams and six solo riders race for 12 minutes - and nearly everything that goes wrong on a " +
+                "race day does, one thing after another, for you to put right.",
+      WhatHappens = new[]
+      {
+        "The clock starts when the first rider crosses the line. After 12 minutes everyone finishes the lap " +
+        "they are on, and the race finishes by itself.",
+        "A new problem turns up every minute or so: missed reads, transponder mix-ups, two riders of a team on " +
+        "track at once, a rider reported retired who is not, and a reader that goes quiet."
+      },
+      WhatToTry = new[]
+      {
+        "Keep Problems to fix open beside the race - it opens with the demo, and again from the DEMO bar. Each " +
+        "problem appears there as it happens, with what to do, and is ticked off once it is put right.",
+        "Fix laps... (F2) opens the rider who needs it most, and the fix is usually the button at the top.",
+        "When the race has finished, press Results... for the sheet."
+      },
+      SessionType = SessionType.Race,
+      DurationMinutes = minutes,
+      AdditionalLaps = 0,
+      TeamEvent = true,
+      Roster = roster,
+      Crossings = Ordered(reads),
+      Problems = problems.OrderBy(p => p.At).ToList()
+    };
+  }
+
   // ---- Helpers ---------------------------------------------------------------
+
+  /// <summary>Which of <paramref name="times"/> is closest to <paramref name="target"/>.</summary>
+  private static int Nearest(IReadOnlyList<double> times, double target) =>
+    Enumerable.Range(0, times.Count).MinBy(i => Math.Abs(times[i] - target));
 
   /// <summary>Every demo transponder is 2026 and the start number: #7 is 20260007.</summary>
   private static string Tag(string number) => "2026" + number.PadLeft(4, '0');

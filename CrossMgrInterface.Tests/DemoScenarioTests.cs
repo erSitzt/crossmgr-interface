@@ -13,19 +13,24 @@ public class DemoScenarioTests
 
   public static TheoryData<string> Ids => new()
   {
-    DemoScenarios.RaceId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId
+    DemoScenarios.RaceId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId,
+    DemoScenarios.ProblemsId
   };
 
   public static TheoryData<string> Races => new()
   {
-    DemoScenarios.RaceId, DemoScenarios.EnduroId, DemoScenarios.TeamsId
+    DemoScenarios.RaceId, DemoScenarios.EnduroId, DemoScenarios.TeamsId, DemoScenarios.ProblemsId
   };
 
   [Fact]
   public void EveryDemoIsListedAndCanBeFoundByItsId()
   {
     Assert.Equal(
-      new[] { DemoScenarios.RaceId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId },
+      new[]
+      {
+        DemoScenarios.RaceId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId,
+        DemoScenarios.ProblemsId
+      },
       DemoScenarios.All.Select(s => s.Id));
     Assert.All(DemoScenarios.All, s => Assert.Same(s, DemoScenarios.Find(s.Id.ToUpperInvariant())));
     Assert.Null(DemoScenarios.Find("rally"));
@@ -74,7 +79,8 @@ public class DemoScenarioTests
     var scenario = DemoScenarios.Build(id);
     var listed = scenario.Roster.Select(r => r.Tag).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    Assert.All(scenario.Crossings, c => Assert.Equal(c.Kind != DemoReadKind.Unknown, listed.Contains(c.Tag)));
+    Assert.All(scenario.Crossings, c =>
+      Assert.Equal(c.Kind is not (DemoReadKind.Unknown or DemoReadKind.Stray), listed.Contains(c.Tag)));
   }
 
   /// <summary>
@@ -127,9 +133,14 @@ public class DemoScenarioTests
     var flag = FlagAt(scenario);
     var retired = new List<string>();
 
+    // A rider who carries on with a spare is still one rider, on two transponders.
+    var spares = scenario.Problems
+      .Where(p => p.Kind == DemoProblemKind.MergeSpare)
+      .ToDictionary(p => p.OtherTag!, p => p.Tag);
+
     var entries = scenario.Crossings
       .Where(c => c.Kind is DemoReadKind.Lap or DemoReadKind.Unknown)
-      .GroupBy(c => EntryOf(scenario, c.Tag));
+      .GroupBy(c => EntryOf(scenario, spares.GetValueOrDefault(c.Tag, c.Tag)));
 
     foreach (var entry in entries)
     {

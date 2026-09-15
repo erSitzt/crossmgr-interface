@@ -70,6 +70,65 @@ public class HelpTopicsTests
   }
 
   [Fact]
+  public void EveryPictureTheHelpShowsIsEmbeddedAndReadable()
+  {
+    var pictures = HelpTopics.All.SelectMany(t => t.Blocks).Where(b => b.Kind == HelpBlockKind.Picture).ToList();
+    Assert.NotEmpty(pictures);
+
+    Assert.All(pictures, block =>
+    {
+      var name = Assert.Single(block.Items);
+      var png = HelpImages.Load(name);
+      Assert.True(png != null, $"help_images/{name}.png is not embedded in the application");
+
+      using var image = Image.FromStream(new MemoryStream(png!));
+      Assert.True(image.Width > 100 && image.Height > 100, $"{name} is only {image.Width}x{image.Height}");
+    });
+  }
+
+  [Fact]
+  public void EveryEmbeddedPictureIsShownInSomeTopic()
+  {
+    var shown = HelpTopics.All
+      .SelectMany(t => t.Blocks)
+      .Where(b => b.Kind == HelpBlockKind.Picture)
+      .Select(b => b.Items[0])
+      .ToHashSet();
+
+    Assert.All(HelpImages.Names, name => Assert.Contains(name, shown));
+  }
+
+  [Fact]
+  public void APictureReallyEndsUpInTheHelpText()
+  {
+    // The rich edit control drops a picture it does not understand without a
+    // word - the insert succeeds and nothing is there - so look for it.
+    string? rtf = null;
+    Exception? failure = null;
+
+    var thread = new Thread(() =>
+    {
+      try
+      {
+        using var dialog = new HelpDialog();
+        dialog.CreateControl();
+        dialog.ShowTopic(HelpTopicIds.Track);
+        rtf = dialog.Content.Rtf;
+      }
+      catch (Exception ex)
+      {
+        failure = ex;
+      }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    Assert.Null(failure);
+    Assert.Contains(@"\pict", rtf);
+  }
+
+  [Fact]
   public void EveryTopicRendersInTheHelpWindow()
   {
     // Rich text needs a single-threaded apartment, which test threads are not.

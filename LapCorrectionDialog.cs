@@ -8,9 +8,18 @@ namespace CrossMgrInterface;
 /// button here applies immediately rather than staging changes behind OK:
 /// the operator needs to watch the standings behind the dialog react, and the
 /// undo stack makes a staging layer redundant.
+///
+/// A warning comes with its fix along the top (see <see cref="LapFixAdvisor"/>),
+/// so the common cases are one click; the buttons down the side are for
+/// everything the warnings cannot know.
 /// </summary>
 public sealed class LapCorrectionDialog : Form
 {
+  /// <summary>More fixes than this and the list would push the laps off the window.</summary>
+  private const int MaxFixesShown = 3;
+
+  private const string DefaultHint = "Select a lap, then choose what to do with it. Every change can be undone (Ctrl+Z).";
+
   private readonly RaceCorrectionService _service;
   private readonly string _tagId;
   private readonly Func<string, RiderInfo?> _lookupRider;
@@ -18,8 +27,10 @@ public sealed class LapCorrectionDialog : Form
   private readonly Func<DateTime?> _getRaceStartTime;
 
   private readonly Label _header = new();
+  private readonly TableLayoutPanel _fixes = new();
   private readonly DataGridView _laps = new();
   private readonly Label _hint = new();
+  private readonly Font _boldFont;
 
   private readonly Button _addLap = new();
   private readonly Button _editTime = new();
@@ -32,6 +43,30 @@ public sealed class LapCorrectionDialog : Form
   private readonly Button _clearStatus = new();
   private readonly Button _undo = new();
   private readonly Button _redo = new();
+
+  /// <summary>
+  /// Watches for the rider crossing the line while the window is open, so the
+  /// list - and the fix offered for it - is never older than a second.
+  /// </summary>
+  private readonly System.Windows.Forms.Timer _watch = new() { Interval = 1000 };
+
+  /// <summary>
+  /// The rider's revision when the list on screen was drawn. Every change passes
+  /// it back, so a change is refused when the laps have moved on since the
+  /// operator looked at them, rather than applied to laps they never saw.
+  /// </summary>
+  private int _shownRevision = -1;
+
+  private bool _firstLoad = true;
+
+  /// <summary>The lap the first suggested fix is about, selected again once the window is on screen.</summary>
+  private int? _openOnLap;
+
+  /// <summary>A question is open over the window: the list must not change under it.</summary>
+  private bool _asking;
+
+  /// <summary>What the last change did, shown where the hint goes.</summary>
+  private string? _lastDone;
 
   /// <summary>True if at least one correction was applied while the dialog was open.</summary>
   public bool AnyChangesApplied { get; private set; }
@@ -48,9 +83,24 @@ public sealed class LapCorrectionDialog : Form
     _lookupRider = lookupRider;
     _getRejectedReads = getRejectedReads;
     _getRaceStartTime = getRaceStartTime;
+    _boldFont = new Font(Font, FontStyle.Bold);
 
     BuildLayout();
     Reload();
+
+    _watch.Tick += (_, _) =>
+    {
+      if (_asking) return;
+      if ((_lookupRider(_tagId)?.Revision ?? -1) != _shownRevision) Reload();
+    };
+
+    Shown += (_, _) =>
+    {
+      // Again now: the grid puts its selection back on the first row when its
+      // window is created, undoing the selection made while it was being built.
+      if (_openOnLap is { } lap) SelectLap(lap);
+      _watch.Start();
+    };
   }
 
   private void BuildLayout()
@@ -59,18 +109,19 @@ public sealed class LapCorrectionDialog : Form
     FormBorderStyle = FormBorderStyle.Sizable;
     StartPosition = FormStartPosition.CenterParent;
     MinimizeBox = false;
-    ClientSize = new Size(880, 600);
-    MinimumSize = new Size(760, 420);
+    ClientSize = new Size(900, 640);
+    MinimumSize = new Size(780, 460);
 
     var root = new TableLayoutPanel
     {
       Dock = DockStyle.Fill,
       ColumnCount = 2,
-      RowCount = 3,
+      RowCount = 4,
       Padding = new Padding(12)
     };
     root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
     root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
+    root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
     root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
     root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
     root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -82,17 +133,26 @@ public sealed class LapCorrectionDialog : Form
     root.Controls.Add(_header, 0, 0);
     root.SetColumnSpan(_header, 2);
 
-    ConfigureGrid();
-    root.Controls.Add(_laps, 0, 1);
+    _fixes.Dock = DockStyle.Fill;
+    _fixes.AutoSize = true;
+    _fixes.ColumnCount = 1;
+    _fixes.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+    _fixes.Margin = new Padding(0, 0, 0, 6);
+    _fixes.Visible = false;
+    root.Controls.Add(_fixes, 0, 1);
+    root.SetColumnSpan(_fixes, 2);
 
-    root.Controls.Add(BuildActionColumn(), 1, 1);
+    ConfigureGrid();
+    root.Controls.Add(_laps, 0, 2);
+
+    root.Controls.Add(BuildActionColumn(), 1, 2);
 
     _hint.Dock = DockStyle.Fill;
     _hint.AutoSize = true;
     _hint.ForeColor = Color.DimGray;
     _hint.Padding = new Padding(0, 8, 0, 0);
-    _hint.Text = "Select a lap, then choose what to do with it. Every change can be undone.";
-    root.Controls.Add(_hint, 0, 2);
+    _hint.Text = DefaultHint;
+    root.Controls.Add(_hint, 0, 3);
 
     var close = new Button
     {
@@ -101,7 +161,7 @@ public sealed class LapCorrectionDialog : Form
       Dock = DockStyle.Fill,
       Height = 34
     };
-    root.Controls.Add(close, 1, 2);
+    root.Controls.Add(close, 1, 3);
 
     Controls.Add(root);
     AcceptButton = close;
@@ -195,16 +255,23 @@ public sealed class LapCorrectionDialog : Form
     if (rider == null)
     {
       _header.Text = "This rider is no longer in the race.";
+      _shownRevision = -1;
       _laps.Rows.Clear();
+      ShowFixes(Array.Empty<LapFix>());
       UpdateButtonStates();
       return;
     }
+
+    _shownRevision = rider.Revision;
 
     var status = rider.StatusText.Length > 0 ? $" - {rider.StatusText}" : "";
     var best = TimeFormat.Precise(rider.BestLapTime, "no timed lap yet");
     var onTrack = rider.OnTrackMember is { } member ? $"   |   on track: {member.Label}" : "";
     _header.Text = $"{rider.Label}{status}   |   {rider.TotalLaps} lap(s)   |   best {best}{onTrack}";
     _laps.Columns["Rider"]!.Visible = rider.IsTeam;
+
+    var fixes = LapFixAdvisor.For(rider);
+    ShowFixes(fixes);
 
     // The lap before a suspected overlap is the other half of the question.
     var involved = rider.Laps
@@ -222,7 +289,7 @@ public sealed class LapCorrectionDialog : Form
     var entries = rider.Laps
       .Select(l => (Time: l.CrossingTime, Row: new RowRef(l, null)))
       .Concat(_getRejectedReads(_tagId)
-        .Where(r => !r.Restored)
+        .Where(r => !r.IsCountedIn(rider))
         .Select(r => (Time: r.CrossingTime, Row: new RowRef(null, r))))
       .OrderBy(e => e.Time)
       .ToList();
@@ -278,8 +345,118 @@ public sealed class LapCorrectionDialog : Form
       }
     }
 
-    RestoreSelection(previouslySelected);
+    // Opening on the lap a warning is about, so the operator sees the row the
+    // suggested fix is talking about without having to find it.
+    if (_firstLoad && fixes.Count > 0)
+    {
+      _openOnLap = fixes[0].LapNumber;
+      SelectLap(fixes[0].LapNumber);
+    }
+    else
+      RestoreSelection(previouslySelected);
+
+    _firstLoad = false;
+
+    _hint.Text = _lastDone ?? (fixes.Count > 0
+      ? "Press the suggested fix above, or choose what to do with a lap on the right. Every change can be undone (Ctrl+Z)."
+      : DefaultHint);
+
     UpdateButtonStates();
+  }
+
+  /// <summary>
+  /// The suggested fixes along the top: what is wrong, the button that fixes it,
+  /// and the button that says the lap was right after all.
+  /// </summary>
+  private void ShowFixes(IReadOnlyList<LapFix> fixes)
+  {
+    _fixes.SuspendLayout();
+
+    var old = _fixes.Controls.Cast<Control>().ToList();
+    _fixes.Controls.Clear();
+    foreach (var control in old) control.Dispose();
+
+    _fixes.RowStyles.Clear();
+    _fixes.RowCount = 0;
+
+    foreach (var fix in fixes.Take(MaxFixesShown))
+      AddFixRow(fix);
+
+    if (fixes.Count > MaxFixesShown)
+    {
+      AddRow(new Label
+      {
+        Text = $"{fixes.Count - MaxFixesShown} more after these - they move up as these are fixed.",
+        AutoSize = true,
+        ForeColor = Color.DimGray,
+        Margin = new Padding(0, 0, 0, 4)
+      });
+    }
+
+    _fixes.Visible = fixes.Count > 0;
+    _fixes.ResumeLayout();
+  }
+
+  private void AddFixRow(LapFix fix)
+  {
+    var row = new TableLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      AutoSize = true,
+      ColumnCount = 3,
+      RowCount = 1,
+      // The same colours as the lap's row in the list below.
+      BackColor = fix.Kind == LapFixKind.DeleteSecondRiderRead ? Color.MistyRose : Color.PapayaWhip,
+      Padding = new Padding(8, 6, 6, 6),
+      Margin = new Padding(0, 0, 0, 6)
+    };
+    row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+    row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+    row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+    // Anchored left and right so the table gives it the column's width to wrap in.
+    var problem = new Label
+    {
+      Text = fix.Problem,
+      AutoSize = true,
+      Anchor = AnchorStyles.Left | AnchorStyles.Right,
+      Margin = new Padding(0, 4, 10, 4),
+      Cursor = Cursors.Hand
+    };
+    problem.Click += (_, _) => SelectLap(fix.LapNumber);
+
+    var apply = new Button
+    {
+      Text = fix.FixText,
+      AutoSize = true,
+      MinimumSize = new Size(180, 34),
+      Font = _boldFont,
+      Anchor = AnchorStyles.Right,
+      Margin = new Padding(0, 0, 6, 0)
+    };
+    apply.Click += (_, _) => Apply(fix.Apply(_service, _tagId, _shownRevision));
+
+    var keep = new Button
+    {
+      Text = fix.KeepText,
+      AutoSize = true,
+      MinimumSize = new Size(0, 34),
+      Anchor = AnchorStyles.Right,
+      Margin = new Padding(0)
+    };
+    keep.Click += (_, _) => Apply(fix.Keep(_service, _tagId, _shownRevision));
+
+    row.Controls.Add(problem, 0, 0);
+    row.Controls.Add(apply, 1, 0);
+    row.Controls.Add(keep, 2, 0);
+    AddRow(row);
+  }
+
+  private void AddRow(Control control)
+  {
+    _fixes.RowCount++;
+    _fixes.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+    _fixes.Controls.Add(control, 0, _fixes.RowCount - 1);
   }
 
   private static string DescribeLap(RiderInfo rider, RiderLap lap)
@@ -329,6 +506,29 @@ public sealed class LapCorrectionDialog : Form
   private RowRef? SelectedRow() =>
     _laps.SelectedRows.Count > 0 ? _laps.SelectedRows[0].Tag as RowRef : null;
 
+  private void SelectLap(int lapNumber)
+  {
+    foreach (DataGridViewRow row in _laps.Rows)
+    {
+      if (row.Tag is not RowRef { Lap: { } lap } || lap.LapNumber != lapNumber) continue;
+
+      try
+      {
+        // The current cell, not just the row's Selected flag: the grid moves the
+        // selection back to its current cell as soon as it is shown or focused.
+        _laps.CurrentCell = row.Cells[0];
+        _laps.FirstDisplayedScrollingRowIndex = Math.Max(0, row.Index - 2);
+      }
+      catch (InvalidOperationException)
+      {
+        // Not laid out yet; the Shown handler selects it again.
+      }
+
+      row.Selected = true;
+      return;
+    }
+  }
+
   private void RestoreSelection(RowRef? previous)
   {
     if (previous?.Lap == null)
@@ -377,9 +577,7 @@ public sealed class LapCorrectionDialog : Form
 
   // ---- Actions -------------------------------------------------------------
 
-  private int CurrentRevision() => _lookupRider(_tagId)?.Revision ?? -1;
-
-  private void Apply(CorrectionResult result)
+  private void Apply(CorrectionResult result, string done = "Done")
   {
     if (!result.Ok)
     {
@@ -389,9 +587,27 @@ public sealed class LapCorrectionDialog : Form
     else if (result.Command != null)
     {
       AnyChangesApplied = true;
+      _lastDone = $"{done}: {result.Command.Description}. Ctrl+Z undoes it.";
     }
 
     Reload();
+  }
+
+  /// <summary>
+  /// Asks something over the window. The list is not refreshed meanwhile, so the
+  /// row the question is about stays the row on screen.
+  /// </summary>
+  private DialogResult Ask(Func<DialogResult> question)
+  {
+    _asking = true;
+    try
+    {
+      return question();
+    }
+    finally
+    {
+      _asking = false;
+    }
   }
 
   private void OnAddLap()
@@ -399,15 +615,18 @@ public sealed class LapCorrectionDialog : Form
     var rider = _lookupRider(_tagId);
     if (rider == null) return;
 
+    // The laps this is judged against: the list as it was on screen.
+    var revision = _shownRevision;
+
     // Default to halfway through the selected lap, which is where a missed read
     // most often belongs.
     var suggested = SuggestedInsertTime(rider);
 
     using var prompt = new CrossingTimePrompt(
       "When did this lap finish?", suggested, _getRaceStartTime());
-    if (prompt.ShowDialog(this) != DialogResult.OK) return;
+    if (Ask(() => prompt.ShowDialog(this)) != DialogResult.OK) return;
 
-    Apply(_service.AddLap(_tagId, prompt.CrossingTime, CurrentRevision()));
+    Apply(_service.AddLap(_tagId, prompt.CrossingTime, revision));
   }
 
   private DateTime SuggestedInsertTime(RiderInfo rider)
@@ -424,11 +643,13 @@ public sealed class LapCorrectionDialog : Form
     var lap = SelectedRow()?.Lap;
     if (lap == null) return;
 
+    var revision = _shownRevision;
+
     using var prompt = new CrossingTimePrompt(
       $"When did lap {lap.LapNumber} actually finish?", lap.CrossingTime, _getRaceStartTime());
-    if (prompt.ShowDialog(this) != DialogResult.OK) return;
+    if (Ask(() => prompt.ShowDialog(this)) != DialogResult.OK) return;
 
-    Apply(_service.EditLapTime(_tagId, lap.LapNumber, prompt.CrossingTime, CurrentRevision()));
+    Apply(_service.EditLapTime(_tagId, lap.LapNumber, prompt.CrossingTime, revision));
   }
 
   private void OnDeleteLap()
@@ -437,15 +658,17 @@ public sealed class LapCorrectionDialog : Form
     var rider = _lookupRider(_tagId);
     if (lap == null || rider == null) return;
 
-    var answer = MessageBox.Show(this,
+    var revision = _shownRevision;
+
+    var answer = Ask(() => MessageBox.Show(this,
       $"Delete lap {lap.LapNumber} of {rider.Label}?\n\n" +
       $"{rider.TotalLaps} lap(s) becomes {rider.TotalLaps - 1}. You can undo this.",
       "Delete lap", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
-      MessageBoxDefaultButton.Button2);
+      MessageBoxDefaultButton.Button2));
 
     if (answer != DialogResult.Yes) return;
 
-    Apply(_service.DeleteLap(_tagId, lap.LapNumber, CurrentRevision()));
+    Apply(_service.DeleteLap(_tagId, lap.LapNumber, revision));
   }
 
   private void OnSplitLap()
@@ -453,14 +676,16 @@ public sealed class LapCorrectionDialog : Form
     var lap = SelectedRow()?.Lap;
     if (lap?.LapTime == null) return;
 
+    var revision = _shownRevision;
+
     // Default to the detector's suggestion when there is one, otherwise to
     // however many typical laps fit inside this one.
     var suggested = lap.SuggestedSplitCount > 1 ? lap.SuggestedSplitCount : 2;
 
     using var prompt = new SplitCountPrompt(lap.LapNumber, lap.LapTime.Value, suggested);
-    if (prompt.ShowDialog(this) != DialogResult.OK) return;
+    if (Ask(() => prompt.ShowDialog(this)) != DialogResult.OK) return;
 
-    Apply(_service.SplitLap(_tagId, lap.LapNumber, prompt.SplitCount, CurrentRevision()));
+    Apply(_service.SplitLap(_tagId, lap.LapNumber, prompt.SplitCount, revision));
   }
 
   private void OnDismissSuggestion()
@@ -468,12 +693,13 @@ public sealed class LapCorrectionDialog : Form
     var lap = SelectedRow()?.Lap;
     if (lap == null) return;
 
-    // Either warning can be on the lap; keeping it answers both.
+    // Either warning can be on the lap; keeping it answers both. The second
+    // check uses the revision the first change left behind.
     if (lap is { IsSuspectedOverlap: true, OverlapDismissed: false })
-      Apply(_service.DismissOverlapWarning(_tagId, lap.LapNumber));
+      Apply(_service.DismissOverlapWarning(_tagId, lap.LapNumber, _shownRevision));
 
     if (lap is { IsSuggestedForSplit: true, SuggestionDismissed: false })
-      Apply(_service.DismissSplitSuggestion(_tagId, lap.LapNumber));
+      Apply(_service.DismissSplitSuggestion(_tagId, lap.LapNumber, _shownRevision));
   }
 
   private void OnRestoreRejected()
@@ -481,9 +707,9 @@ public sealed class LapCorrectionDialog : Form
     var rejected = SelectedRow()?.Rejected;
     if (rejected == null) return;
 
-    var result = _service.RestoreRejectedRead(_tagId, rejected.CrossingTime, rejected.CrossedBy);
-    if (result.Ok) rejected.Restored = true;
-    Apply(result);
+    // Whether it is counted is read from the laps, so undoing this brings the
+    // grey row back by itself.
+    Apply(_service.RestoreRejectedRead(_tagId, rejected.CrossingTime, rejected.CrossedBy));
   }
 
   private void OnSetStatus(RiderStatus status)
@@ -493,12 +719,50 @@ public sealed class LapCorrectionDialog : Form
 
   private void OnUndo()
   {
-    Apply(_service.Undo());
+    Apply(_service.Undo(), done: "Undone");
   }
 
   private void OnRedo()
   {
-    Apply(_service.Redo());
+    Apply(_service.Redo(), done: "Redone");
+  }
+
+  /// <summary>
+  /// Ctrl+Z and Ctrl+Y here as well. The main window's shortcuts do not reach a
+  /// modal window, so inside the one place corrections are made they did nothing.
+  /// </summary>
+  protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+  {
+    if (keyData == (Keys.Control | Keys.Z))
+    {
+      OnUndo();
+      return true;
+    }
+
+    if (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z))
+    {
+      OnRedo();
+      return true;
+    }
+
+    return base.ProcessCmdKey(ref msg, keyData);
+  }
+
+  protected override void OnFormClosed(FormClosedEventArgs e)
+  {
+    _watch.Stop();
+    base.OnFormClosed(e);
+  }
+
+  protected override void Dispose(bool disposing)
+  {
+    if (disposing)
+    {
+      _watch.Dispose();
+      _boldFont.Dispose();
+    }
+
+    base.Dispose(disposing);
   }
 
   // ---- Prompts -------------------------------------------------------------

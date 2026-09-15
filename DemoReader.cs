@@ -37,6 +37,14 @@ public sealed class DemoReader
   /// <summary>Raised once the handshake is done, off the UI thread.</summary>
   public event Action? Connected;
 
+  private long _startedAtTicks;
+
+  /// <summary>
+  /// The moment every read's <see cref="DemoCrossing.At"/> counts from, once the
+  /// reader has connected. Read from the UI thread by the problems checklist.
+  /// </summary>
+  public DateTime? StartedAt => Interlocked.Read(ref _startedAtTicks) is var ticks and > 0 ? new DateTime(ticks) : null;
+
   /// <param name="waveStartedAt">When a class left the gate, or null while it is still waiting.</param>
   /// <param name="finished">True once the session is over and nothing more would count.</param>
   public DemoReader(int port, IReadOnlyList<DemoCrossing> crossings,
@@ -70,6 +78,7 @@ public sealed class DemoReader
     Connected?.Invoke();
 
     var start = DateTime.Now + Lead;
+    Interlocked.Exchange(ref _startedAtTicks, start.Ticks);
     var pending = _crossings.ToList();
     var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
