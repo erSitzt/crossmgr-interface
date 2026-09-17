@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Sessions as things that outlive the clock: printing a sheet from whatever
@@ -253,6 +253,8 @@ public partial class Form1
     public int? CurrentSessionId => _form.currentRaceId;
     public bool SessionRunning => _form.raceStarted && !_form.raceFinished;
     public void PrintResults(SessionSummary session) => _form.PrintStoredSession(session.Race);
+    public void PublishResults(SessionSummary session) => _form.PublishSession(session.Race);
+    public bool PublishingAvailable => _form.PublishingAvailable;
     public bool OpenSession(SessionSummary session) => _form.OpenStoredSession(session.Race);
     public void RenameSession(SessionSummary session, string name) => _form.RenameStoredSession(session.Race, name);
     public bool DeleteSession(IWin32Window owner, SessionSummary session) => _form.DeleteStoredSession(owner, session);

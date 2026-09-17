@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>Race state in the terms a volunteer thinks in, not the state machine's.</summary>
 public enum RaceDayState
@@ -54,6 +54,7 @@ public sealed class RaceDayView
   private Button _endRace = null!;
   private Button _fixLaps = null!;
   private Button _results = null!;
+  private Button _publish = null!;
   private Button _newSession = null!;
   private Button _setup = null!;
   private LinkLabel? _demoLink;
@@ -81,6 +82,7 @@ public sealed class RaceDayView
   public event EventHandler? StartNextWaveClicked;
   public event EventHandler? EndRaceNowClicked;
   public event EventHandler? ResultsClicked;
+  public event EventHandler? PublishClicked;
   public event EventHandler? FixLapsClicked;
   public event EventHandler? SetupClicked;
   public event EventHandler? DemoClicked;
@@ -433,6 +435,12 @@ public sealed class RaceDayView
     _results = ActionButton("Results...", SystemColors.Control, SystemColors.ControlText);
     _results.Click += (s, e) => ResultsClicked?.Invoke(s, e);
 
+    // Plain, not green: the green one is the act this screen is steering
+    // towards after a flag, and there can only be one of those.
+    _publish = ActionButton("Publish results...", SystemColors.Control, SystemColors.ControlText);
+    _publish.Visible = false;
+    _publish.Click += (s, e) => PublishClicked?.Invoke(s, e);
+
     // The way on from a finished session. Same handler as "Set up race..."
     // below, but shown large and green where the operator is already looking,
     // because "what now?" after the flag used to have no answer on this screen.
@@ -440,7 +448,8 @@ public sealed class RaceDayView
     _newSession.Visible = false;
     _newSession.Click += (s, e) => SetupClicked?.Invoke(s, e);
 
-    column.Controls.AddRange(new Control[] { _startRace, _startNextWave, _endRace, _fixLaps, _results, _newSession });
+    column.Controls.AddRange(new Control[]
+      { _startRace, _startNextWave, _endRace, _fixLaps, _results, _publish, _newSession });
 
     var setupCaption = new Label
     {
@@ -586,6 +595,16 @@ public sealed class RaceDayView
     }
   }
   private bool _demoOffered = true;
+  private bool _publishingAvailable;
+
+  /// <summary>
+  /// Whether the club has set up a results website. Until it has, the Publish
+  /// button is not on this screen at all.
+  /// </summary>
+  public void SetPublishingAvailable(bool available)
+  {
+    _publishingAvailable = available;
+  }
 
   private void ApplySessionWording()
   {
@@ -618,6 +637,10 @@ public sealed class RaceDayView
     var finished = state == RaceDayState.Finished;
     _results.BackColor = finished ? Color.FromArgb(0, 140, 60) : SystemColors.Control;
     _results.ForeColor = finished ? Color.White : SystemColors.ControlText;
+
+    // Only once the session is over, and only for a club that has a website.
+    // One that does not should never see a button it has to learn to ignore.
+    _publish.Visible = finished && _publishingAvailable;
 
     // One button for one act: the big one after the flag, the small one before.
     _newSession.Visible = finished;

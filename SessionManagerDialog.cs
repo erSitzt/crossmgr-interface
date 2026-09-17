@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>What the Past sessions window needs from the application.</summary>
 public interface ISessionManagerHost
@@ -12,6 +12,15 @@ public interface ISessionManagerHost
   bool SessionRunning { get; }
 
   void PrintResults(SessionSummary session);
+
+  /// <summary>Sends the session to the club's results website.</summary>
+  void PublishResults(SessionSummary session);
+
+  /// <summary>
+  /// True when a results website has been set up. Clubs that do not use one
+  /// never see the button.
+  /// </summary>
+  bool PublishingAvailable { get; }
 
   /// <summary>Loads the session into the live tabs. True if it is now the current one.</summary>
   bool OpenSession(SessionSummary session);
@@ -40,6 +49,7 @@ public sealed class SessionManagerDialog : Form
   private readonly Label _empty = new();
   private readonly Label _hint = new();
   private readonly Button _results = new();
+  private readonly Button _publish = new();
   private readonly Button _open = new();
   private readonly Button _rename = new();
   private readonly Button _delete = new();
@@ -117,6 +127,9 @@ public sealed class SessionManagerDialog : Form
     AddColumn("Riders", 60);
     AddColumn("Laps", 60);
     AddColumn("Status", 100);
+    // The point of this window for a secretary working through eight motos:
+    // which of them are already on the website.
+    AddColumn("Published", 90);
 
     _grid.SelectionChanged += (_, _) => UpdateButtons();
     _grid.CellDoubleClick += (_, e) =>
@@ -157,6 +170,8 @@ public sealed class SessionManagerDialog : Form
     };
 
     Configure(_results, "Results...", () => PrintSelected());
+    Configure(_publish, "Publish...", () => PublishSelected());
+    _publish.Visible = _host.PublishingAvailable;
     Configure(_open, "Open", () => OpenSelected());
     Configure(_rename, "Rename...", () => RenameSelected());
     Configure(_delete, "Delete...", () => DeleteSelected());
@@ -170,7 +185,7 @@ public sealed class SessionManagerDialog : Form
       DialogResult = DialogResult.Cancel
     };
 
-    column.Controls.AddRange(new Control[] { _results, _open, _rename, _delete, close });
+    column.Controls.AddRange(new Control[] { _results, _publish, _open, _rename, _delete, close });
     CancelButton = close;
     return column;
 
@@ -201,7 +216,8 @@ public sealed class SessionManagerDialog : Form
         $"{race.Duration.TotalMinutes:F0} min",
         session.Riders.ToString(),
         session.Laps.ToString(),
-        DescribeStatus(race));
+        DescribeStatus(race),
+        race.PublishedAt?.ToString("dd.MM HH:mm") ?? "");
 
       var row = _grid.Rows[index];
       if (race.Id == _host.CurrentSessionId)
@@ -278,6 +294,18 @@ public sealed class SessionManagerDialog : Form
     var selected = Selected;
     if (selected == null) return;
     _host.PrintResults(selected);
+  }
+
+  private void PublishSelected()
+  {
+    var selected = Selected;
+    if (selected == null) return;
+
+    _host.PublishResults(selected);
+
+    // The Published column has to catch up, and the operator is most likely
+    // working through a list of motos one after another.
+    Reload(selected.Race.Id);
   }
 
   private void OpenSelected()

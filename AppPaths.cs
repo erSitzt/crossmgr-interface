@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Stable per-user locations for everything the application writes.
@@ -42,6 +42,16 @@ public static class AppPaths
 
   /// <summary>User settings file (advanced mode, reader port, ...).</summary>
   public static string SettingsFile => Path.Combine(EnsureRoot(), "settings.json");
+
+  /// <summary>
+  /// The results website key, encrypted for this Windows user.
+  ///
+  /// Deliberately not in settings.json: that is the file that gets emailed to
+  /// sort a problem out, pasted into an issue and copied between laptops, and
+  /// AppSettings.Save swallows write failures by design - right for a
+  /// preference, wrong for a credential. See PublishCredentials.
+  /// </summary>
+  public static string ResultsKeyFile => Path.Combine(EnsureRoot(), "results-key.dat");
 
   /// <summary>
   /// Circuits, as JSON. Deliberately NOT in races.db: a track is a venue asset

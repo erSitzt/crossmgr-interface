@@ -47,6 +47,7 @@ Then:
 | `past-sessions` | Past sessions dialog | `SessionManagerDialog.cs` | past-sessions |
 | `reader-settings` | Reader connection dialog | `ReaderSettingsDialog.cs` | reader |
 | `demo-picker` | Try a demo race dialog | `DemoPickerDialog.cs`, `DemoScenarios.cs` | demo |
+| `publish-results` | Publish results dialog, before anything is sent | `PublishResultsDialog.cs`, `PublishPayloadBuilder.cs` | publish |
 
 Also:
 

@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Where a lap came from. Anything other than <see cref="Read"/> means an
@@ -74,6 +74,17 @@ public class RiderLap
   /// <summary>The operator looked at the two-on-track warning and kept the lap.</summary>
   public bool OverlapDismissed { get; set; }
 
+  /// <summary>
+  /// Where the rider stood once this lap was complete, or 0 when nobody
+  /// recorded it - a lap stored before this was read back, or one that has not
+  /// been saved yet.
+  ///
+  /// The position has always been written to the database; it simply was never
+  /// read out again. Keeping it on the lap is what lets a chart show how a race
+  /// unfolded without working every position out a second time.
+  /// </summary>
+  public int PositionAtCompletion { get; set; }
+
   /// <summary>True if an operator created or altered this lap.</summary>
   public bool WasCorrected =>
     Source != LapSource.Read || OriginalCrossingTime.HasValue;
@@ -95,6 +106,7 @@ public class RiderLap
     CorrectionNote = CorrectionNote,
     CrossedBy = CrossedBy,
     IsSuspectedOverlap = IsSuspectedOverlap,
-    OverlapDismissed = OverlapDismissed
+    OverlapDismissed = OverlapDismissed,
+    PositionAtCompletion = PositionAtCompletion
   };
 }

@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using LiteDB;
 using System;
 using System.Collections.Generic;
@@ -10,6 +10,19 @@ namespace CrossMgrInterface;
 public class DbRace
 {
   public int Id { get; set; }
+
+  /// <summary>
+  /// Identity that survives leaving this computer. Id is a LiteDB autoincrement
+  /// and so means nothing anywhere else - every club has a race 7. The results
+  /// website is told this instead, which is what lets a session be published
+  /// twice and replace itself rather than appear twice.
+  ///
+  /// Assigned when the clock starts rather than when publishing happens, so a
+  /// retry after a timeout still addresses the same race. Schemaless like Name
+  /// below: races recorded before this existed read back as null and are filled
+  /// in at start-up, see EnsurePublicIds.
+  /// </summary>
+  public string? PublicId { get; set; }
 
   /// <summary>Operator-supplied name, e.g. "Moto 1 - 250cc". LiteDB is schemaless,
   /// so existing race documents simply read back as empty.</summary>
@@ -65,6 +78,15 @@ public class DbRace
   /// which is what it was - not a team event.
   /// </summary>
   public bool? TeamEvent { get; set; }
+
+  /// <summary>
+  /// When this session was last sent to the results website, and the page it
+  /// landed on. Null means it has never been published, which is what Past
+  /// sessions shows in its Published column and what makes the publish dialog
+  /// warn before it replaces something riders may already be reading.
+  /// </summary>
+  public DateTime? PublishedAt { get; set; }
+  public string? PublishedUrl { get; set; }
 
   public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
@@ -239,7 +261,40 @@ public class RaceDataService : IDisposable
       QuarantineDatabase(dbPath);
       Initialise(dbPath);
     }
+
+    EnsurePublicIds();
   }
+
+  /// <summary>
+  /// Gives every race recorded before PublicId existed one, so an old session
+  /// can still be published.
+  ///
+  /// Deliberately outside Initialise: that runs inside the quarantine retry
+  /// above, and a throw in there would move a perfectly good database aside
+  /// over nothing more than a migration. For the same reason a failure here is
+  /// swallowed - a club whose database cannot be migrated must still be able to
+  /// time today's racing.
+  ///
+  /// The rows are filtered in memory rather than by a query because a document
+  /// written before the field existed has no such field at all, and LiteDB does
+  /// not match a missing field against null. ListSessions works around the same
+  /// thing.
+  /// </summary>
+  private void EnsurePublicIds()
+  {
+    try
+    {
+      var missing = _races.FindAll().Where(r => string.IsNullOrEmpty(r.PublicId)).ToList();
+      foreach (var race in missing) race.PublicId = NewPublicId();
+      if (missing.Count > 0) _races.Update(missing);
+    }
+    catch (Exception)
+    {
+      // A database we cannot migrate is still one we can race on today.
+    }
+  }
+
+  private static string NewPublicId() => Guid.NewGuid().ToString("N");
 
   [MemberNotNull(nameof(_db), nameof(_races), nameof(_riders), nameof(_laps),
                  nameof(_positions), nameof(_events), nameof(_lapDiffs))]
@@ -295,9 +350,14 @@ public class RaceDataService : IDisposable
   /// Records the session type once, here. It is deliberately absent from
   /// SaveRaceState: the type is chosen in setup and cannot change once the
   /// clock is running, so periodic state saves have nothing to say about it.
+  ///
+  /// The circuit is recorded the same way, but unlike the session type it can
+  /// still change afterwards - it is quite normal to start the clock and pick
+  /// the circuit later - so ApplyTrack stamps it again. See Form1.Track.cs.
   /// </summary>
   public int StartNewRace(DateTime startTime, TimeSpan duration, string name = "",
-    SessionType sessionType = SessionType.Race, RaceRules? rules = null)
+    SessionType sessionType = SessionType.Race, RaceRules? rules = null,
+    string? trackId = null)
   {
     var race = new DbRace
     {
@@ -305,6 +365,8 @@ public class RaceDataService : IDisposable
       StartTime = startTime,
       Duration = duration,
       SessionType = sessionType,
+      TrackId = trackId,
+      PublicId = NewPublicId(),
       IsFinished = false,
       IsTimeExpired = false
     };
@@ -340,6 +402,35 @@ public class RaceDataService : IDisposable
       updateAction(race);
       _races.Update(race);
     }
+  }
+
+  /// <summary>
+  /// The race's website identity, minting one if it somehow has none, so that
+  /// no caller has to cope with a session that cannot be published.
+  /// </summary>
+  public string? EnsurePublicId(int raceId)
+  {
+    var race = _races.FindById(raceId);
+    if (race == null) return null;
+
+    if (string.IsNullOrEmpty(race.PublicId))
+    {
+      race.PublicId = NewPublicId();
+      _races.Update(race);
+    }
+
+    return race.PublicId;
+  }
+
+  /// <summary>Records that this session is now on the results website.</summary>
+  public void MarkPublished(int raceId, DateTime at, string url)
+  {
+    var race = _races.FindById(raceId);
+    if (race == null) return;
+
+    race.PublishedAt = at;
+    race.PublishedUrl = url;
+    _races.Update(race);
   }
 
   public DbRace? GetCurrentRace()
@@ -504,12 +595,17 @@ public class RaceDataService : IDisposable
       existingLap.CrossingTime = lap.CrossingTime;
       existingLap.LapTime = lap.LapTime;
       existingLap.PositionAtCompletion = positionAtCompletion;
+      lap.PositionAtCompletion = positionAtCompletion;
       existingLap.IsSplitLap = lap.IsSplitLap;
       CopyCorrectionFields(lap, existingLap);
       _laps.Update(existingLap);
       Console.WriteLine($"Updated lap: Rider {riderTagID}, Lap {lap.LapNumber}, Race {CurrentRaceId}");
       return;
     }
+
+    // Kept on the lap as well as in the row: the position is what a lap chart
+    // is drawn from, and a running session has no other copy of it.
+    lap.PositionAtCompletion = positionAtCompletion;
 
     var dbLap = new DbLap
     {
@@ -573,6 +669,12 @@ public class RaceDataService : IDisposable
 
     var rows = laps
       .Where(l => !l.IsDeleted)
+      .Select(l =>
+      {
+        // Worked out once and kept on the lap too, for the same reason as AddLap.
+        l.PositionAtCompletion = positionOf(l);
+        return l;
+      })
       .Select(l => new DbLap
       {
         RaceId = CurrentRaceId,
@@ -580,7 +682,7 @@ public class RaceDataService : IDisposable
         LapNumber = l.LapNumber,
         CrossingTime = l.CrossingTime,
         LapTime = l.LapTime,
-        PositionAtCompletion = positionOf(l),
+        PositionAtCompletion = l.PositionAtCompletion,
         IsSplitLap = l.IsSplitLap,
         IsSuggestedForSplit = l.IsSuggestedForSplit,
         SuggestedSplitCount = l.SuggestedSplitCount,
@@ -825,7 +927,8 @@ public class RaceDataService : IDisposable
         CorrectionNote = dbLap.CorrectionNote,
         CrossedBy = dbLap.CrossedBy,
         IsSuspectedOverlap = dbLap.IsSuspectedOverlap,
-        OverlapDismissed = dbLap.OverlapDismissed
+        OverlapDismissed = dbLap.OverlapDismissed,
+        PositionAtCompletion = dbLap.PositionAtCompletion
         });
       }
 
