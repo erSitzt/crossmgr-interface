@@ -330,6 +330,22 @@ public class PublishPayloadTests
   }
 
   [Fact]
+  public void ARiderNobodyIdentifiedIsNamedRatherThanLeftBlank()
+  {
+    // Their transponder is the one thing never sent, so without a stand-in
+    // they would reach the website as an empty row. It happens on any race day
+    // where a tag was not identified before the flag.
+    var unknown = RiderBuilder.Rider("20269990", "", "").Laps(2, 40).Build();
+    var known = RiderBuilder.Rider("A", "7", "Anna Berger").Laps(3, 40).Build();
+
+    var payload = Build(Prepare(new RaceRules(), unknown, known));
+    var entry = payload.Entries.Single(e => e.Number == "");
+
+    Assert.Equal("Unidentified rider", entry.Name);
+    Assert.DoesNotContain("20269990", Json(payload));
+  }
+
+  [Fact]
   public void ThePayloadSaysWhichBuildSentIt()
   {
     var payload = Build(Prepare(new RaceRules(),
