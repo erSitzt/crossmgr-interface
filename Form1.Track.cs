@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Track map plumbing for Form1: the snapshot the map paints from, the refresh
@@ -102,6 +102,12 @@ public partial class Form1
 
     _settings.LastTrackId = track?.Id;
     _settings.Save();
+
+    // Stamp the running session too. The circuit is regularly chosen after the
+    // clock is already going, so recording it only at the start would leave
+    // exactly those races with no map on the results website. UpdateRace does
+    // nothing when no race is running, which is the common case here.
+    _raceDb.UpdateRace(r => r.TrackId = track?.Id);
   }
 
   /// <summary>

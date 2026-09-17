@@ -1,4 +1,4 @@
-using System.Drawing.Printing;
+﻿using System.Drawing.Printing;
 using System.Text;
 using ClosedXML.Excel;
 
@@ -364,6 +364,7 @@ public class RaceReportGenerator
           LapNumber = l.LapNumber,
           LapTime = l.LapTime,
           CrossingTime = l.CrossingTime,
+          PositionAtCompletion = l.PositionAtCompletion,
           RiddenBy = rider.IsTeam ? RiddenBy(rider, l.CrossedBy) ?? "" : "",
           Note = !rider.IsTeam ? ""
             : l.IsSuspectedOverlap ? "two riders on track?"
@@ -1550,6 +1551,12 @@ public class LapResult
   public int LapNumber { get; set; }
   public TimeSpan? LapTime { get; set; }
   public DateTime CrossingTime { get; set; }
+
+  /// <summary>
+  /// Where the rider stood at the end of this lap, or 0 when it was never
+  /// recorded. See <see cref="RiderLap.PositionAtCompletion"/>.
+  /// </summary>
+  public int PositionAtCompletion { get; set; }
 
   /// <summary>For a team: the rider whose transponder ended the lap.</summary>
   public string RiddenBy { get; set; } = "";

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
@@ -1052,7 +1052,7 @@ public partial class Form1 : Form
 
       // Create new race in database
       currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
-        LiveRules());
+        LiveRules(), _currentTrack?.Id);
 
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
@@ -3748,7 +3748,7 @@ public partial class Form1 : Form
 
       // Create new race in database
       currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
-        LiveRules());
+        LiveRules(), _currentTrack?.Id);
 
       // Update race start time for all existing riders
       lock (ridersLock)
