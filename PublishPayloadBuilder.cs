@@ -46,6 +46,16 @@ public static class PublishPayloadBuilder
   /// </summary>
   private const int MaxTrackPoints = 2000;
 
+  /// <summary>
+  /// What a rider nobody identified is called on the website.
+  ///
+  /// The sheet prints their transponder code, which is the one thing never
+  /// sent - so without this they would reach the page as a blank row. They
+  /// still raced and still hold their place, and a reader deserves to be told
+  /// why there is no name rather than left looking at an empty line.
+  /// </summary>
+  private const string UnidentifiedRider = "Unidentified rider";
+
   public static PublishedSession Build(PublishInputs inputs)
   {
     var report = inputs.Report;
@@ -131,8 +141,9 @@ public static class PublishPayloadBuilder
         : null,
       Position = rider.Position,
       Status = rider.IsDNS ? "dns" : rider.IsDNF ? "dnf" : "finished",
+      // Empty rather than absent for a rider nobody got round to identifying.
       Number = rider.RiderNumber,
-      Name = rider.RiderName,
+      Name = string.IsNullOrWhiteSpace(rider.RiderName) ? UnidentifiedRider : rider.RiderName,
       Team = Text(rider.Team),
       Category = Text(rider.Category),
       Machine = Text(rider.Machine),
