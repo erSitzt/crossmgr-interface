@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Wiring for the Race Day view: translating the race state machine into the
@@ -30,6 +30,7 @@ public partial class Form1
     _raceDayView.FixLapsClicked += (s, e) => OpenLapCorrectionForMostUrgentRider();
     _raceDayView.EndRaceNowClicked += (s, e) => EndRaceNow();
     _raceDayView.SetupClicked += (s, e) => RunNewRaceWizard();
+    _raceDayView.PublishClicked += (s, e) => PublishCurrentSession();
     _raceDayView.StartNextWaveClicked += (s, e) => StartNextWaveNow();
     _raceDayView.DemoClicked += (s, e) => ShowDemoPicker();
     _raceDayView.DemoOffered = !IsDemo;
@@ -208,6 +209,7 @@ public partial class Form1
     _raceDayView.SetWaves(BuildWaveChips(), waves?.Next?.Class);
 
     var (state, detail) = DescribeRaceState(sorted, riderCount);
+    _raceDayView.SetPublishingAvailable(PublishingAvailable);
     _raceDayView.SetState(state, detail);
 
     _raceDayView.SetReaderHealth(

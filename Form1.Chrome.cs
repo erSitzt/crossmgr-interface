@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// The window's menu bar and status bar.
@@ -24,6 +24,7 @@ public partial class Form1
   private ToolStripMenuItem _menuAdvanced = null!;
   private ToolStripMenuItem _menuShowTransponders = null!;
   private ToolStripMenuItem _menuDeleteSession = null!;
+  private ToolStripMenuItem _menuPublish = null!;
 
   private ToolStripStatusLabel _statusReader = null!;
   private ToolStripStatusLabel _statusLastRead = null!;
@@ -348,6 +349,14 @@ public partial class Form1
     _menuTransponders = Item("Transponder check...", Keys.None, (s, e) => ShowTransponderReport());
     var summary = Item("Rider summary", Keys.None, buttonShowSummary_Click);
     var pastSessions = Item("Past sessions...", Keys.Control | Keys.O, (s, e) => ShowSessionManager());
+    // Deliberately without a shortcut: this one leaves the building, and does
+    // not belong a keystroke away from Results... Hidden inside a demo, like
+    // Try a demo race... - publishing fictional riders to the club's real site
+    // must not be reachable.
+    _menuPublish = Item("Publish results...", Keys.None, (s, e) => PublishCurrentSession());
+    _menuPublish.Available = !IsDemo;
+    var publishSettings = Item("Results website...", Keys.None, (s, e) => ShowPublishSettings());
+    publishSettings.Available = !IsDemo;
     // "This session", not "race data": it removes one session, and New race...
     // is the way to keep one and move on.
     _menuDeleteSession = Item("Delete this session...", Keys.None, buttonClearRiders_Click);
@@ -359,6 +368,7 @@ public partial class Form1
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
       results, _menuGatePick, _menuTransponders, summary, new ToolStripSeparator(),
       pastSessions, _menuDeleteSession, new ToolStripSeparator(),
+      _menuPublish, publishSettings, new ToolStripSeparator(),
       exit
     });
 
@@ -526,6 +536,10 @@ public partial class Form1
     int riderCount;
     lock (ridersLock) riderCount = riders.Count;
     _menuDeleteSession.Enabled = currentRaceId.HasValue || riderCount > 0;
+
+    // Only a session that is over: publishing one mid-race would put a sheet
+    // on the internet that the next crossing contradicts.
+    _menuPublish.Enabled = currentRaceId.HasValue && raceFinished;
 
     _menuUndo.Enabled = _corrections.History.CanUndo;
     _menuUndo.Text = _corrections.History.CanUndo

@@ -1,4 +1,4 @@
-using static CrossMgrInterface.HelpBlock;
+﻿using static CrossMgrInterface.HelpBlock;
 
 namespace CrossMgrInterface;
 
@@ -28,7 +28,7 @@ public static class HelpTopics
     QuickStart(), Demo(), Screens(),
     Race(), Qualifying(), Practice(), Waves(), Teams(),
     RaceDay(), Fixing(), Unknown(), TransponderCheck(), Track(),
-    Results(), PastSessions(),
+    Results(), Publish(), PastSessions(),
     RiderLists(), Reader(), Settings(), Shortcuts(), Troubleshooting()
   };
 
@@ -653,10 +653,65 @@ public static class HelpTopics
         "The Excel export has a sheet for the results, one with every lap time, one with the statistics - and " +
         "one for the team members in a team event."),
 
+      Heading("On the website"),
+      Para("If your club publishes results to a website, Race > Publish results... puts the session on it, " +
+           "where riders can read it on their phones. The sheet and the website are worked out from the same " +
+           "figures, so they cannot disagree."),
+
       Heading("Later"),
-      Para("Race > Past sessions... (Ctrl+O) prints the sheet of any stored session, with the rules it was run under.")
+      Para("Race > Past sessions... (Ctrl+O) prints the sheet of any stored session, with the rules it was " +
+           "run under - and publishes it, if that was not done on the day.")
     },
-    HelpTopicIds.PastSessions, HelpTopicIds.Race, HelpTopicIds.Qualifying, HelpTopicIds.TransponderCheck);
+    HelpTopicIds.PastSessions, HelpTopicIds.Publish, HelpTopicIds.Race, HelpTopicIds.Qualifying,
+    HelpTopicIds.TransponderCheck);
+
+  private static HelpTopic Publish() => Topic(HelpTopicIds.Publish, AfterASession,
+    "Putting results on the website",
+    "One button sends a finished session to your club's results website, where riders can look themselves " +
+    "up on their phones.",
+    new[]
+    {
+      Heading("Setting it up, once"),
+      Para("Race > Results website... holds the address and the key your club was given. The address is " +
+           "already filled in; leave it unless you were told otherwise."),
+      Bullets(
+        "Paste puts the key in without retyping it - it is long, and arrives by email.",
+        "Test connection asks the website whether the key works. Do this in the club house, not at the track.",
+        "The key identifies your club. Treat it like a password - do not email it on, and do not put it in " +
+        "a screenshot."),
+      Tip("The key is kept encrypted on this computer, for this Windows user. Copying the folder to another " +
+          "laptop does not carry it across: that laptop asks for the key of its own."),
+
+      Heading("Publishing a session"),
+      Picture("publish-results", "Publish results, before anything is sent."),
+      Para("Once the flag is out, Race > Publish results... - or Publish results... on the Race Day screen. " +
+           "The window says how many riders and laps are about to be sent, and which circuit, before it sends " +
+           "anything."),
+      Bullets(
+        "Publish sends it. It takes a few seconds; the window says what it is doing.",
+        "When it is done the address of the page is shown. Copy link puts it on the clipboard, ready to paste " +
+        "into the club's group chat.",
+        "Publishing the same session again replaces what is on the website. Do that after correcting a lap - " +
+        "the website will not end up with the race twice."),
+
+      Heading("What is sent"),
+      Para("Exactly what is on the printed sheet: numbers, names, classes, teams, machines, every lap time, " +
+           "and what the session was scored under. The circuit is sent too, so the page can show a map."),
+      Para("Transponder IDs are not sent, and neither are your notes about which laps were corrected."),
+
+      Heading("No internet at the track"),
+      Para("Plenty of fields have none, and nothing is lost. The results are safe on this laptop. Publish " +
+           "them later from anywhere with Race > Past sessions... - the Published column shows which sessions " +
+           "have already gone up."),
+
+      Heading("If it will not publish"),
+      Keys(
+        ("The website did not accept the key", "Check it under Race > Results website... and press Test connection"),
+        ("This computer cannot reach the internet", "Publish later from Past sessions"),
+        ("The website is not answering", "Nothing was changed. Try again in a few minutes")),
+      Tip("A demo race is never published. The menu item is not there inside a demo.")
+    },
+    HelpTopicIds.Results, HelpTopicIds.PastSessions);
 
   private static HelpTopic PastSessions() => Topic(HelpTopicIds.PastSessions, AfterASession,
     "Past sessions and crash recovery",
@@ -666,9 +721,10 @@ public static class HelpTopics
       Heading("Past sessions"),
       Picture("past-sessions", "Race > Past sessions..., listing a day's sessions."),
       Para("Race > Past sessions... (Ctrl+O) lists every stored session, newest first, with its date, name, " +
-           "type, length, riders, laps and status."),
+           "type, length, riders, laps, status and when it was published, if it was."),
       Bullets(
         "Results... (or double-click) - prints its sheet, with the rules it was run under.",
+        "Publish... - puts it on the club's results website. Only shown once a website has been set up.",
         "Open - makes it the session on screen, to look at its laps or correct them. Not while another session is running.",
         "Rename... - changes the name printed on its sheet.",
         "Delete... - removes it and all its laps for good."),
@@ -686,7 +742,7 @@ public static class HelpTopics
           "is not part of a session: it stays as it was last set, and if it is on, a banner says so when the " +
           "application starts.")
     },
-    HelpTopicIds.Results, HelpTopicIds.Settings);
+    HelpTopicIds.Results, HelpTopicIds.Publish, HelpTopicIds.Settings);
 
   // ---- Setup and reference -------------------------------------------------
 

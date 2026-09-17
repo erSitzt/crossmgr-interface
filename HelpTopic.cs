@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 public enum HelpBlockKind
 {
@@ -68,6 +68,7 @@ public static class HelpTopicIds
 
   public const string Results = "results";
   public const string PastSessions = "past-sessions";
+  public const string Publish = "publish";
 
   public const string RiderLists = "rider-lists";
   public const string Reader = "reader";

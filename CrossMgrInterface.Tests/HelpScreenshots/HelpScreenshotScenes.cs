@@ -1,4 +1,4 @@
-using System.Drawing.Drawing2D;
+﻿using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
 namespace CrossMgrInterface.Tests;
@@ -16,7 +16,8 @@ internal static class HelpScreenshotScenes
   public static IReadOnlyList<string> Names { get; } = new[]
   {
     "race-day", "new-race-wizard", "fix-laps", "unknown-transponder",
-    "track-map", "circuit-editor", "past-sessions", "reader-settings", "demo-picker"
+    "track-map", "circuit-editor", "past-sessions", "reader-settings", "demo-picker",
+    "publish-results"
   };
 
   public static HelpScene Build(string name) => name switch
@@ -30,6 +31,7 @@ internal static class HelpScreenshotScenes
     "past-sessions" => PastSessions(),
     "reader-settings" => new HelpScene { Form = new ReaderSettingsDialog(53135, true, true, 60) },
     "demo-picker" => new HelpScene { Form = new DemoPickerDialog(DemoScenarios.All) },
+    "publish-results" => PublishResults(),
     _ => throw new ArgumentException($"There is no help screenshot scene called {name}.", nameof(name))
   };
 
@@ -266,7 +268,65 @@ internal static class HelpScreenshotScenes
   // Wider than it opens: at its opening size the Status column is cut off, and
   // that column is half of what the picture is there to show.
   private static HelpScene PastSessions() =>
-    new() { Form = new SessionManagerDialog(new SampleSessions()) { ClientSize = new Size(1010, 420) } };
+    new() { Form = new SessionManagerDialog(new SampleSessions()) { ClientSize = new Size(1100, 420) } };
+
+  /// <summary>
+  /// The publish window as it looks before anything is sent - the screen a club
+  /// needs to be able to point at when asked what leaves the laptop.
+  ///
+  /// Built from the race demo's fictional riders and a stub publisher, so the
+  /// picture needs no network, no key, and shows no credential.
+  /// </summary>
+  private static HelpScene PublishResults()
+  {
+    var field = RaceField().ToDictionary(r => r.TagID, r => r);
+    var rules = new RaceRules
+    {
+      SessionType = SessionType.Race,
+      Duration = TimeSpan.FromMinutes(20),
+      AdditionalLaps = 2,
+      DnfTimeoutMinutes = 2,
+      MinimumLapSeconds = 10,
+      ManualStart = false
+    };
+
+    var start = new DateTime(2026, 9, 12, 13, 30, 0);
+    var report = new RaceReportGenerator().PrepareReportData(
+      field, start, start.AddMinutes(23), TimeSpan.FromMinutes(20),
+      true, "Moto 1 - MX1 / MX2", rules: rules);
+
+    var session = PublishPayloadBuilder.Build(new PublishInputs
+    {
+      Report = report,
+      PublicId = "b3f1c0de4a7f4e2b9d1c8e5f0a6b3d20",
+      SessionType = SessionType.Race,
+      Track = Gsc()
+    });
+
+    var request = new PublishRequest
+    {
+      Session = session,
+      SiteName = "results.openlaptime.de",
+      Riders = session.Entries.Count,
+      Laps = session.Entries.Sum(e => e.LapTimes.Count),
+      CircuitName = "GSC"
+    };
+
+    return new HelpScene { Form = new PublishResultsDialog(request, new StubPublisher()) };
+  }
+
+  /// <summary>Configured, so the picture shows the summary rather than the set-up message. Never sends.</summary>
+  private sealed class StubPublisher : IResultsPublisher
+  {
+    public bool IsConfigured => true;
+
+    public Task<PublishOutcome> PublishAsync(PublishedSession session, IProgress<PublishProgress>? progress,
+      CancellationToken cancellationToken) =>
+      Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published."));
+
+    public Task<PublishOutcome> TestAsync(CancellationToken cancellationToken) =>
+      Task.FromResult(new PublishOutcome(PublishStatus.Published, "The website answered."));
+  }
 
   // ---- Helpers for the scenes ----------------------------------------------------
 
@@ -338,15 +398,19 @@ internal static class HelpScreenshotScenes
       var day = new DateTime(2026, 9, 12);
       _sessions = new List<SessionSummary>
       {
+        // The morning's sessions are already on the website and the afternoon's
+        // are not, which is what the Published column is there to show.
         Session(4, "Moto 2 - MX1 / MX2", day.AddHours(15).AddMinutes(10), 20, SessionType.Race, 16, 214),
         Session(3, "Moto 1 - MX1 / MX2", day.AddHours(13).AddMinutes(30), 20, SessionType.Race, 16, 221),
-        Session(2, "Timed qualifying", day.AddHours(11), 15, SessionType.TimedQualifying, 16, 187),
-        Session(1, "Free practice", day.AddHours(9).AddMinutes(30), 15, SessionType.FreePractice, 15, 164)
+        Session(2, "Timed qualifying", day.AddHours(11), 15, SessionType.TimedQualifying, 16, 187,
+          published: day.AddHours(11).AddMinutes(22)),
+        Session(1, "Free practice", day.AddHours(9).AddMinutes(30), 15, SessionType.FreePractice, 15, 164,
+          published: day.AddHours(9).AddMinutes(51))
       };
     }
 
     private static SessionSummary Session(int id, string name, DateTime start, int minutes, SessionType type,
-      int riders, int laps) =>
+      int riders, int laps, DateTime? published = null) =>
       new(new DbRace
       {
         Id = id,
@@ -355,13 +419,16 @@ internal static class HelpScreenshotScenes
         EndTime = start.AddMinutes(minutes + 3),
         Duration = TimeSpan.FromMinutes(minutes),
         IsFinished = true,
-        SessionType = type
+        SessionType = type,
+        PublishedAt = published
       }, riders, laps);
 
     public IReadOnlyList<SessionSummary> ListSessions() => _sessions;
     public int? CurrentSessionId => 4;
     public bool SessionRunning => false;
     public void PrintResults(SessionSummary session) { }
+    public void PublishResults(SessionSummary session) { }
+    public bool PublishingAvailable => true;
     public bool OpenSession(SessionSummary session) => false;
     public void RenameSession(SessionSummary session, string name) { }
     public bool DeleteSession(IWin32Window owner, SessionSummary session) => false;

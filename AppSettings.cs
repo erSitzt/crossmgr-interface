@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace CrossMgrInterface;
 
@@ -123,6 +123,15 @@ public sealed class AppSettings
   /// so the map should come back with the right loop already on it.
   /// </summary>
   public string? LastTrackId { get; set; }
+
+  /// <summary>
+  /// The results website this club publishes to, or null when it has never
+  /// been set up - which is the case for every club that does not use one, and
+  /// is why the Publish button does not appear until it is filled in.
+  ///
+  /// The key that goes with it is deliberately NOT here. See PublishCredentials.
+  /// </summary>
+  public string? ResultsSiteUrl { get; set; }
 
   private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
