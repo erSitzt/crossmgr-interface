@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 
 namespace CrossMgrInterface;
@@ -48,6 +48,20 @@ public static class PublishCredentials
 
   /// <summary>True when a key is saved on this computer.</summary>
   public static bool HasKey() => Load() != null;
+
+  /// <summary>
+  /// Enough of the saved key to recognise it - "olt_667aedc2…" - and never the
+  /// rest. The same prefix the website lists, so an operator can match the
+  /// laptop to the key by eye without either side revealing the secret.
+  /// </summary>
+  public static string? Hint()
+  {
+    var key = Load();
+    if (key == null) return null;
+
+    var secondUnderscore = key.IndexOf('_', key.IndexOf('_') + 1);
+    return secondUnderscore > 0 ? key[..secondUnderscore] + "\u2026" : key[..Math.Min(8, key.Length)] + "\u2026";
+  }
 
   public static bool Save(string key)
   {

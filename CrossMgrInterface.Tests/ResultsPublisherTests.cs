@@ -200,6 +200,31 @@ public class ResultsPublisherTests
   }
 
   [Fact]
+  public void TheSavedKeyIsRecognisableByItsPrefixAndNothingMore()
+  {
+    // What the settings window shows instead of an empty box - and the only
+    // part of the key that may ever appear on a screen.
+    var root = Path.Combine(Path.GetTempPath(), $"crossmgr-key-{Guid.NewGuid():N}");
+    AppPaths.UseRoot(root);
+    try
+    {
+      Assert.Null(PublishCredentials.Hint());
+
+      Assert.True(PublishCredentials.Save("olt_667aedc2_the_secret_part-with_underscores"));
+
+      var hint = PublishCredentials.Hint();
+      Assert.Equal("olt_667aedc2\u2026", hint);
+      Assert.DoesNotContain("secret", hint);
+    }
+    finally
+    {
+      PublishCredentials.Forget();
+      AppPaths.UseRoot(AppPaths.DefaultRoot);
+      try { Directory.Delete(root, true); } catch (IOException) { }
+    }
+  }
+
+  [Fact]
   public async Task AClubThatHasNotSetUpAWebsiteIsToldSoRatherThanFailing()
   {
     var publisher = new HttpResultsPublisher(null, null);

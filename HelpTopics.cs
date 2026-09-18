@@ -681,6 +681,9 @@ public static class HelpTopics
         "a screenshot."),
       Tip("The key is kept encrypted on this computer, for this Windows user. Copying the folder to another " +
           "laptop does not carry it across: that laptop asks for the key of its own."),
+      Para("The window never shows a saved key back - it is a password - but it does say that one is there, " +
+           "and which one, by its first few letters. Leave the box empty to keep it. Pasting a key into the box " +
+           "and pressing OK replaces the saved one, so paste only a key you were given for this computer."),
 
       Heading("Publishing a session"),
       Picture("publish-results", "Publish results, before anything is sent."),

@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Sending a finished session to the club's results website.
@@ -24,7 +24,8 @@ public partial class Form1
   /// <summary>Opens the settings, and saves whatever the operator decided.</summary>
   private void ShowPublishSettings()
   {
-    using var dialog = new PublishSettingsDialog(_settings.ResultsSiteUrl, PublishCredentials.HasKey());
+    using var dialog = new PublishSettingsDialog(_settings.ResultsSiteUrl, PublishCredentials.HasKey(),
+      PublishCredentials.Hint());
     if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
     _settings.ResultsSiteUrl = string.IsNullOrWhiteSpace(dialog.SiteUrl) ? null : dialog.SiteUrl;
