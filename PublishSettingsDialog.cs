@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Where the club's results website and its key are entered.
@@ -25,7 +25,7 @@ public sealed class PublishSettingsDialog : Form
   /// <summary>The operator asked for the saved key to be removed.</summary>
   public bool ForgetKey { get; private set; }
 
-  public PublishSettingsDialog(string? currentUrl, bool hasKey)
+  public PublishSettingsDialog(string? currentUrl, bool hasKey, string? keyHint = null)
   {
     Text = "Results website";
     FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -58,6 +58,7 @@ public sealed class PublishSettingsDialog : Form
     _key.Location = new Point(16, 150);
     _key.Width = 340;
     _key.UseSystemPasswordChar = true;
+    _key.PlaceholderText = hasKey ? "Paste a new key here to replace the saved one" : "";
 
     // A key arrives by email and is too long to retype without a mistake.
     var paste = new Button { Text = "Paste", Location = new Point(364, 149), Size = new Size(80, 25) };
@@ -74,8 +75,12 @@ public sealed class PublishSettingsDialog : Form
     _status.Location = new Point(16, 206);
     _status.Size = new Size(428, 36);
     _status.ForeColor = Color.DimGray;
+    // A saved key is never shown back - it is a password - but the operator
+    // must be able to see that one is there and which one, or an empty box
+    // reads as "the key is gone".
     _status.Text = hasKey
-      ? "A key is already saved on this computer. Leave this box empty to keep it."
+      ? $"Key {keyHint ?? "saved"} is on this computer and will stay unless you paste a new one " +
+        "or press Forget this key."
       : "The key identifies your club. Treat it like a password - do not email it " +
         "or put it in a screenshot.";
 
