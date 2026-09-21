@@ -9,7 +9,7 @@ namespace CrossMgrInterface;
 /// No intro card, and a manual start is pressed as soon as the reader is
 /// connected - for running a demo from a script and checking its log.
 /// </param>
-public sealed record DemoSession(DemoScenario Scenario, bool Unattended);
+public sealed record DemoSession(DemoScenario Scenario, bool Unattended, bool Live = false);
 
 /// <summary>
 /// Starting a demo: a second copy of the application, run as
@@ -26,6 +26,9 @@ public static class DemoLaunch
 {
   public const string DemoArgument = "--demo";
   public const string UnattendedArgument = "--unattended";
+
+  /// <summary>With --unattended: switch live timing on by itself. The test rig, not a spectator feature.</summary>
+  public const string LiveArgument = "--live";
 
   /// <summary>Holds every demo's own folder.</summary>
   public static string DemosFolder => Path.Combine(AppPaths.DefaultRoot, "Demo");
@@ -53,7 +56,8 @@ public static class DemoLaunch
     }
 
     var unattended = args.Any(a => string.Equals(a, UnattendedArgument, StringComparison.OrdinalIgnoreCase));
-    return new DemoSession(scenario, unattended);
+    var live = args.Any(a => string.Equals(a, LiveArgument, StringComparison.OrdinalIgnoreCase));
+    return new DemoSession(scenario, unattended, live);
   }
 
   /// <summary>Opens the demo in a window of its own.</summary>
@@ -74,14 +78,13 @@ public static class DemoLaunch
   }
 
   /// <summary>
-  /// Carries a live timing set-up into a demo's sandbox - but only one that
-  /// points at this computer.
+  /// Carries the live timing set-up into a demo's sandbox.
   ///
   /// A demo starts from an empty folder so it can never touch real data, and
-  /// that would also make it useless for trying live timing out. So when the
-  /// real settings name a loopback address, the address and the key travel;
-  /// with any other address nothing does, and a fictional race stays off the
-  /// club's real website.
+  /// that would also make it useless for showing someone live timing. So the
+  /// live address and the key travel - and nothing else. The results address
+  /// deliberately stays behind: a demo goes out live, marked as a demo and
+  /// cleared away within a day, but it never publishes final results.
   /// </summary>
   public static void SeedLiveTiming(string realRoot, string sandbox)
   {
@@ -93,7 +96,7 @@ public static class DemoLaunch
       using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(settingsPath));
       if (!doc.RootElement.TryGetProperty(nameof(AppSettings.LiveSiteUrl), out var url)) return;
       var liveUrl = url.GetString();
-      if (!HttpLiveTimingPublisher.IsLoopback(liveUrl)) return;
+      if (string.IsNullOrWhiteSpace(liveUrl)) return;
 
       File.WriteAllText(Path.Combine(sandbox, "settings.json"),
         System.Text.Json.JsonSerializer.Serialize(new AppSettings { LiveSiteUrl = liveUrl },
