@@ -11,6 +11,16 @@ public enum RaceDayState
   Finished
 }
 
+/// <summary>What the LIVE tile's dot says: grey until set up or while off, green, amber, red.</summary>
+public enum LiveTileState
+{
+  NotSetUp,
+  Off,
+  Sending,
+  Trouble,
+  Failed
+}
+
 /// <summary>How loudly a notice should be presented.</summary>
 public enum NoticeLevel { Info, Warning, Critical }
 
@@ -45,6 +55,12 @@ public sealed class RaceDayView
   private Panel _readerDot = null!;
   private Label _readerValue = null!;
   private Label _readerSub = null!;
+  private Panel _liveDot = null!;
+  private Label _liveValue = null!;
+  private Label _liveSub = null!;
+  private Button _liveToggle = null!;
+  private Color _liveDotColor = Color.Gray;
+  private bool _liveCanToggle;
 
   private DataGridView _leaderboard = null!;
   private Label _leaderboardFooter = null!;
@@ -83,6 +99,7 @@ public sealed class RaceDayView
   public event EventHandler? EndRaceNowClicked;
   public event EventHandler? ResultsClicked;
   public event EventHandler? PublishClicked;
+  public event EventHandler? LiveToggleClicked;
   public event EventHandler? FixLapsClicked;
   public event EventHandler? SetupClicked;
   public event EventHandler? DemoClicked;
@@ -164,12 +181,14 @@ public sealed class RaceDayView
     var tiles = new TableLayoutPanel
     {
       Dock = DockStyle.Fill,
-      ColumnCount = 3,
+      ColumnCount = 4,
       RowCount = 1,
       BackColor = Color.White
     };
+    // The clock takes a little more than a quarter; the three status tiles share the rest.
+    tiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
     for (var i = 0; i < 3; i++)
-      tiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+      tiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
 
     // Time remaining, big enough to read from a few steps back.
     var clockTile = Tile("TIME LEFT", out _clockValue, out _clockSub);
@@ -181,11 +200,59 @@ public sealed class RaceDayView
     _stateValue.Text = "Not started";
 
     var readerTile = ReaderTile();
+    var liveTile = LiveTile();
 
     tiles.Controls.Add(clockTile, 0, 0);
     tiles.Controls.Add(stateTile, 1, 0);
     tiles.Controls.Add(readerTile, 2, 0);
+    tiles.Controls.Add(liveTile, 3, 0);
     return tiles;
+  }
+
+  /// <summary>
+  /// Whether the running race is going to the live timing website, and how
+  /// that is going. Same shape as the reader tile - a coloured dot says it at
+  /// a glance from across the tent - plus the one button that switches it.
+  /// </summary>
+  private Panel LiveTile()
+  {
+    var panel = Tile("LIVE", out _liveValue, out _liveSub);
+    _liveValue.Font = new Font("Segoe UI Semibold", 17F);
+    _liveValue.Text = "Not set up";
+    _liveValue.ForeColor = Color.DimGray;
+    _liveValue.Padding = new Padding(28, 0, 0, 0);
+
+    _liveDot = new Panel
+    {
+      Size = new Size(20, 20),
+      Location = new Point(16, 62),
+      BackColor = Color.Transparent
+    };
+    _liveDot.Paint += (_, e) =>
+    {
+      using var brush = new SolidBrush(_liveDotColor);
+      e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+      e.Graphics.FillEllipse(brush, 0, 0, 18, 18);
+    };
+
+    // Top right, beside the caption, where the value and the sub-line never
+    // reach - so the text can be whatever length it needs to be.
+    _liveToggle = new Button
+    {
+      Text = "Switch on",
+      Size = new Size(84, 24),
+      Anchor = AnchorStyles.Top | AnchorStyles.Right,
+      Visible = false,
+      FlatStyle = FlatStyle.System
+    };
+    _liveToggle.Click += (s, e) => LiveToggleClicked?.Invoke(s, e);
+
+    panel.Controls.Add(_liveDot);
+    panel.Controls.Add(_liveToggle);
+    _liveDot.BringToFront();
+    panel.Resize += (_, _) => _liveToggle.Location =
+      new Point(panel.ClientSize.Width - _liveToggle.Width - 12, 10);
+    return panel;
   }
 
   private static Panel Tile(string caption, out Label value, out Label sub)
@@ -685,6 +752,31 @@ public sealed class RaceDayView
         Reader(Color.FromArgb(0, 160, 70), "Reader OK", $"last read {since.TotalSeconds:F0}s ago");
         break;
     }
+  }
+
+  /// <summary>
+  /// What the LIVE tile shows. Called every second, so it must be cheap and
+  /// must not flicker: text only changes when it differs.
+  /// </summary>
+  public void SetLiveStatus(LiveTileState state, string value, string sub, bool canToggle, bool isOn)
+  {
+    var (dot, ink) = state switch
+    {
+      LiveTileState.Sending => (Color.FromArgb(0, 160, 70), Color.Black),
+      LiveTileState.Trouble => (Color.FromArgb(230, 150, 0), Color.Black),
+      LiveTileState.Failed => (Color.FromArgb(200, 40, 40), Color.Black),
+      _ => (Color.Gray, Color.DimGray)
+    };
+
+    _liveDotColor = dot;
+    _liveValue.ForeColor = ink;
+    if (_liveValue.Text != value) _liveValue.Text = value;
+    if (_liveSub.Text != sub) _liveSub.Text = sub;
+
+    _liveCanToggle = canToggle;
+    _liveToggle.Text = isOn ? "Switch off" : "Switch on";
+    _liveToggle.Visible = canToggle && state != LiveTileState.NotSetUp;
+    _liveDot.Invalidate();
   }
 
   private void Reader(Color dot, string value, string sub)

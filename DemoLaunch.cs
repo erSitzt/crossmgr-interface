@@ -73,6 +73,41 @@ public static class DemoLaunch
     Process.Start(start);
   }
 
+  /// <summary>
+  /// Carries a live timing set-up into a demo's sandbox - but only one that
+  /// points at this computer.
+  ///
+  /// A demo starts from an empty folder so it can never touch real data, and
+  /// that would also make it useless for trying live timing out. So when the
+  /// real settings name a loopback address, the address and the key travel;
+  /// with any other address nothing does, and a fictional race stays off the
+  /// club's real website.
+  /// </summary>
+  public static void SeedLiveTiming(string realRoot, string sandbox)
+  {
+    try
+    {
+      var settingsPath = Path.Combine(realRoot, "settings.json");
+      if (!File.Exists(settingsPath)) return;
+
+      using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(settingsPath));
+      if (!doc.RootElement.TryGetProperty(nameof(AppSettings.LiveSiteUrl), out var url)) return;
+      var liveUrl = url.GetString();
+      if (!HttpLiveTimingPublisher.IsLoopback(liveUrl)) return;
+
+      File.WriteAllText(Path.Combine(sandbox, "settings.json"),
+        System.Text.Json.JsonSerializer.Serialize(new AppSettings { LiveSiteUrl = liveUrl },
+          new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+
+      var key = Path.Combine(realRoot, "results-key.dat");
+      if (File.Exists(key)) File.Copy(key, Path.Combine(sandbox, "results-key.dat"));
+    }
+    catch (Exception)
+    {
+      // A demo that cannot be seeded is still a demo.
+    }
+  }
+
   /// <summary>A port on this computer that nothing is listening on right now.</summary>
   public static int FreeLoopbackPort()
   {

@@ -1513,6 +1513,9 @@ public partial class Form1 : Form
   /// <summary>Resets, and removes the session from the database as well.</summary>
   private void ClearRiderData()
   {
+    // Whatever was going out stops going out; the next session starts with it off.
+    SetLiveTiming(false, silent: true);
+
     var deleted = currentRaceId;
     var deletedName = raceName;
 
@@ -4013,6 +4016,9 @@ public partial class Form1 : Form
   {
     raceFinished = true;
     waitingForFinalLaps = false;
+
+    // One last live update saying so, then live timing switches itself off.
+    RequestFinalLivePush();
     finalLapsStartTime = null; // Reset final laps tracking
 
     var actualRaceFinishTime = DateTime.Now;
@@ -4764,6 +4770,10 @@ public partial class Form1 : Form
   /// </summary>
   private void RestoreRaceState(DbRace raceToRestore)
   {
+    // Never resumed with a session: what came back may be minutes stale, and a
+    // session reopened to look at must not start broadcasting itself.
+    SetLiveTiming(false, silent: true);
+
     try
     {
       // Set current race in database

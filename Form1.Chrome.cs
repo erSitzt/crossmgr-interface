@@ -25,6 +25,8 @@ public partial class Form1
   private ToolStripMenuItem _menuShowTransponders = null!;
   private ToolStripMenuItem _menuDeleteSession = null!;
   private ToolStripMenuItem _menuPublish = null!;
+  private ToolStripMenuItem _menuLiveTiming = null!;
+  private ToolStripStatusLabel _statusLive = null!;
 
   private ToolStripStatusLabel _statusReader = null!;
   private ToolStripStatusLabel _statusLastRead = null!;
@@ -355,6 +357,13 @@ public partial class Form1
     // must not be reachable.
     _menuPublish = Item("Publish results...", Keys.None, (s, e) => PublishCurrentSession());
     _menuPublish.Available = !IsDemo;
+    // Checkable: it is a state, not an action. Allowed in a demo only when
+    // the address points at this computer - see LiveTimingAllowed.
+    _menuLiveTiming = new ToolStripMenuItem("Live timing") { CheckOnClick = true };
+    _menuLiveTiming.CheckedChanged += (_, _) =>
+    {
+      if (!_syncingLiveMenu) SetLiveTiming(_menuLiveTiming.Checked);
+    };
     var publishSettings = Item("Results website...", Keys.None, (s, e) => ShowPublishSettings());
     publishSettings.Available = !IsDemo;
     // "This session", not "race data": it removes one session, and New race...
@@ -368,7 +377,7 @@ public partial class Form1
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
       results, _menuGatePick, _menuTransponders, summary, new ToolStripSeparator(),
       pastSessions, _menuDeleteSession, new ToolStripSeparator(),
-      _menuPublish, publishSettings, new ToolStripSeparator(),
+      _menuPublish, _menuLiveTiming, publishSettings, new ToolStripSeparator(),
       exit
     });
 
@@ -503,10 +512,19 @@ public partial class Form1
     };
     _statusBar.ShowItemToolTips = true;
 
+    // Only while live timing is on: a reminder the race is going out, in the
+    // corner of every tab, not just Race Day.
+    _statusLive = new ToolStripStatusLabel("LIVE ●")
+    {
+      ForeColor = Color.FromArgb(0, 140, 60),
+      Font = new Font(_statusBar.Font, FontStyle.Bold),
+      Visible = false
+    };
+
     _statusBar.Items.AddRange(new ToolStripItem[]
     {
       _statusReader, Separator(), _statusLastRead, Separator(),
-      _statusRaceState, Separator(), _statusRiders,
+      _statusRaceState, Separator(), _statusRiders, Separator(), _statusLive,
       _statusNotice, Separator(), _statusRaceName, Separator(), version
     });
   }
@@ -540,6 +558,9 @@ public partial class Form1
     // Only a session that is over: publishing one mid-race would put a sheet
     // on the internet that the next crossing contradicts.
     _menuPublish.Enabled = currentRaceId.HasValue && raceFinished;
+
+    _menuLiveTiming.Available = LiveTimingAllowed;
+    _menuLiveTiming.Enabled = LiveTimingConfigured && !raceFinished;
 
     _menuUndo.Enabled = _corrections.History.CanUndo;
     _menuUndo.Text = _corrections.History.CanUndo

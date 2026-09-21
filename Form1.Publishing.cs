@@ -9,8 +9,15 @@
 /// </summary>
 public partial class Form1
 {
-  /// <summary>True once the club has entered both a website and a key.</summary>
-  private bool PublishingAvailable => !IsDemo && HttpResultsPublisher.FromSettings(_settings).IsConfigured;
+  private bool? _publishingAvailableCache;
+
+  /// <summary>
+  /// True once the club has entered both a website and a key. Cached: the
+  /// key is a DPAPI decrypt off disk, and the Race Day heartbeat asks every
+  /// second. Cleared when the settings window closes.
+  /// </summary>
+  private bool PublishingAvailable =>
+    _publishingAvailableCache ??= !IsDemo && HttpResultsPublisher.FromSettings(_settings).IsConfigured;
 
   private string PublishSiteName
   {
@@ -24,12 +31,20 @@ public partial class Form1
   /// <summary>Opens the settings, and saves whatever the operator decided.</summary>
   private void ShowPublishSettings()
   {
-    using var dialog = new PublishSettingsDialog(_settings.ResultsSiteUrl, PublishCredentials.HasKey(),
-      PublishCredentials.Hint());
+    using var dialog = new PublishSettingsDialog(_settings.ResultsSiteUrl, _settings.LiveSiteUrl,
+      PublishCredentials.HasKey(), PublishCredentials.Hint());
     if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
     _settings.ResultsSiteUrl = string.IsNullOrWhiteSpace(dialog.SiteUrl) ? null : dialog.SiteUrl;
+    _settings.LiveSiteUrl = string.IsNullOrWhiteSpace(dialog.LiveSiteUrl) ? null : dialog.LiveSiteUrl;
     _settings.Save();
+
+    // Both caches answer from the key file, which may just have changed.
+    _publishingAvailableCache = null;
+    InvalidateLiveConfiguration();
+    // A live session whose address or key just changed must not carry on
+    // with the old one. Off; the operator switches it on again if wanted.
+    if (_liveOn) SetLiveTiming(false, silent: true);
 
     if (dialog.ForgetKey)
     {
