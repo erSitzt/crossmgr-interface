@@ -726,6 +726,20 @@ public static class HelpTopics
            "and what the session was scored under. The circuit is sent too, so the page can show a map."),
       Para("Transponder IDs are not sent, and neither are your notes about which laps were corrected."),
 
+      Heading("Riders who would rather not be named"),
+      Para("Not every rider wants their full name on a public website. Race > Results website... has a " +
+           "setting for it: show full names unless a rider says no, or shorten every name unless a rider says " +
+           "yes. A rider says so in the rider list, with a column called public (or showname) holding yes or no. " +
+           "Their own answer always wins over the setting."),
+      Bullets(
+        "A shortened name is never blank - the rider still has to find themselves. It is either " +
+        "the first name and an initial (Lena B.) or the first three letters of each part with the rest " +
+        "starred (Len* Bra***). The setting chooses which, and shows an example.",
+        "Only the websites are affected. The screen, the printed sheet and the Excel file always carry " +
+        "full names - the operator has to tell riders apart, and a sheet handed to a rider is not public.",
+        "A team's name is a club, not a person, so it is never shortened. The riders listed under it " +
+        "each follow their own answer."),
+
       Heading("No internet at the track"),
       Para("Plenty of fields have none, and nothing is lost. The results are safe on this laptop. Publish " +
            "them later from anywhere with Race > Past sessions... - the Published column shows which sessions " +
@@ -786,7 +800,8 @@ public static class HelpTopics
         ("Number", "number, ridernumber or bib"),
         ("Class", "category, class or division"),
         ("Team", "team, club or sponsor - only groups riders in a team event"),
-        ("Machine", "machine, bike or motorcycle")),
+        ("Machine", "machine, bike or motorcycle"),
+        ("Public name", "public, showname or nameok - yes or no; whether the rider agrees to their full name on the websites")),
       Bullets(
         "The first row holds the column names; capitals do not matter, and other columns are ignored.",
         "In an Excel file only the first sheet is read.",

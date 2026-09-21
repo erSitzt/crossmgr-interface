@@ -110,6 +110,8 @@ public class DbRider
   public string Team { get; set; } = "";
   public string Category { get; set; } = "";
   public string Machine { get; set; } = "";
+  /// <summary>See <see cref="RiderInfo.ShowName"/>. Schemaless: older rows read back as null.</summary>
+  public bool? ShowName { get; set; }
   public DateTime LastCrossingTime { get; set; }
   public DateTime FirstCrossing { get; set; }
   public DateTime LastCrossing { get; set; }
@@ -157,6 +159,7 @@ public class DbTeamMember
   public string LastName { get; set; } = "";
   public string Category { get; set; } = "";
   public List<string> Transponders { get; set; } = new();
+  public bool? ShowName { get; set; }
 }
 
 public class DbLap
@@ -492,6 +495,7 @@ public class RaceDataService : IDisposable
     Team = riderInfo.Team,
     Category = riderInfo.Category,
     Machine = riderInfo.Machine,
+    ShowName = riderInfo.ShowName,
     LastCrossingTime = riderInfo.LastCrossingTime,
     FirstCrossing = riderInfo.FirstCrossing,
     LastCrossing = riderInfo.LastCrossing,
@@ -514,6 +518,7 @@ public class RaceDataService : IDisposable
       FirstName = m.FirstName,
       LastName = m.LastName,
       Category = m.Category,
+      ShowName = m.ShowName,
       Transponders = m.Transponders.ToList()
     }).ToList()
   };
@@ -882,6 +887,7 @@ public class RaceDataService : IDisposable
         Team = dbRider.Team,
         Category = dbRider.Category,
         Machine = dbRider.Machine,
+        ShowName = dbRider.ShowName,
         LastCrossingTime = dbRider.LastCrossingTime,
         FirstCrossing = dbRider.FirstCrossing,
         LastCrossing = dbRider.LastCrossing,
@@ -898,6 +904,7 @@ public class RaceDataService : IDisposable
           FirstName = m.FirstName,
           LastName = m.LastName,
           Category = m.Category,
+          ShowName = m.ShowName,
           Transponders = m.Transponders.ToList()
         }).ToList()
       };

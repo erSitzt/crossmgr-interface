@@ -12,6 +12,13 @@ public class RiderInfo
   public string Team { get; set; } = "";
   public string Category { get; set; } = "";
   public string Machine { get; set; } = "";
+  /// <summary>
+  /// Whether this rider agreed to be named in full on the website. Null when
+  /// the rider list did not say, in which case the club's default applies.
+  /// Only the website is affected - the screen and the sheets keep the full
+  /// name. See NamePrivacy.
+  /// </summary>
+  public bool? ShowName { get; set; }
   public DateTime LastCrossingTime { get; set; }
   public List<RiderLap> Laps { get; set; } = new List<RiderLap>();
   public DateTime FirstCrossing { get; set; }

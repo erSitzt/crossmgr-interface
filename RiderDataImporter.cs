@@ -1,4 +1,4 @@
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
 using System.Data;
 
 namespace CrossMgrInterface;
@@ -48,6 +48,8 @@ public class RiderDataImporter
     public string Team { get; set; } = "";
     public string Category { get; set; } = "";
     public string Machine { get; set; } = "";
+    /// <summary>See <see cref="RiderInfo.ShowName"/>. Null when the list has no such column.</summary>
+    public bool? ShowName { get; set; }
 
     /// <summary>
     /// Full name combining first and last name
@@ -344,6 +346,11 @@ public class RiderDataImporter
 
     if (TryGetValue(values, columnMap, new[] { "machine", "bike", "motorcycle" }, out string machine))
       riderData.Machine = machine;
+
+    // Whether the rider agreed to be named in full on the website. yes/no in
+    // any of the spellings a club secretary would use; blank means "not said".
+    if (TryGetValue(values, columnMap, new[] { "showname", "public", "publicname", "nameok", "veroeffentlichen" }, out string showName))
+      riderData.ShowName = NamePrivacy.ParseShowName(showName);
 
     return riderData;
   }

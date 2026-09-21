@@ -140,6 +140,17 @@ public sealed class AppSettings
   /// </summary>
   public string? LiveSiteUrl { get; set; }
 
+  /// <summary>
+  /// Whether riders the rider list said nothing about are named in full on
+  /// the websites. A rider's own yes/no in the list always wins over this.
+  /// True by default: that is what every results board has always done, and
+  /// a club that wants the opposite flips one switch.
+  /// </summary>
+  public bool PublishNamesByDefault { get; set; } = true;
+
+  /// <summary>How a hidden name is written. See NamePrivacy.</summary>
+  public NameStyle HiddenNameStyle { get; set; } = NameStyle.FirstNameInitial;
+
   private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
   public static AppSettings Load()
