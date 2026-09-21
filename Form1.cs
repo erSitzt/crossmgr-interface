@@ -384,6 +384,8 @@ public partial class Form1 : Form
     SetColumnTooltip("NextCrossing", "Race time this rider is expected to cross next.");
     SetColumnTooltip("TimeToNext", "How long until they are due. \"Overdue\" means they have not appeared.");
     SetColumnTooltip("Gap", "Behind the leader: seconds on the same lap, or how many laps down.");
+    SetColumnTooltip("LastRead", "Time of day the loop last saw this rider. Click to sort: the riders " +
+      "who stopped earliest come to the top.");
 
     void SetColumnTooltip(string column, string text)
     {
@@ -2141,6 +2143,7 @@ public partial class Form1 : Form
     dataGridViewRiders.Columns.Add("TotalTime", "Total Time");
     dataGridViewRiders.Columns.Add("Gap", "Gap");
     dataGridViewRiders.Columns.Add("OnTrack", "On track");
+    dataGridViewRiders.Columns.Add("LastRead", "Last read");
     dataGridViewRiders.Columns["OnTrack"]!.Visible = false;
     dataGridViewRiders.Columns["OnTrack"]!.DisplayIndex = dataGridViewRiders.Columns["RiderName"]!.DisplayIndex + 1;
 
@@ -2166,8 +2169,16 @@ public partial class Form1 : Form
         case "TimeToNext": column.Width = 90; break;
         case "TotalTime": column.Width = 95; break; // room for h:mm:ss.fff
         case "Gap": column.Width = 80; break;
+        case "LastRead": column.Width = 85; break;
       }
     }
+
+    // The control sorts nothing itself - it holds no rows to sort. Clicking a
+    // header is a request, answered in DataGridViewRiders_ColumnHeaderMouseClick.
+    foreach (DataGridViewColumn column in dataGridViewRiders.Columns)
+      column.SortMode = DataGridViewColumnSortMode.Programmatic;
+
+    dataGridViewRiders.ColumnHeaderMouseClick += DataGridViewRiders_ColumnHeaderMouseClick;
 
     // Add context menu for tag operations
     var contextMenu = new ContextMenuStrip();
@@ -2591,6 +2602,23 @@ public partial class Form1 : Form
         cells[RiderRowData.ColGap] = gap;
         cells[RiderRowData.ColOnTrack] = rider.IsTeam ? rider.OnTrackMember?.Label ?? "-" : "";
 
+        // A rider who never crossed has no last read, and "-" beats a time of
+        // day that would be read as midnight.
+        var lastRead = rider.TotalLaps > 0 ? rider.LastCrossing : (DateTime?)null;
+        cells[RiderRowData.ColLastRead] = lastRead?.ToString("HH:mm:ss") ?? "-";
+
+        // Only where the text would sort wrongly; see RiderRowData.SortKeys.
+        var sortKeys = new IComparable?[RiderRowData.ColumnCount];
+        sortKeys[RiderRowData.ColPosition] = i + 1;
+        sortKeys[RiderRowData.ColRiderNumber] = int.TryParse(rider.RiderNumber, out var num) ? num : null;
+        sortKeys[RiderRowData.ColLaps] = rider.TotalLaps;
+        sortKeys[RiderRowData.ColLastLap] = rider.LastLapTime;
+        sortKeys[RiderRowData.ColBestLap] = rider.BestLapTime;
+        sortKeys[RiderRowData.ColPredictedLap] = rider.PredictedLapTime;
+        sortKeys[RiderRowData.ColNextCrossing] = rider.EstimatedNextCrossing;
+        sortKeys[RiderRowData.ColTotalTime] = rider.TotalLaps > 0 ? rider.TotalTime : null;
+        sortKeys[RiderRowData.ColLastRead] = lastRead;
+
         var rowBack = Color.Empty;
         var rowFore = Color.Empty;
         if (rider.IsDNF)
@@ -2606,6 +2634,7 @@ public partial class Form1 : Form
         {
           TagID = rider.TagID,
           Cells = cells,
+          SortKeys = sortKeys,
           StatusText = statusText,
           StatusTooltip = statusTooltip,
           RowBackColor = rowBack,
@@ -2616,7 +2645,10 @@ public partial class Form1 : Form
           ProjectedDeclines = hasSuggestedSplits && !rider.IsDNF && projectedPositionStr.Contains("(-")
         });
       }
-      _riderRows = rows;
+      // Sorted after the rows are built, never before: position and the podium
+      // colours come from where a rider actually is in the race, and must not
+      // follow the order the operator happens to be looking through.
+      _riderRows = riderSortColumn < 0 ? rows : RiderRowSort.By(rows, riderSortColumn, riderSortDescending);
 
       // Virtual mode: setting RowCount is all the control needs. It will ask for
       // the fifteen or so rows actually on screen, whatever the field size.
@@ -2647,6 +2679,45 @@ public partial class Form1 : Form
   /// 20-rider one - writing every row into the control took close to a second at
   /// that size, which made the grid feel sluggish and jump under the operator.
   /// </summary>
+  /// <summary>The column the operator is sorting by, or -1 for race order.</summary>
+  private int riderSortColumn = -1;
+  private bool riderSortDescending;
+
+  /// <summary>
+  /// Puts the riders grid in the order the operator asked for. Clicking Pos
+  /// puts it back in race order, which is what the grid is for; clicking the
+  /// same column again turns it round.
+  /// </summary>
+  private void DataGridViewRiders_ColumnHeaderMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
+  {
+    if (e.ColumnIndex < 0 || e.ColumnIndex >= RiderRowData.ColumnCount) return;
+
+    if (e.ColumnIndex == RiderRowData.ColPosition)
+    {
+      riderSortColumn = -1;
+      riderSortDescending = false;
+    }
+    else if (e.ColumnIndex == riderSortColumn)
+    {
+      riderSortDescending = !riderSortDescending;
+    }
+    else
+    {
+      riderSortColumn = e.ColumnIndex;
+      riderSortDescending = false;
+    }
+
+    foreach (DataGridViewColumn column in dataGridViewRiders.Columns)
+      column.HeaderCell.SortGlyphDirection = SortOrder.None;
+
+    // Race order is still an order, and the glyph says so on Pos.
+    var glyphColumn = riderSortColumn < 0 ? RiderRowData.ColPosition : riderSortColumn;
+    dataGridViewRiders.Columns[glyphColumn].HeaderCell.SortGlyphDirection =
+      riderSortDescending ? SortOrder.Descending : SortOrder.Ascending;
+
+    _refresh.RenderNow(RaceViewKind.Riders);
+  }
+
   private void DataGridViewRiders_CellValueNeeded(object? sender, DataGridViewCellValueEventArgs e)
   {
     if (e.RowIndex < 0 || e.RowIndex >= _riderRows.Count) return;
@@ -4979,6 +5050,14 @@ public partial class Form1 : Form
       // may not be loaded yet, and a member's next read must still find its team.
       lock (ridersLock) lastReadByTransponder.Clear();
       RebuildTeamRoster();
+
+      // The classes come from the riders who just came back, so the Riders tab
+      // filter has to be built again here. Every other path that changes who is
+      // in the session does this; restoring one did not, so a session opened
+      // from Past sessions offered nothing but All Classes and the filter
+      // looked broken. After RebuildTeamRoster: in a team event the classes
+      // come from the teams, not from each member.
+      PopulateClassFilter();
 
       // Before the repaint: this rebuilds the tabs, which is what brings the
       // Qualifying tab back for a recovered qualifying session. Nothing else on
