@@ -418,7 +418,10 @@ public static class HelpTopics
         "rider due at the line has not come and nothing has been read, and red - with a banner - once several " +
         "have: check the reader and the loop. It stays green while nobody is still expected, such as after the " +
         "flag while the finish waits for a rider who retired. To go by a fixed time instead, see The " +
-        "transponder reader."),
+        "transponder reader.",
+        "LIVE says whether the running race is going to the live timing website, with a Switch on / " +
+        "Switch off button. Grey when off, green while sending, amber when an update did not get through, " +
+        "red when the website has not been reached for a while. See Publishing results to the website."),
 
       Heading("The buttons"),
       Bullets(
@@ -672,8 +675,9 @@ public static class HelpTopics
     new[]
     {
       Heading("Setting it up, once"),
-      Para("Race > Results website... holds the address and the key your club was given. The address is " +
-           "already filled in; leave it unless you were told otherwise."),
+      Para("Race > Results website... holds the two addresses - the results website and the live timing " +
+           "website - and the key your club was given. One key works for both. The addresses are already " +
+           "filled in; leave them unless you were told otherwise."),
       Bullets(
         "Paste puts the key in without retyping it - it is long, and arrives by email.",
         "Test connection asks the website whether the key works. Do this in the club house, not at the track.",
@@ -684,6 +688,26 @@ public static class HelpTopics
       Para("The window never shows a saved key back - it is a password - but it does say that one is there, " +
            "and which one, by its first few letters. Leave the box empty to keep it. Pasting a key into the box " +
            "and pressing OK replaces the saved one, so paste only a key you were given for this computer."),
+
+      Heading("Live timing while the race runs"),
+      Para("Race > Live timing - or Switch on in the LIVE tile on the Race Day screen - sends the running " +
+           "order and the last crossings to the live timing website every few seconds, for spectators to " +
+           "follow on their phones. It is off for every new session; switch it on once the clock is " +
+           "running, or before."),
+      Bullets(
+        "What goes: number, name, class, team, laps, last and best lap, and the gap - plus the last " +
+        "twenty crossings. Never transponder IDs, never your notes about corrections.",
+        "The LIVE tile's dot says how it is going: green means sending, amber means the last update did " +
+        "not get through and it is trying again, red means the website has not been reached for a while. " +
+        "The race is timed exactly the same whatever the colour - nothing on this laptop waits for the website.",
+        "Switch off stops sending. The page keeps the last picture it received.",
+        "When the race finishes, one last update says so and live timing switches itself off. Publish " +
+        "results... afterwards puts the full sheet up as before, and the live page then links to it."),
+      Keys(
+        ("The tile says the key was refused", "Race > Results website... and press Test beside the live address"),
+        ("Amber or red", "Nothing to do during the race. Check the hotspot when there is a moment")),
+      Tip("In a demo, live timing appears only when the live timing address points at this computer - " +
+          "a fictional race can never reach your club's real website."),
 
       Heading("Publishing a session"),
       Picture("publish-results", "Publish results, before anything is sent."),

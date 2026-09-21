@@ -133,6 +133,13 @@ public sealed class AppSettings
   /// </summary>
   public string? ResultsSiteUrl { get; set; }
 
+  /// <summary>
+  /// The live timing website, or null when not set up. Uses the same key as
+  /// the results site: one server, one key per laptop. Whether live timing is
+  /// actually on is not a setting - it is chosen per session and never kept.
+  /// </summary>
+  public string? LiveSiteUrl { get; set; }
+
   private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
   public static AppSettings Load()

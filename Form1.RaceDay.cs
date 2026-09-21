@@ -31,6 +31,7 @@ public partial class Form1
     _raceDayView.EndRaceNowClicked += (s, e) => EndRaceNow();
     _raceDayView.SetupClicked += (s, e) => RunNewRaceWizard();
     _raceDayView.PublishClicked += (s, e) => PublishCurrentSession();
+    _raceDayView.LiveToggleClicked += (s, e) => SetLiveTiming(!_liveOn);
     _raceDayView.StartNextWaveClicked += (s, e) => StartNextWaveNow();
     _raceDayView.DemoClicked += (s, e) => ShowDemoPicker();
     _raceDayView.DemoOffered = !IsDemo;
@@ -211,6 +212,11 @@ public partial class Form1
     var (state, detail) = DescribeRaceState(sorted, riderCount);
     _raceDayView.SetPublishingAvailable(PublishingAvailable);
     _raceDayView.SetState(state, detail);
+
+    // The LIVE tile, on the same heartbeat, so "sent 3 s ago" keeps ticking.
+    var (liveState, liveValue, liveSub) = LiveTileNow();
+    _raceDayView.SetLiveStatus(liveState, liveValue, liveSub,
+      canToggle: LiveTimingConfigured && LiveTimingAllowed && !raceFinished, isOn: _liveOn);
 
     _raceDayView.SetReaderHealth(
       isListening,

@@ -103,6 +103,7 @@ internal static class HelpScreenshotScenes
     view.SetWaves(null, null);
     view.SetState(RaceDayState.Running, $"Started 14:00 · {sorted.Count} riders");
     view.SetReaderHealth(true, 1, DateTime.Now.AddSeconds(-2), null);
+    view.SetLiveStatus(LiveTileState.Sending, "Sending", "sent 3 s ago", canToggle: true, isOn: true);
     view.SetLeaderboard(sorted);
     view.SetChecklist("Moto 1 - MX1 / MX2", sorted.Count, TimeSpan.FromMinutes(20), true);
 

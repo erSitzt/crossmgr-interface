@@ -38,7 +38,7 @@ Then:
 
 | Picture | Screen | Regenerate after changing | Topic |
 |---|---|---|---|
-| `race-day` | Race Day tab during a race | `RaceDayView.cs` | race-day |
+| `race-day` | Race Day tab during a race, live timing on | `RaceDayView.cs` | race-day |
 | `new-race-wizard` | New race wizard, Riders step | `NewRaceWizard.cs` | quick-start |
 | `fix-laps` | Fix laps dialog with the suggested fix for a CHECK lap | `LapCorrectionDialog.cs`, `LapFixAdvisor.cs` | fixing |
 | `unknown-transponder` | Identify transponder dialog | `AssignTagDialog.cs` | unknown |

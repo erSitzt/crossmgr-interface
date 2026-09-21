@@ -29,6 +29,7 @@ static class Program
 
         // Before the window exists: it opens the database and settings as it is built.
         using var sandbox = DemoSandbox.Create(DemoLaunch.DemosFolder, demo.Scenario.Id, DateTime.Now);
+        DemoLaunch.SeedLiveTiming(AppPaths.DefaultRoot, sandbox.Folder);
         AppPaths.UseRoot(sandbox.Folder);
         Application.Run(new Form1(demo));
     }
