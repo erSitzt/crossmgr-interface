@@ -464,6 +464,14 @@ public static class HelpTopics
         "riders on track (TWO OUT) before a missed read (CHECK), and the leaders first. Press it again after each " +
         "fix for the next one."),
 
+      Heading("Putting the Riders tab in a different order"),
+      Para("The grid is in race order: first on laps, then on time. Click any column heading to sort by it " +
+           "instead, and again to turn it round. Click Pos to go back to race order. The position and the " +
+           "podium colours always mean where a rider is in the race, whatever order you are reading in."),
+      Para("Last read is the time of day the loop last saw each rider. Sorting by it brings whoever stopped " +
+           "earliest to the top, which is the quickest way to find a rider whose result looks wrong - someone " +
+           "who pulled in an hour ago should not be among the finishers."),
+
       Heading("The Status column on the Riders tab"),
       Keys(
         ("DNF", "did not finish: timed out after the flag, or marked by hand"),
