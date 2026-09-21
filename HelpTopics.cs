@@ -310,8 +310,9 @@ public static class HelpTopics
       Steps(
         "Import the rider list first - the classes come from its class column.",
         "Race > New race... (Ctrl+N), choose Race, and on the Start step choose The classes start in waves.",
-        "Put the classes in their start order and set how many minutes each class starts after the previous " +
-        "one. Gap between classes with Apply to every class sets them all at once. The first class goes on START RACE.",
+        "Put the classes in their start order with Move up and Move down, and set how many minutes each " +
+        "class starts after the previous one. Gap between classes with Apply to every class sets them all at " +
+        "once. The first class goes on START RACE, so it has no gap.",
         "Press Finish. The same order and gaps are offered again next time."),
 
       Heading("During the race"),

@@ -519,8 +519,15 @@ public sealed class NewRaceWizard : Form
     var apply = new Button { Text = "Apply to every class", Location = new Point(300, 0), Size = new Size(170, 28) };
     apply.Click += (_, _) => ApplyGapToEveryClass();
 
+    // The order the classes leave the gate in. Two buttons rather than
+    // drag-and-drop: a volunteer has to be able to see how to change it.
+    var up = new Button { Text = "Move up", Location = new Point(596, 36), Size = new Size(84, 28) };
+    var down = new Button { Text = "Move down", Location = new Point(596, 70), Size = new Size(84, 28) };
+    up.Click += (_, _) => MoveSelectedWave(-1);
+    down.Click += (_, _) => MoveSelectedWave(+1);
+
     _waveGrid.Location = new Point(0, 36);
-    _waveGrid.Size = new Size(680, 200);
+    _waveGrid.Size = new Size(588, 200);
     _waveGrid.AllowUserToAddRows = false;
     _waveGrid.AllowUserToDeleteRows = false;
     _waveGrid.AllowUserToResizeRows = false;
@@ -538,7 +545,44 @@ public sealed class NewRaceWizard : Form
     // A letter typed into the delay column is a slip, not a crash.
     _waveGrid.DataError += (_, e) => e.ThrowException = false;
 
-    _wavePanel.Controls.AddRange(new Control[] { gapCaption, _waveGap, minutes, apply, _waveGrid });
+    _wavePanel.Controls.AddRange(new Control[] { gapCaption, _waveGap, minutes, apply, _waveGrid, up, down });
+  }
+
+  /// <summary>
+  /// Moves the selected class one place up or down the start order.
+  ///
+  /// The delays travel with the row - a class keeps the gap it was given -
+  /// except that whichever class ends up first has no gap at all: it goes on
+  /// START RACE, and there is nothing before it to be after.
+  /// </summary>
+  private void MoveSelectedWave(int by)
+  {
+    _waveGrid.EndEdit();
+    if (_waveGrid.CurrentRow == null) return;
+
+    var from = _waveGrid.CurrentRow.Index;
+    var to = from + by;
+    if (to < 0 || to >= _waveGrid.Rows.Count) return;
+
+    var rows = WaveRows();
+    (rows[from], rows[to]) = (rows[to], rows[from]);
+
+    var gap = (double)_waveGap.Value;
+    _waveGrid.Rows.Clear();
+    for (var i = 0; i < rows.Count; i++)
+    {
+      // The class that has just become first loses its delay; the one that
+      // has just left first place needs one, and the gap is the sensible guess.
+      var minutes = i == 0 ? 0 : rows[i].Minutes > 0 ? rows[i].Minutes : gap;
+      var row = _waveGrid.Rows.Add(rows[i].Class, minutes);
+      if (i == 0)
+      {
+        _waveGrid.Rows[row].Cells["Delay"].ReadOnly = true;
+        _waveGrid.Rows[row].Cells["Delay"].Style.ForeColor = Color.Gray;
+      }
+    }
+
+    _waveGrid.CurrentCell = _waveGrid.Rows[to].Cells["Class"];
   }
 
   /// <summary>
