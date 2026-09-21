@@ -335,6 +335,10 @@ public static class HelpTopics
       Bullets(
         "Every rider is timed from their own class's start: their first lap, total time and place are all " +
         "measured from it.",
+        "Changing a rider's class afterwards with Fix laps... does not re-time them - they keep the start they " +
+        "rode from, because they left the gate they left. It is the right fix for a rider on the wrong row of " +
+        "the rider list. A class that has not left the gate yet cannot be chosen: a rider in it would stop " +
+        "being counted until it goes.",
         "One clock runs from the first start, and one flag ends the race for everyone, as in any race.",
         "The overall sheet ranks on laps, then on time from each rider's own start. The class sheets compare " +
         "riders who started together. The board shows each rider's class beside their name."),
@@ -499,6 +503,10 @@ public static class HelpTopics
         "Count this read - a grey read rejected as too soon that was a real lap after all.",
         "Mark as DNF, Mark as DNS, Back in the race - set the rider's status by hand. The automatic timeout " +
         "never overrides it; Back in the race hands the rider back to it.",
+        "Change class... - when the rider list has a rider in the wrong class. Pick from the classes already " +
+        "in the session or type a new one. It changes which sheet they appear on and nothing else: their laps, " +
+        "their total time and their start time all stay exactly as they were. A team's class comes from its " +
+        "riders on the list, so a team cannot be changed here.",
         "Undo last change and Redo - also Ctrl+Z and Ctrl+Y, in this window or anywhere in the application, for the last 50 " +
         "changes. Redo is there until the next change is made."),
       Para("Changes apply at once and are saved straight away; the standings behind the window move with " +

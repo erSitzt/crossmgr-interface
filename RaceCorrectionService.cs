@@ -311,6 +311,31 @@ public sealed class RaceCorrectionService
     });
 
   /// <summary>
+  /// Moves a rider into another class, because the rider list had them in the
+  /// wrong one. Once a rider is identified there is no other way to change it.
+  ///
+  /// Their start time is deliberately left alone, and that is the whole point:
+  /// the rider left the gate when they left it, and it is the list that was
+  /// wrong, not the rider. RecomputeRider below measures the first lap from
+  /// <see cref="RiderInfo.RaceStartTime"/>, so not touching it is what keeps
+  /// every lap time and the total time exactly as they were - the correction
+  /// changes which sheet the rider appears on, and nothing else.
+  ///
+  /// That is the right answer for a rider on the wrong row of the list, and the
+  /// wrong one for a rider who genuinely started with another class in a
+  /// staggered race. Only the operator knows which, so the window that calls
+  /// this says so rather than deciding for them.
+  /// </summary>
+  public CorrectionResult SetRiderClass(string tagId, string category)
+    => Mutate(tagId, expectedRevision: -1, CorrectionKind.SetCategory, rider =>
+    {
+      var from = string.IsNullOrWhiteSpace(rider.Category) ? "no class" : rider.Category;
+      rider.Category = category;
+
+      return $"Moved {rider.Label} from {from} to {category}";
+    });
+
+  /// <summary>
   /// Attaches an identity to a transponder that was not in the imported rider
   /// list, optionally merging its laps onto a rider already being tracked under
   /// a different transponder.

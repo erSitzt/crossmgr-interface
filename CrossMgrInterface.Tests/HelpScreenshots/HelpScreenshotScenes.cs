@@ -163,8 +163,11 @@ internal static class HelpScreenshotScenes
     };
 
     var service = new RaceCorrectionService(riders, new object(), () => RiderBuilder.RaceStart, _ => { });
+    // Changing a class is the main window's job, and there is no main window
+    // here; the button only has to be on screen, not to work.
     var dialog = new LapCorrectionDialog(service, rider.TagID,
-      tag => riders.GetValueOrDefault(tag), _ => rejected, () => RiderBuilder.RaceStart);
+      tag => riders.GetValueOrDefault(tag), _ => rejected, () => RiderBuilder.RaceStart,
+      _ => false);
 
     return new HelpScene { Form = dialog };
   }
