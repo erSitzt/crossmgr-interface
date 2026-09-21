@@ -167,4 +167,21 @@ public class LiveSnapshotBuilderTests
     Assert.Equal("Unidentified rider", entry.Name);
     Assert.DoesNotContain("20269990", LiveSnapshotBuilder.Serialise(Build(RaceDayState.Running, unknown)));
   }
+  [Fact]
+  public void ADemoSaysSoInAFieldTheWebsiteCanTrust()
+  {
+    var snapshot = LiveSnapshotBuilder.Build(new LiveInputs
+    {
+      PublicId = "b3f1c0de0000000000000000000000ff", Title = "DEMO · A short race",
+      State = RaceDayState.Running, StartedAt = Start, Duration = TimeSpan.FromMinutes(6),
+      Now = Start.AddMinutes(1), Demo = true,
+      Riders = new[] { LiveCapture.Of(RiderBuilder.Rider("A", "1", "Anna Berger").Laps(2, 40).Build()) },
+      ClientVersion = "test"
+    });
+
+    Assert.True(snapshot.Demo);
+    Assert.Contains("\"demo\":true", LiveSnapshotBuilder.Serialise(snapshot));
+    // A real race is not one, whatever it is called.
+    Assert.False(Build(RaceDayState.Running).Demo);
+  }
 }

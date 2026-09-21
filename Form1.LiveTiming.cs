@@ -45,11 +45,12 @@ public partial class Form1
     _liveConfiguredCache ??= !string.IsNullOrWhiteSpace(_settings.LiveSiteUrl) && PublishCredentials.HasKey();
 
   /// <summary>
-  /// A demo may send live to this computer and nowhere else: a fictional race
-  /// must never reach the club's real site, but with a local address a demo
-  /// is the way to see the whole thing work.
+  /// A demo may send live to the real site, so a club can show someone what
+  /// live timing looks like on a phone without a reader. It goes out marked as
+  /// a demo - a field the website badges and clears away within a day - so
+  /// fictional riders can never be taken for a real race.
   /// </summary>
-  private bool LiveTimingAllowed => !IsDemo || HttpLiveTimingPublisher.IsLoopback(_settings.LiveSiteUrl);
+  private bool LiveTimingAllowed => true;
 
   private void InvalidateLiveConfiguration()
   {
@@ -164,10 +165,13 @@ public partial class Form1
       var snapshot = LiveSnapshotBuilder.Build(new LiveInputs
       {
         PublicId = publicId,
-        Title = string.IsNullOrWhiteSpace(raceName) ? $"Session {startedAt:yyyy-MM-dd HH:mm}" : raceName,
+        // A demo says so in its title as well as its flag: the flag is for the
+        // website's logic, the prefix is for the person reading a phone.
+        Title = LiveTitle(startedAt),
         SessionType = sessionType,
         State = final ? RaceDayState.Finished : state,
         TeamEvent = LiveRules().TeamEvent,
+        Demo = IsDemo,
         StartedAt = startedAt,
         Duration = duration,
         Remaining = remaining,
@@ -255,6 +259,21 @@ public partial class Form1
     return _liveFailures >= LiveFailuresBeforeRed
       ? (LiveTileState.Failed, what, since.Length > 0 ? $"last {since}" : "nothing sent yet")
       : (LiveTileState.Trouble, "Retrying", since.Length > 0 ? $"{what} · last {since}" : what);
+  }
+
+  /// <summary>
+  /// The session's name for the live page. A demo is prefixed DEMO so a phone
+  /// reads it as one; the demos' own names already begin "Demo:", which would
+  /// otherwise say it twice.
+  /// </summary>
+  private string LiveTitle(DateTime? startedAt)
+  {
+    var name = string.IsNullOrWhiteSpace(raceName) ? $"Session {startedAt:yyyy-MM-dd HH:mm}" : raceName;
+    if (!IsDemo) return name;
+
+    const string own = "Demo:";
+    if (name.StartsWith(own, StringComparison.OrdinalIgnoreCase)) name = name[own.Length..].Trim();
+    return $"DEMO · {name}";
   }
 
   private static string Ago(TimeSpan t) =>

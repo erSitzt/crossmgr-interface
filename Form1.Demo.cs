@@ -125,9 +125,10 @@ public partial class Form1
     StartDemoChecklist();
 
     // An unattended demo is the automated test rig, and nobody is there to
-    // press Switch on. It may only ever send to this computer, so switching
-    // itself on is safe: with any other address SetLiveTiming refuses.
-    if (demo.Unattended) SetLiveTiming(true, silent: true);
+    // press Switch on. It may reach the real site now, so it switches itself
+    // on only when told to: --live on the command line. A demo somebody
+    // started to look at must not broadcast itself.
+    if (demo.Unattended && demo.Live) SetLiveTiming(true, silent: true);
   }
 
   /// <summary>The demo's intro card. True when the operator pressed Start demo.</summary>

@@ -32,6 +32,13 @@ public sealed record LiveSnapshot
   public required string State { get; init; }
 
   public bool TeamEvent { get; init; }
+
+  /// <summary>
+  /// A demo race with fictional riders. Its own field, not a title prefix: the
+  /// website badges it and clears it away within a day, and a real session a
+  /// club happened to name "Demo Cup" must never be treated that way.
+  /// </summary>
+  public bool Demo { get; init; }
   public required LiveClock Clock { get; init; }
   public DateTimeOffset SentAt { get; init; }
 

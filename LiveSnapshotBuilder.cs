@@ -71,6 +71,7 @@ public sealed record LiveInputs
   public SessionType SessionType { get; init; } = SessionType.Race;
   public required RaceDayState State { get; init; }
   public bool TeamEvent { get; init; }
+  public bool Demo { get; init; }
   public DateTime? StartedAt { get; init; }
   public TimeSpan Duration { get; init; }
   public TimeSpan? Remaining { get; init; }
@@ -161,6 +162,7 @@ public static class LiveSnapshotBuilder
       },
       State = StateName(inputs.State),
       TeamEvent = inputs.TeamEvent,
+      Demo = inputs.Demo,
       Clock = new LiveClock(
         start.HasValue ? new DateTimeOffset(DateTime.SpecifyKind(start.Value, DateTimeKind.Local)) : null,
         elapsed,

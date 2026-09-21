@@ -706,8 +706,9 @@ public static class HelpTopics
       Keys(
         ("The tile says the key was refused", "Race > Results website... and press Test beside the live address"),
         ("Amber or red", "Nothing to do during the race. Check the hotspot when there is a moment")),
-      Tip("In a demo, live timing appears only when the live timing address points at this computer - " +
-          "a fictional race can never reach your club's real website."),
+      Tip("A demo can go out live too - handy for showing someone what the page looks like on a phone. " +
+          "It is marked DEMO on the website, is never listed among the real races, and is cleared away " +
+          "within a day. A demo never publishes results."),
 
       Heading("Publishing a session"),
       Picture("publish-results", "Publish results, before anything is sent."),
