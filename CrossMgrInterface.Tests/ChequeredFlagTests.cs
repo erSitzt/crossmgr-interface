@@ -185,3 +185,102 @@ public class FinalLapAllowanceTests
     Assert.Equal(6, ChequeredFlag.AllowedLap(rider.LapsCompletedBy(flag), 0));
   }
 }
+
+/// <summary>
+/// A race ends on the leader's finish, never on the clock.
+///
+/// The clock only tells the leader to come round; the flag falls when they do,
+/// and everyone else is then allowed the lap they are on. Ending a race on the
+/// clock instead sounds the same and is not: the field is spread around the
+/// track, so it ends the day for whoever happens to be a few seconds past the
+/// loop while the leader, a few seconds short of it, rides a whole further lap.
+/// </summary>
+public class LeaderFinishTests
+{
+  private static readonly DateTime Start = RiderBuilder.RaceStart;
+
+  [Fact]
+  public void WithNoExtraLapsTheLeaderStillRidesTheLapInProgress()
+  {
+    // Zero extra laps does not mean the clock ends the race. It means the
+    // leader rides the lap they are on and no more.
+    Assert.Equal(16, ChequeredFlag.TargetLaps(leaderLapsAtExpiry: 15, additionalLaps: 0));
+  }
+
+  [Fact]
+  public void ExtraLapsAreCountedOnTopOfTheLapInProgress()
+  {
+    Assert.Equal(17, ChequeredFlag.TargetLaps(leaderLapsAtExpiry: 15, additionalLaps: 1));
+    Assert.Equal(19, ChequeredFlag.TargetLaps(leaderLapsAtExpiry: 15, additionalLaps: 3));
+  }
+
+  [Fact]
+  public void ARiderWhoCrossesJustAfterTheClockStillFinishesTheirLap()
+  {
+    // Lauf2, 20.09.2026 - a two-hour race, started in waves, run with no extra
+    // laps. The clock ran out at 7200s. The leader had crossed 75s before it,
+    // so they were away on a fresh lap and did not come round until 7619s.
+    //
+    // A rider who crossed one second after the clock had their race ended
+    // there and then, 418 seconds before the leader's, and the full lap they
+    // went on to ride was thrown away. Sixty-eight riders lost a lap that way.
+    var clock = Start.AddSeconds(7200);
+
+    var leader = RiderBuilder.Rider("LEAD").Laps(15, 475).Lap(494).Build();
+    var backMarker = RiderBuilder.Rider("BACK").Laps(11, 600).Lap(601).Build();
+
+    // What the old rule did: flag the whole field on the clock. The back
+    // marker's crossing one second later was the last thing they were allowed.
+    Assert.Equal(12, ChequeredFlag.AllowedLap(backMarker.LapsCompletedBy(clock), targetLaps: 0));
+
+    // What it does now. The clock sets the leader a target - the lap they are
+    // on - and the flag waits for them to reach it.
+    var target = ChequeredFlag.TargetLaps(leader.LapsCompletedBy(clock), additionalLaps: 0);
+    Assert.Equal(16, target);
+
+    var flag = Start.AddSeconds(7619);
+    Assert.Equal(16, leader.LapsCompletedBy(flag));
+
+    // The leader is home and rides no further lap.
+    Assert.Equal(16, ChequeredFlag.AllowedLap(leader.LapsCompletedBy(flag), target));
+
+    // The back marker is allowed the lap they are on at that moment - the one
+    // they actually rode, and which used not to count.
+    Assert.Equal(13, ChequeredFlag.AllowedLap(backMarker.LapsCompletedBy(flag), target));
+  }
+
+  [Fact]
+  public void ARiderOnTheLeadersLapWhenTheFlagFallsRidesNoMore()
+  {
+    // Being on the same lap as the leader means the flag is out for them too.
+    var rider = RiderBuilder.Rider("R").Laps(16, 450).Build();
+    var flag = Start.AddSeconds(16 * 450);
+
+    Assert.Equal(16, ChequeredFlag.AllowedLap(rider.LapsCompletedBy(flag), targetLaps: 16));
+  }
+
+  [Fact]
+  public void TheWaitForTheLeaderCoversTheLapsTheyStillOwe()
+  {
+    var pace = TimeSpan.FromMinutes(8);
+    var dnf = TimeSpan.FromMinutes(2);
+
+    // With no extra laps the leader owes one lap, and the lap and a half that
+    // Grace already allows covers it.
+    Assert.Equal(ChequeredFlag.Grace(dnf, pace), ChequeredFlag.LeaderWait(dnf, pace, 0));
+
+    // With extra laps it must not: flagging the leader off half way round
+    // their second extra lap would end the race early for the whole field.
+    Assert.Equal(TimeSpan.FromMinutes(12 + 8), ChequeredFlag.LeaderWait(dnf, pace, 1));
+    Assert.Equal(TimeSpan.FromMinutes(12 + 16), ChequeredFlag.LeaderWait(dnf, pace, 2));
+  }
+
+  [Fact]
+  public void WithNoPaceToJudgeByTheWaitIsTheOperatorsTimeout()
+  {
+    // Nobody has completed a lap, so there is no pace to scale by. The
+    // operator's own timeout is all there is to go on.
+    var dnf = TimeSpan.FromMinutes(5);
+    Assert.Equal(dnf, ChequeredFlag.LeaderWait(dnf, null, 2));
+  }
+}

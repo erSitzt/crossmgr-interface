@@ -27,7 +27,10 @@ public class RaceRulesTests
     // The question the sheet exists to answer.
     Assert.Equal("the leader rides the lap in progress plus 2 more laps after the clock", ValueOf(Race(), "Extra laps"));
     Assert.Equal("the leader rides the lap in progress plus 1 more lap after the clock", ValueOf(Race(extraLaps: 1), "Extra laps"));
-    Assert.Equal("none - the flag comes out when the clock runs out", ValueOf(Race(extraLaps: 0), "Extra laps"));
+    // None still means the leader rides the lap they are on: the race waits for
+    // them either way, and only a timed session ends on the clock itself.
+    Assert.Equal("none - the flag comes out when the leader finishes the lap in progress",
+      ValueOf(Race(extraLaps: 0), "Extra laps"));
   }
 
   [Fact]

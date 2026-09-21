@@ -359,7 +359,7 @@ public partial class Form1 : Form
     toolTipMain.SetToolTip(numericUpDownRaceDuration,
       "How long the clock runs. Riders may still finish the lap they are on when it hits zero.");
     toolTipMain.SetToolTip(numericUpDownAdditionalLaps,
-      "After the clock reaches zero the leader still rides this many more laps before the flag.");
+      "After the clock reaches zero the leader finishes the lap they are on, plus this many more before the flag.");
     toolTipMain.SetToolTip(numericUpDownMinimumLapTime,
       "Anything faster than this is treated as the finish line seeing the same rider twice, not as a lap.");
     toolTipMain.SetToolTip(checkBoxShortLapDetection,
@@ -1087,18 +1087,25 @@ public partial class Form1 : Form
           messagesToAdd.Add(($"⏰ Race time expired! Leader {leaderDisplay} currently has {leaderLapsAtTimeExpiry} laps completed.", true));
         }
 
-        // A timed session ends on the flag, not on a laps target, so it always
-        // takes this branch: no extra laps, no waiting for the leader. Setting
-        // waitingForFinalLaps here also clears raceTimeExpired again, which is
-        // what makes the extra-laps transition further down unreachable.
-        if (IsTimedSession || additionalLapsAfterTimeExpiry == 0)
+        // Only a timed session ends on the clock: it has no leader to wait for,
+        // and setting waitingForFinalLaps here clears raceTimeExpired again.
+        //
+        // A race always waits for the leader to come round - with no extra laps
+        // just as with three - and everyone else is flagged from that moment.
+        // Flagging the whole field on the clock instead ended the day for every
+        // rider who happened to be a few seconds past the loop, while the
+        // leader, a few seconds short of it, rode a whole further lap. See
+        // ChequeredFlag.TargetLaps.
+        if (IsTimedSession)
         {
-          BeginFinalLapPhase(messagesToAdd);
+          BeginFinalLapPhase(messagesToAdd, raceEndTime ?? DateTime.Now);
         }
         else
         {
           var lapsText = additionalLapsAfterTimeExpiry == 1 ? "lap" : "laps";
-          messagesToAdd.Add(($"🏁 Race will finish after leader completes any ongoing lap plus {additionalLapsAfterTimeExpiry} additional {lapsText}.", true));
+          messagesToAdd.Add((additionalLapsAfterTimeExpiry == 0
+            ? "🏁 Race will finish when the leader completes the lap they are on."
+            : $"🏁 Race will finish after leader completes any ongoing lap plus {additionalLapsAfterTimeExpiry} additional {lapsText}.", true));
         }
       }
     }
@@ -1255,8 +1262,7 @@ public partial class Form1 : Form
 
         if (currentLeader != null && tagID == currentLeader.TagID)
         {
-          var leaderCurrentLapWhenTimeExpired = leaderLapsAtTimeExpiry + 1;
-          targetLapsToFinishRace = leaderCurrentLapWhenTimeExpired + additionalLapsAfterTimeExpiry;
+          targetLapsToFinishRace = ChequeredFlag.TargetLaps(leaderLapsAtTimeExpiry, additionalLapsAfterTimeExpiry);
           waitingForLeaderFinish = true;
           raceTimeExpired = false;
 
@@ -1307,8 +1313,10 @@ public partial class Form1 : Form
       {
         if (tagID == leaderAtTimeExpiry && rider.TotalLaps >= targetLapsToFinishRace)
         {
-          // The leader has completed their additional laps - race is finished
-          Task.Run(() => FinishRace());
+          // The leader has completed their additional laps - race is finished.
+          // The flag falls on their crossing, not on whenever this task gets to
+          // run: crossings arriving in between must not move anyone's allowance.
+          Task.Run(() => FinishRace(crossingTime));
         }
         else if (rider.TotalLaps >= targetLapsToFinishRace)
         {
@@ -3055,10 +3063,16 @@ public partial class Form1 : Form
     UpdateStatusBar();
 
     // In a timed session the clock raises the flag. A race waits for the next
-    // crossing instead, because it needs the leader's lap count to set a target.
+    // crossing instead, because it needs the leader's lap count to set a target,
+    // and then for the leader to come round - so it needs the clock only as a
+    // backstop, for a leader who never does.
     if (IsTimedSession)
     {
       CheckTimedSessionExpiry();
+    }
+    else
+    {
+      CheckRaceFinishFallback();
     }
 
     // Check for DNF timeouts if we're in final laps phase
@@ -3788,20 +3802,24 @@ public partial class Form1 : Form
   /// <summary>
   /// Chequered flag. Every rider still on track finishes the lap they are on
   /// and that lap counts; nothing after it does. This is what a timed session
-  /// does at time expiry, and what a race does when it is configured with no
-  /// extra laps.
+  /// does at time expiry. A race reaches it only through
+  /// <see cref="CheckRaceFinishFallback"/>, when the leader it was waiting for
+  /// never came round.
   ///
   /// The caller must hold <see cref="ridersLock"/>.
   /// </summary>
-  private void BeginFinalLapPhase(List<(string, bool)> messagesToAdd)
+  /// <param name="flagAt">
+  /// The moment the flag fell. Counted from crossing times rather than from
+  /// TotalLaps so the allowance is exact whichever of the clock timer and the
+  /// network thread reaches the lock first: the lock serialises the two but
+  /// does not order them, so a rider whose crossing lands in the same second as
+  /// expiry would otherwise be granted a whole extra lap. The fallback passes
+  /// the moment it gives up rather than the clock, because riders have gone on
+  /// completing laps in the meantime and counting from the clock would put
+  /// their allowance below the laps they have already ridden.
+  /// </param>
+  private void BeginFinalLapPhase(List<(string, bool)> messagesToAdd, DateTime flagAt)
   {
-    // Counted from crossing times rather than from TotalLaps so the allowance
-    // is exact whichever of the clock timer and the network thread reaches the
-    // lock first. The lock serialises the two but does not order them, so a
-    // rider whose crossing lands in the same second as expiry would otherwise
-    // be granted a whole extra lap.
-    var flagAt = raceEndTime ?? DateTime.Now;
-
     foreach (var rider in riders.Values.Where(r => !r.IsDNF && !ignoredTags.Contains(r.TagID)))
     {
       rider.FinalAllowedLap = rider.LapsCompletedBy(flagAt) + 1;
@@ -3841,7 +3859,7 @@ public partial class Form1 : Form
       // Re-check under the lock: a crossing may have raised the flag already.
       if (waitingForFinalLaps || raceFinished) return;
       messagesToAdd.Add(("⏰ Session time expired.", true));
-      BeginFinalLapPhase(messagesToAdd);
+      BeginFinalLapPhase(messagesToAdd, raceEndTime.Value);
     }
 
     // Same convention as the crossing path: emitted outside the lock.
@@ -3858,7 +3876,75 @@ public partial class Form1 : Form
     _refresh.Invalidate(RaceViewKind.All);
   }
 
-  private void FinishRace()
+  /// <summary>
+  /// Raises the flag in a race whose leader is not coming round.
+  ///
+  /// A race ends on the leader's finish, and it notices the clock at all only
+  /// when a crossing arrives. Both leave it open-ended: if nobody crosses after
+  /// the clock, expiry is never noticed; and once it is waiting for the leader,
+  /// the only way out is that leader crossing. A leader who crashes on the last
+  /// lap would hold the session open until the operator pressed End race now.
+  ///
+  /// So after long enough, flag the race from the clock instead and let
+  /// everyone finish the lap they are on. Long enough has to cover the laps the
+  /// leader legitimately still owes - the one in progress plus the extra laps -
+  /// or a race run with extra laps would flag its leader off part way round.
+  /// </summary>
+  private void CheckRaceFinishFallback()
+  {
+    if (!raceStarted || raceFinished || waitingForFinalLaps) return;
+    if (!raceEndTime.HasValue || DateTime.Now <= raceEndTime.Value) return;
+
+    var messagesToAdd = new List<(string, bool)>();
+
+    lock (ridersLock)
+    {
+      // Re-check under the lock: a crossing may have raised the flag already.
+      if (waitingForFinalLaps || raceFinished) return;
+
+      var pace = RaceProgress.MedianPace(riders.Values.ToList());
+      var owed = ChequeredFlag.LeaderWait(TimeSpan.FromMinutes(dnfTimeoutMinutes), pace,
+        additionalLapsAfterTimeExpiry);
+
+      if (DateTime.Now - raceEndTime.Value <= owed) return;
+
+      // From now, not from the clock: riders have gone on completing laps while
+      // the race waited, so counting the allowance from the clock would put it
+      // below the laps they have already ridden and throw those laps away.
+      var flagAt = DateTime.Now;
+      raceEndTime = flagAt;
+      waitingForLeaderFinish = false;
+      raceTimeExpired = false;
+
+      messagesToAdd.Add(("🏁 The leader has not come round since the clock ran out. Flag out - " +
+        "every rider finishes the lap they are on.", true));
+      BeginFinalLapPhase(messagesToAdd, flagAt);
+    }
+
+    foreach (var (message, isRaceEvent) in messagesToAdd)
+    {
+      if (isRaceEvent)
+        AddRaceEvent(message);
+      else
+        AddTagEvent(message);
+    }
+
+    RaiseNotice(NoticeLevel.Critical, "Flag out - everyone finishes the lap they are on");
+    UpdateRaceStartControls();
+    _refresh.Invalidate(RaceViewKind.All);
+  }
+
+  /// <summary>
+  /// The leader has reached the target, so the flag is out. Everyone else
+  /// finishes the lap they are on and that lap counts; nothing after it does.
+  /// </summary>
+  /// <param name="flagAt">
+  /// The leader's crossing, which is when the race ended - not when this runs.
+  /// It is dispatched off the crossing thread, so more crossings can arrive in
+  /// between, and an allowance counted from the laps a rider has "now" would
+  /// quietly hand those riders an extra lap.
+  /// </param>
+  private void FinishRace(DateTime flagAt)
   {
     // Reaching this in a timed session means the gate in the expiry block
     // leaked and the race finishing rules are running over a practice session.
@@ -3869,15 +3955,15 @@ public partial class Form1 : Form
     // Don't immediately finish - allow other riders to complete their current lap
     waitingForLeaderFinish = false;
     waitingForFinalLaps = true;
-    finalLapsStartTime = DateTime.Now; // Track when final laps phase started
 
-    // Calculate actual race finish time
-    var actualRaceFinishTime = DateTime.Now;
+    // The grace runs from the leader's finish, which is also the race's end
+    // time and the moment every allowance below is counted from. A correction
+    // works the allowance out again from raceEndTime, so the two must agree -
+    // see Form1.Corrections.cs.
+    finalLapsStartTime = flagAt;
+    raceEndTime = flagAt;
 
-    // Set the actual race end time to when the leader finished
-    raceEndTime = actualRaceFinishTime;
-
-    var actualRaceDuration = actualRaceFinishTime - raceStartTime!.Value;
+    var actualRaceDuration = flagAt - raceStartTime!.Value;
 
     // Find the rider who just completed the target lap count
     var finishingRider = riders.Values
@@ -3894,18 +3980,15 @@ public partial class Form1 : Form
     {
       foreach (var rider in riders.Values)
       {
-        if (rider.TotalLaps >= targetLapsToFinishRace)
-        {
-          // Riders who reached the target are NOT allowed to complete another lap
-          rider.FinalAllowedLap = rider.TotalLaps;
-          AddMessage($"📋 Rider {rider.Label}: Reached target with {rider.TotalLaps} laps, RACE FINISHED - no more laps allowed");
-        }
-        else
-        {
-          // All other riders are allowed to complete exactly one more lap (their current lap)
-          rider.FinalAllowedLap = rider.TotalLaps + 1;
-          AddMessage($"📋 Rider {rider.Label}: Currently has {rider.TotalLaps} laps, allowed to complete lap {rider.FinalAllowedLap}");
-        }
+        // Counted by crossing time rather than from TotalLaps, for the reason
+        // in the flagAt note above, and through the same helper a correction
+        // uses so that splitting a lap after the flag cannot grant another one.
+        var lapsAtFlag = rider.LapsCompletedBy(flagAt);
+        rider.FinalAllowedLap = ChequeredFlag.AllowedLap(lapsAtFlag, targetLapsToFinishRace);
+
+        AddMessage(rider.FinalAllowedLap <= lapsAtFlag
+          ? $"📋 Rider {rider.Label}: Reached target with {lapsAtFlag} laps, RACE FINISHED - no more laps allowed"
+          : $"📋 Rider {rider.Label}: Currently has {lapsAtFlag} laps, allowed to complete lap {rider.FinalAllowedLap}");
       }
     }
 
@@ -4280,7 +4363,7 @@ public partial class Form1 : Form
 
     if (additionalLapsAfterTimeExpiry == 0)
     {
-      AddMessage($"⚙️ Additional laps after time expiry set to: 0 (race finishes when all riders complete their current lap)");
+      AddMessage($"⚙️ Additional laps after time expiry set to: 0 (the flag comes out when the leader finishes the lap they are on)");
     }
     else
     {
@@ -4300,7 +4383,7 @@ public partial class Form1 : Form
       {
         // Calculate target: leader's current lap (in progress when time expired) + additional laps
         var leaderCurrentLapWhenTimeExpired = leaderLapsAtTimeExpiry + 1;
-        targetLapsToFinishRace = leaderCurrentLapWhenTimeExpired + additionalLapsAfterTimeExpiry;
+        targetLapsToFinishRace = ChequeredFlag.TargetLaps(leaderLapsAtTimeExpiry, additionalLapsAfterTimeExpiry);
 
         if (additionalLapsAfterTimeExpiry == 0)
         {

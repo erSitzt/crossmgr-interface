@@ -248,11 +248,15 @@ public partial class Form1
     {
       if (waitingForLeaderFinish && targetLapsToFinishRace > 0)
       {
-        var leaderReachedTarget = standings
-          .Any(r => !r.IsDNF && r.TotalLaps >= targetLapsToFinishRace);
+        var leader = standings
+          .FirstOrDefault(r => !r.IsDNF && r.TotalLaps >= targetLapsToFinishRace);
 
-        if (leaderReachedTarget)
-          FinishRace();
+        // The flag fell when that lap was ridden, not when the operator got
+        // round to the correction: everyone else's allowance is counted from
+        // it, and dating it now would hand the field laps it never rode.
+        if (leader != null)
+          FinishRace(leader.Laps.FirstOrDefault(l => l.LapNumber == targetLapsToFinishRace)?.CrossingTime
+            ?? leader.LastCrossing);
       }
 
       // Marking the last straggler DNF by hand is how an operator closes out a

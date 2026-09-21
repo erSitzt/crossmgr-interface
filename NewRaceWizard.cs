@@ -407,8 +407,8 @@ public sealed class NewRaceWizard : Form
 
     var hint = new Label
     {
-      Text = "When the clock hits zero the leader still rides this many more laps before " +
-             "the flag. Everyone else finishes the lap they are on.",
+      Text = "When the clock hits zero the leader finishes the lap they are on, plus this many more " +
+             "before the flag. Everyone else then finishes the lap they are on. 0 is normal.",
       Location = new Point(0, 160),
       Size = new Size(680, 44),
       ForeColor = Color.DimGray
@@ -819,7 +819,9 @@ public sealed class NewRaceWizard : Form
 
     var length = IsTimedSession
       ? $"{_duration.Value} minutes, then the flag"
-      : $"{_duration.Value} minutes, then {_extraLaps.Value} more lap(s)";
+      : _extraLaps.Value == 0
+        ? $"{_duration.Value} minutes, then the leader's lap in progress"
+        : $"{_duration.Value} minutes, then the leader's lap in progress plus {_extraLaps.Value} more";
 
     _summary.Text =
       $"Session:   {format}\n\n" +

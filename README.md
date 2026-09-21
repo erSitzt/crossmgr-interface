@@ -96,7 +96,8 @@ screen.
 
 No reader to hand? **Help → Try a demo race…** runs a whole session with
 simulated riders: a short motocross race, qualifying to gate pick, an enduro in
-waves, or a team event. Each opens in a window of its own, runs in real time
+waves, a team event, or a race that waits for its leader at the flag. Each
+opens in a window of its own, runs in real time
 with a few problems to fix along the way, and keeps everything in a folder of
 its own under `%LOCALAPPDATA%\CrossMgrInterface\Demo\`. The real races, rider
 lists and reader settings are never touched. A demo's reader listens only on
