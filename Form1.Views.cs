@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>
 /// Refresh plumbing for Form1: the adapters that expose each tab to
@@ -89,6 +89,7 @@ public partial class Form1
     Team = r.Team,
     Category = r.Category,
     Machine = r.Machine,
+    ShowName = r.ShowName,
     LastCrossingTime = r.LastCrossingTime,
     FirstCrossing = r.FirstCrossing,
     LastCrossing = r.LastCrossing,

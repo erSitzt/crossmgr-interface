@@ -26,7 +26,14 @@ public sealed record LiveCapture
   public required IReadOnlyList<(DateTime At, int Lap, TimeSpan? LapTime)> Recent { get; init; }
 
   /// <summary>Reads what the feed needs off a live rider. Call under the riders lock.</summary>
-  public static LiveCapture Of(RiderInfo r, int recentLaps = 3)
+  public static LiveCapture Of(RiderInfo r, int recentLaps = 3) =>
+    Of(r, showNamesByDefault: true, NameStyle.FirstNameInitial, recentLaps);
+
+  /// <summary>
+  /// As above, naming each rider as they agreed to be named on the website.
+  /// The screen this is read from keeps every name in full.
+  /// </summary>
+  public static LiveCapture Of(RiderInfo r, bool showNamesByDefault, NameStyle style, int recentLaps = 3)
   {
     var laps = r.Laps;
     var start = Math.Max(0, laps.Count - recentLaps);
@@ -38,10 +45,12 @@ public sealed record LiveCapture
     return new LiveCapture
     {
       Number = r.RiderNumber,
-      Name = r.IsTeam ? r.FirstName : $"{r.FirstName} {r.LastName}".Trim(),
+      Name = NamePrivacy.Publish(r, showNamesByDefault, style),
       Category = r.Category,
       Team = r.Team,
-      Members = r.IsTeam ? r.Members?.Select(m => m.Label).ToList() : null,
+      Members = r.IsTeam
+        ? r.Members?.Select(m => $"#{m.RiderNumber} {NamePrivacy.Publish(m, showNamesByDefault, style)}".Trim()).ToList()
+        : null,
       Laps = r.TotalLaps,
       TotalTime = r.TotalTime,
       // The first crossing ends the run from the start, which is not a lap.

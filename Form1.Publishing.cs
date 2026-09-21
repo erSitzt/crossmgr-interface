@@ -32,11 +32,14 @@ public partial class Form1
   private void ShowPublishSettings()
   {
     using var dialog = new PublishSettingsDialog(_settings.ResultsSiteUrl, _settings.LiveSiteUrl,
-      PublishCredentials.HasKey(), PublishCredentials.Hint());
+      PublishCredentials.HasKey(), PublishCredentials.Hint(),
+      _settings.PublishNamesByDefault, _settings.HiddenNameStyle);
     if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
     _settings.ResultsSiteUrl = string.IsNullOrWhiteSpace(dialog.SiteUrl) ? null : dialog.SiteUrl;
     _settings.LiveSiteUrl = string.IsNullOrWhiteSpace(dialog.LiveSiteUrl) ? null : dialog.LiveSiteUrl;
+    _settings.PublishNamesByDefault = dialog.PublishNamesByDefault;
+    _settings.HiddenNameStyle = dialog.HiddenNameStyle;
     _settings.Save();
 
     // Both caches answer from the key file, which may just have changed.
@@ -163,7 +166,10 @@ public partial class Form1
       PublicId = _raceDb.EnsurePublicId(race.Id) ?? Guid.NewGuid().ToString("N"),
       SessionType = race.SessionType,
       Track = track,
-      GatePick = gatePick ? QualifyingRanking.Rank(field.Values) : null
+      GatePick = gatePick ? QualifyingRanking.Rank(field.Values) : null,
+      Field = field,
+      PublishNamesByDefault = _settings.PublishNamesByDefault,
+      HiddenNameStyle = _settings.HiddenNameStyle
     });
 
     return new PublishRequest

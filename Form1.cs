@@ -1135,6 +1135,7 @@ public partial class Form1 : Form
           Team = importedData?.Team ?? "",
           Category = category,
           Machine = importedData?.Machine ?? "",
+          ShowName = importedData?.ShowName,
           RaceStartTime = waves?.StartTimeFor(category) ?? raceStartTime
         };
       }
@@ -2047,6 +2048,10 @@ public partial class Form1 : Form
 
           if (string.IsNullOrEmpty(rider.Machine) && !string.IsNullOrEmpty(importedData.Machine))
             rider.Machine = importedData.Machine;
+
+          // The list is the rider's own word on this; it wins over "not said".
+          if (importedData.ShowName.HasValue)
+            rider.ShowName = importedData.ShowName;
 
           updatedCount++;
 

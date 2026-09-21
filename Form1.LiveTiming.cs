@@ -150,7 +150,8 @@ public partial class Form1
 
         captured = new List<LiveCapture>(riders.Count);
         foreach (var r in riders.Values)
-          if (!ignoredTags.Contains(r.TagID)) captured.Add(LiveCapture.Of(r));
+          if (!ignoredTags.Contains(r.TagID))
+            captured.Add(LiveCapture.Of(r, _settings.PublishNamesByDefault, _settings.HiddenNameStyle));
 
         startedAt = raceStartTime;
         duration = raceDuration;

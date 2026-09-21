@@ -20,6 +20,10 @@ public sealed class PublishSettingsDialog : Form
   private readonly Label _status = new();
   private readonly Button _test = new();
   private readonly Button _testLive = new();
+  private readonly RadioButton _namesShown = new();
+  private readonly RadioButton _namesHidden = new();
+  private readonly ComboBox _nameStyle = new();
+  private readonly Label _nameExample = new();
   private readonly bool _hasKey;
 
   public string SiteUrl => _url.Text.Trim().TrimEnd('/');
@@ -34,7 +38,11 @@ public sealed class PublishSettingsDialog : Form
   /// <summary>The operator asked for the saved key to be removed.</summary>
   public bool ForgetKey { get; private set; }
 
-  public PublishSettingsDialog(string? currentUrl, string? liveUrl, bool hasKey, string? keyHint = null)
+  public bool PublishNamesByDefault => _namesShown.Checked;
+  public NameStyle HiddenNameStyle => (NameStyle)Math.Max(0, _nameStyle.SelectedIndex);
+
+  public PublishSettingsDialog(string? currentUrl, string? liveUrl, bool hasKey, string? keyHint = null,
+                               bool publishNamesByDefault = true, NameStyle hiddenNameStyle = NameStyle.FirstNameInitial)
   {
     _hasKey = hasKey;
 
@@ -43,7 +51,7 @@ public sealed class PublishSettingsDialog : Form
     StartPosition = FormStartPosition.CenterParent;
     MinimizeBox = false;
     MaximizeBox = false;
-    ClientSize = new Size(460, 412);
+    ClientSize = new Size(460, 548);
 
     var intro = new Label
     {
@@ -124,8 +132,50 @@ public sealed class PublishSettingsDialog : Form
       forget.Enabled = false;
     };
 
-    var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(268, 368), Size = new Size(84, 27) };
-    var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(360, 368), Size = new Size(84, 27) };
+    // Rider names on the websites. The sheet always carries full names; this
+    // is only about what the world sees. A rider's own yes/no in the rider
+    // list wins over the default chosen here.
+    var namesHeading = new Label
+    {
+      Text = "Rider names on the websites",
+      Location = new Point(16, 358),
+      AutoSize = true,
+      Font = new Font(Font, FontStyle.Bold)
+    };
+
+    _namesShown.Text = "Show full names, unless a rider's list entry says no";
+    _namesShown.Location = new Point(16, 382);
+    _namesShown.AutoSize = true;
+    _namesShown.Checked = publishNamesByDefault;
+
+    _namesHidden.Text = "Shorten every name, unless a rider's list entry says yes";
+    _namesHidden.Location = new Point(16, 404);
+    _namesHidden.AutoSize = true;
+    _namesHidden.Checked = !publishNamesByDefault;
+
+    var styleLabel = new Label { Text = "A shortened name looks like:", Location = new Point(16, 432), AutoSize = true };
+    _nameStyle.Location = new Point(16, 454);
+    _nameStyle.Width = 200;
+    _nameStyle.DropDownStyle = ComboBoxStyle.DropDownList;
+    _nameStyle.Items.AddRange(new object[] { "First name and initial", "First three letters, then stars" });
+    _nameStyle.SelectedIndex = (int)hiddenNameStyle;
+    _nameStyle.SelectedIndexChanged += (_, _) => ShowNameExample();
+
+    _nameExample.Location = new Point(228, 457);
+    _nameExample.Size = new Size(216, 20);
+    _nameExample.ForeColor = Color.DimGray;
+    ShowNameExample();
+
+    var namesHint = new Label
+    {
+      Text = "A column called \"public\" (yes/no) in the rider list sets it per rider.",
+      Location = new Point(16, 482),
+      Size = new Size(428, 18),
+      ForeColor = Color.DimGray
+    };
+
+    var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(268, 504), Size = new Size(84, 27) };
+    var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(360, 504), Size = new Size(84, 27) };
 
     ok.Click += (_, _) =>
     {
@@ -139,12 +189,18 @@ public sealed class PublishSettingsDialog : Form
     Controls.AddRange(new Control[]
     {
       intro, urlLabel, _url, urlHint, liveLabel, _liveUrl, _testLive,
-      keyLabel, _key, paste, _show, _status, _test, forget, ok, cancel
+      keyLabel, _key, paste, _show, _status, _test, forget,
+      namesHeading, _namesShown, _namesHidden, styleLabel, _nameStyle, _nameExample, namesHint,
+      ok, cancel
     });
 
     AcceptButton = ok;
     CancelButton = cancel;
   }
+
+  /// <summary>The style, shown on a name so nobody has to imagine it.</summary>
+  private void ShowNameExample() =>
+    _nameExample.Text = "e.g. " + NamePrivacy.Hide("Lena", "Brandt", HiddenNameStyle);
 
   /// <summary>
   /// Asks a website whether the key works.

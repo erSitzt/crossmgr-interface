@@ -21,6 +21,16 @@ public sealed record PublishInputs
   public IReadOnlyList<QualifyingEntry>? GatePick { get; init; }
 
   public string ClientVersion { get; init; } = CrossMgrInterface.AppVersion.Display;
+
+  /// <summary>
+  /// The riders the report was built from, keyed by tag, so a name can be
+  /// shortened for the website without touching the sheet. Null means every
+  /// name goes out as the sheet prints it.
+  /// </summary>
+  public IReadOnlyDictionary<string, RiderInfo>? Field { get; init; }
+
+  public bool PublishNamesByDefault { get; init; } = true;
+  public NameStyle HiddenNameStyle { get; init; } = NameStyle.FirstNameInitial;
 }
 
 /// <summary>
@@ -59,18 +69,18 @@ public static class PublishPayloadBuilder
   public static PublishedSession Build(PublishInputs inputs)
   {
     var report = inputs.Report;
-    var entries = report.RiderResults.Select(Entry).ToList();
+    var entries = report.RiderResults.Select(r => Entry(r, inputs)).ToList();
 
     return new PublishedSession
     {
       Session = Header(inputs),
       Track = Track(inputs.Track),
-      Statistics = Statistics(report),
+      Statistics = Statistics(report, inputs),
       Entries = entries,
       // Only qualifying has one. A race publishes nothing rather than an empty
       // list, so the website can tell "no gate pick" from "gate pick of nobody".
       GatePick = inputs.SessionType == SessionType.TimedQualifying && inputs.GatePick != null
-        ? inputs.GatePick.Select(GatePickEntry).ToList()
+        ? inputs.GatePick.Select(e => GatePickEntry(e, inputs)).ToList()
         : null,
       Client = new PublishedClient("CrossMgrInterface", inputs.ClientVersion)
     };
@@ -106,7 +116,7 @@ public static class PublishPayloadBuilder
     };
   }
 
-  private static PublishedStatistics Statistics(RaceReportData report)
+  private static PublishedStatistics Statistics(RaceReportData report, PublishInputs inputs)
   {
     var stats = report.RaceStatistics;
     if (stats == null) return new PublishedStatistics();
@@ -124,15 +134,15 @@ public static class PublishPayloadBuilder
       AdditionalLaps = stats.AdditionalLapsCount,
       FastestLap = fastest?.BestLapTime == null ? null : new PublishedFastestLap(
         Ms(fastest.BestLapTime.Value),
-        // A team's fastest lap belongs to whoever rode it, when that is known.
-        string.IsNullOrEmpty(fastest.BestLapBy) ? fastest.RiderName : fastest.BestLapBy!,
+        FastestLapBy(fastest, inputs),
         fastest.RiderNumber)
     };
   }
 
-  private static PublishedEntry Entry(RiderResult rider)
+  private static PublishedEntry Entry(RiderResult rider, PublishInputs inputs)
   {
     var start = EntryStart(rider);
+    var live = inputs.Field?.GetValueOrDefault(rider.TagID);
 
     return new PublishedEntry
     {
@@ -143,15 +153,17 @@ public static class PublishPayloadBuilder
       Status = rider.IsDNS ? "dns" : rider.IsDNF ? "dnf" : "finished",
       // Empty rather than absent for a rider nobody got round to identifying.
       Number = rider.RiderNumber,
-      Name = string.IsNullOrWhiteSpace(rider.RiderName) ? UnidentifiedRider : rider.RiderName,
+      Name = PublishedName(rider, live, inputs),
       Team = Text(rider.Team),
       Category = Text(rider.Category),
       Machine = Text(rider.Machine),
       IsTeam = rider.IsTeam,
-      // The sheet's own wording, split back into one name per rider.
-      Members = rider.IsTeam && !string.IsNullOrEmpty(rider.MemberLine)
-        ? rider.MemberLine.Split(" · ", StringSplitOptions.RemoveEmptyEntries).ToList()
-        : null,
+      // One name per rider, each as that rider agreed to be named.
+      Members = rider.IsTeam && live?.Members != null
+        ? live.Members.Select(m => MemberLabel(m, inputs)).ToList()
+        : rider.IsTeam && !string.IsNullOrEmpty(rider.MemberLine)
+          ? rider.MemberLine.Split(" · ", StringSplitOptions.RemoveEmptyEntries).ToList()
+          : null,
       Laps = rider.TotalLaps,
       TotalTimeMs = Ms(rider.TotalTime),
       BestLapMs = Ms(rider.BestLapTime),
@@ -161,10 +173,44 @@ public static class PublishPayloadBuilder
       LapsDownToLeader = rider.LapGapToLeader,
       LapTimes = rider.LapTimes.Select(l => Lap(l, start)).ToList(),
       MemberBreakdown = rider.IsTeam && rider.MemberBreakdown.Count > 0
-        ? rider.MemberBreakdown.Select(Member).ToList()
+        ? rider.MemberBreakdown.Select(line => Member(line, inputs)).ToList()
         : null
     };
   }
+
+  /// <summary>
+  /// Who set the fastest lap, named as they agreed to be. A team's fastest lap
+  /// belongs to whoever rode it, when that is known.
+  /// </summary>
+  private static string FastestLapBy(RiderResult fastest, PublishInputs inputs)
+  {
+    var live = inputs.Field?.GetValueOrDefault(fastest.TagID);
+    if (live == null)
+      return string.IsNullOrEmpty(fastest.BestLapBy) ? fastest.RiderName : fastest.BestLapBy!;
+
+    if (live.IsTeam && !string.IsNullOrEmpty(fastest.BestLapBy))
+    {
+      // BestLapBy is the member's label; find them to apply their own choice.
+      var member = live.Members?.FirstOrDefault(m => m.Label == fastest.BestLapBy);
+      return member != null ? MemberLabel(member, inputs) : fastest.BestLapBy!;
+    }
+
+    return PublishedName(fastest, live, inputs);
+  }
+
+  /// <summary>
+  /// The name that goes out: the sheet's, unless the rider asked otherwise.
+  /// The website sees a shorter name; the sheet in the tent keeps the full one.
+  /// </summary>
+  private static string PublishedName(RiderResult rider, RiderInfo? live, PublishInputs inputs)
+  {
+    if (string.IsNullOrWhiteSpace(rider.RiderName)) return UnidentifiedRider;
+    if (live == null) return rider.RiderName;
+    return NamePrivacy.Publish(live, inputs.PublishNamesByDefault, inputs.HiddenNameStyle);
+  }
+
+  private static string MemberLabel(TeamMember m, PublishInputs inputs) =>
+    $"#{m.RiderNumber} {NamePrivacy.Publish(m, inputs.PublishNamesByDefault, inputs.HiddenNameStyle)}".Trim();
 
   /// <summary>
   /// When this entry's own clock started - their wave's gate, not the race's.
@@ -191,9 +237,12 @@ public static class PublishPayloadBuilder
     Note = Text(lap.Note)
   };
 
-  private static PublishedMember Member(TeamMemberLine line) => new()
+  private static PublishedMember Member(TeamMemberLine line, PublishInputs inputs) => new()
   {
-    Label = line.Label,
+    // A shared-transponder line names several riders; each gets their own say.
+    Label = line.Group == null
+      ? line.Label
+      : string.Join(" / ", line.Group.Members.Select(m => MemberLabel(m, inputs))),
     LapsRidden = line.LapsRidden,
     TimedLaps = line.TimedLaps,
     BestLapMs = Ms(line.BestLap),
@@ -202,11 +251,11 @@ public static class PublishPayloadBuilder
     Unattributed = line.IsUnattributed
   };
 
-  private static PublishedGatePick GatePickEntry(QualifyingEntry entry) => new()
+  private static PublishedGatePick GatePickEntry(QualifyingEntry entry, PublishInputs inputs) => new()
   {
     GatePick = entry.GatePick,
     Number = entry.Rider.RiderNumber,
-    Name = entry.Rider.Label,
+    Name = $"#{entry.Rider.RiderNumber} {NamePrivacy.Publish(entry.Rider, inputs.PublishNamesByDefault, inputs.HiddenNameStyle)}".Trim(),
     Category = Text(entry.Rider.Category),
     BestLapMs = Ms(entry.BestLapTime),
     BestLapNumber = entry.BestLapNumber > 0 ? entry.BestLapNumber : null,

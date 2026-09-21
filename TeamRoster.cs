@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace CrossMgrInterface;
 
@@ -20,6 +20,9 @@ public sealed class TeamMember
   public string LastName { get; init; } = "";
   public string Category { get; init; } = "";
   public IReadOnlyList<string> Transponders { get; init; } = Array.Empty<string>();
+
+  /// <summary>See <see cref="RiderInfo.ShowName"/>.</summary>
+  public bool? ShowName { get; init; }
 
   public string Name => $"{FirstName} {LastName}".Trim();
 
@@ -52,6 +55,7 @@ public sealed class TeamMember
       FirstName = FirstName,
       LastName = LastName,
       Category = Category,
+      ShowName = ShowName,
       Transponders = Transponders.Append(transponder).ToList()
     };
 
@@ -347,6 +351,7 @@ public sealed class TeamRoster
           FirstName = first.FirstName.Trim(),
           LastName = first.LastName.Trim(),
           Category = first.Category.Trim(),
+          ShowName = person.Select(r => r.ShowName).FirstOrDefault(v => v.HasValue),
           Transponders = person.Select(r => r.TagID.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList()
@@ -459,6 +464,7 @@ public sealed class TeamRoster
           FirstName = m.FirstName,
           LastName = m.LastName,
           Category = m.Category,
+          ShowName = m.ShowName,
           Transponders = m.Transponders
             .Where(t => !liveTransponders.TryGetValue(t, out var owner) || owner == team.Key)
             .ToList()

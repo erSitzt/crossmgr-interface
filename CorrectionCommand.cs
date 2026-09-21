@@ -1,4 +1,4 @@
-namespace CrossMgrInterface;
+﻿namespace CrossMgrInterface;
 
 /// <summary>What kind of correction was applied. Used for the audit trail.</summary>
 public enum CorrectionKind
@@ -36,6 +36,7 @@ public sealed class RiderSnapshot
   public string Team { get; init; } = "";
   public string Category { get; init; } = "";
   public string Machine { get; init; } = "";
+  public bool? ShowName { get; init; }
   public DateTime FirstCrossing { get; init; }
   public DateTime LastCrossing { get; init; }
   public DateTime LastCrossingTime { get; init; }
@@ -65,6 +66,7 @@ public sealed class RiderSnapshot
       Team = rider.Team,
       Category = rider.Category,
       Machine = rider.Machine,
+      ShowName = rider.ShowName,
       FirstCrossing = rider.FirstCrossing,
       LastCrossing = rider.LastCrossing,
       LastCrossingTime = rider.LastCrossingTime,
@@ -103,6 +105,7 @@ public sealed class RiderSnapshot
     rider.Team = Team;
     rider.Category = Category;
     rider.Machine = Machine;
+    rider.ShowName = ShowName;
     rider.FirstCrossing = FirstCrossing;
     rider.LastCrossing = LastCrossing;
     rider.LastCrossingTime = LastCrossingTime;
