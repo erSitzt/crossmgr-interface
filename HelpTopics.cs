@@ -103,6 +103,9 @@ public static class HelpTopics
         "Enduro in waves - 24 riders in three classes a minute apart. You press START RACE. About 13 minutes.",
         "Team event - six teams of two and two solo riders, with handovers, two riders of one team out at " +
         "once, and a rider waiting by the loop. About 10 minutes.",
+        "Waiting for the leader - 12 riders in three classes, 5 minutes and no extra laps. Shows what the " +
+        "clock running out actually does: it sends the leader out to finish the lap they are on, and a " +
+        "rider who crosses a second after it still gets another lap. About 8 minutes.",
         "Problems to fix - two teams and six solo riders, and nearly everything that goes wrong on a race day, " +
         "one thing after another: missed reads, transponder mix-ups, a rider reported retired who is not, and " +
         "a reader that goes quiet. A checklist says what each problem is and ticks it off once it is put " +
@@ -169,7 +172,7 @@ public static class HelpTopics
         "Name it. The name is printed on the results sheet.",
         "Choose the rider list. Tick Team event only for a team race - see Team events.",
         "Set the length in minutes and the extra laps: how many more laps the leader rides after the clock " +
-        "runs out, on top of the lap in progress. 0 means the flag comes out when the clock runs out.",
+        "runs out, on top of the lap in progress. 0 means the leader rides only the lap they are on.",
         "Choose when the clock starts: When the first rider crosses the line (right when the start is at the " +
         "timing loop), I will press Start Race myself (right when the gate is somewhere else), or The classes " +
         "start in waves (for an enduro - see Classes starting in waves).",
@@ -187,8 +190,10 @@ public static class HelpTopics
         "can show 00:00 and still say Race running - that is normal.",
         "The leader - most laps, then least time - then rides the lap they are on plus the extra laps. When " +
         "they reach that target the banner reads Leader has finished - everyone else completes their current lap.",
-        "With 0 extra laps the flag comes out straight away.",
-        "Every other rider may complete exactly one more lap: the lap they are on. A read after that is not counted.",
+        "With 0 extra laps the leader still rides the lap they are on - the race always waits for them to come " +
+        "round, and the flag falls when they do, not when the clock hits zero.",
+        "Every other rider may then complete exactly one more lap: the lap they are on when the leader finishes. " +
+        "A read after that is not counted.",
         "A rider who does not come round is marked DNF once the finish timeout has passed: the Time to finish " +
         "after the leader on the Race Settings tab (2 minutes unless changed), or one and a half laps of the " +
         "field's typical pace if that is longer.",

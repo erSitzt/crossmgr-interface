@@ -84,7 +84,7 @@ public sealed class RaceRules
       lines.Add(("Extra laps", AdditionalLaps switch
       {
         null => "not recorded",
-        0 => "none - the flag comes out when the clock runs out",
+        0 => "none - the flag comes out when the leader finishes the lap in progress",
         1 => "the leader rides the lap in progress plus 1 more lap after the clock",
         var n => $"the leader rides the lap in progress plus {n} more laps after the clock"
       }));

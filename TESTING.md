@@ -98,9 +98,9 @@ session go through the real application:
 CrossMgrInterface.exe --demo race --unattended
 ```
 
-- **Demo ids:** `race`, `qualifying`, `enduro` and `teams`.
-- **`--unattended`:** skips the intro card. For the enduro it also presses
-  START RACE as soon as the reader has connected.
+- **Demo ids:** `race`, `qualifying`, `enduro`, `teams`, `waiting` and `problems`.
+- **`--unattended`:** skips the intro card. For the enduro and `waiting` it also
+  presses START RACE as soon as the reader has connected.
 - **Where the output goes:** each demo writes everything to its own folder,
   including its log: `%LOCALAPPDATA%\CrossMgrInterface\Demo\<id>-<date>-<time>\`.
   The folder is cleared when a later demo starts, or kept if that demo is still

@@ -36,6 +36,41 @@ public static class ChequeredFlag
   }
 
   /// <summary>
+  /// How long a race waits for a leader who has not come round before it gives
+  /// up and flags the field from the clock instead.
+  ///
+  /// The wait has to cover the laps the leader still legitimately owes - the
+  /// one in progress plus the extra laps - or a race run with extra laps would
+  /// flag its own leader off part way round. <see cref="Grace"/> already allows
+  /// a lap and a half, so only the extra laps are added on top.
+  /// </summary>
+  /// <param name="configured">The operator's DNF timeout.</param>
+  /// <param name="medianPace">The field's typical lap time, or null if unknown.</param>
+  /// <param name="additionalLaps">The race's extra-laps setting.</param>
+  public static TimeSpan LeaderWait(TimeSpan configured, TimeSpan? medianPace, int additionalLaps)
+  {
+    var grace = Grace(configured, medianPace);
+    if (!medianPace.HasValue || additionalLaps <= 0) return grace;
+    return grace + additionalLaps * medianPace.Value;
+  }
+
+  /// <summary>
+  /// The lap the leader must reach before the flag comes out: the lap they were
+  /// on when the clock ran out, plus whatever extra laps the race is run under.
+  ///
+  /// Zero extra laps still means one more lap - the one in progress. It does
+  /// not mean the clock itself ends the race: a race always waits for the
+  /// leader to come round, and everyone else is flagged from that moment. A
+  /// race that flagged the whole field on the clock instead ended the day for
+  /// every rider who happened to be a few seconds past the loop, while the
+  /// leader - a few seconds short of it - rode a whole further lap.
+  /// </summary>
+  /// <param name="leaderLapsAtExpiry">Laps the leader had completed when the clock ran out.</param>
+  /// <param name="additionalLaps">The race's extra-laps setting. Zero is normal.</param>
+  public static int TargetLaps(int leaderLapsAtExpiry, int additionalLaps) =>
+    leaderLapsAtExpiry + 1 + additionalLaps;
+
+  /// <summary>
   /// The last lap a rider may complete once the flag is out, from the laps they
   /// had completed when it came out: the lap they are on - or none at all for a
   /// rider already at the race's laps target when the leader finished.

@@ -17,6 +17,7 @@ public static class DemoScenarios
   public const string EnduroId = "enduro";
   public const string TeamsId = "teams";
   public const string ProblemsId = "problems";
+  public const string WaitingId = "waiting";
 
   /// <summary>The spare transponder the race demo's forgetful rider borrows. Not on the rider list.</summary>
   public const string SpareTransponder = "20269999";
@@ -27,7 +28,7 @@ public static class DemoScenarios
   /// <summary>The marshal's bike that crosses the loop in the problems demo. Not on the rider list.</summary>
   public const string MarshalTransponder = "20269990";
 
-  public static IReadOnlyList<DemoScenario> All { get; } = new[] { Race(), Qualifying(), Enduro(), Teams(), ProblemsToFix() };
+  public static IReadOnlyList<DemoScenario> All { get; } = new[] { Race(), Qualifying(), Enduro(), Teams(), WaitingForTheLeader(), ProblemsToFix() };
 
   public static DemoScenario? Find(string? id) =>
     All.FirstOrDefault(s => string.Equals(s.Id, id?.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -39,6 +40,7 @@ public static class DemoScenarios
     QualifyingId => Qualifying(),
     EnduroId => Enduro(),
     TeamsId => Teams(),
+    WaitingId => WaitingForTheLeader(),
     ProblemsId => ProblemsToFix(),
     _ => throw new ArgumentException($"There is no demo called {id}.", nameof(id))
   };
@@ -126,6 +128,90 @@ public static class DemoScenarios
       SessionType = SessionType.Race,
       DurationMinutes = minutes,
       AdditionalLaps = extraLaps,
+      Roster = field.Select(r => new DemoRider(Tag(r.Number), r.Number, r.Name, r.Club, r.Class)).ToList(),
+      Crossings = Ordered(reads)
+    };
+  }
+
+  // ---- Waiting for the leader ----------------------------------------------
+
+  /// <summary>
+  /// What "extra laps: 0" actually means, which is the thing operators get
+  /// wrong: the clock does not end the race, it sends the leader out to finish
+  /// the lap they are on. Everyone else is flagged when the leader crosses.
+  ///
+  /// Laid out to the second on purpose, with no jitter. The whole point is a
+  /// rider who crosses one second after the clock, so the demo has to show the
+  /// same thing every time it is run rather than nearly always.
+  /// </summary>
+  private static DemoScenario WaitingForTheLeader()
+  {
+    const int minutes = 5;
+    var gap = TimeSpan.FromSeconds(30);
+    var classes = new[] { "MX1", "MX2", "Youth" };
+
+    // Pace and first crossing are chosen so that, at the moment the clock runs
+    // out, #7 is a second past the line and away on a fresh lap while #111 is
+    // a second short of it. Those two are the whole demonstration.
+    var field = new (string Number, string Name, string Club, string Class, double Pace, double First)[]
+    {
+      ("7", "Lukas Brandt", "MSC Adler", "MX1", 42.0, 5.0),
+      ("12", "Mia Hoffmann", "RC Falke", "MX1", 44.0, 6.0),
+      ("23", "Jan Keller", "MX Team Nord", "MX1", 46.0, 7.0),
+      ("31", "Sophie Wagner", "MSC Adler", "MX1", 48.0, 8.0),
+      ("88", "Max Schröder", "RSV Blitz", "MX2", 45.0, 6.0),
+      ("44", "Tim Schulz", "", "MX2", 47.0, 7.0),
+      ("91", "Emma Koch", "RC Falke", "MX2", 49.0, 8.0),
+      ("101", "Felix Bauer", "RSV Blitz", "MX2", 51.0, 9.0),
+      ("111", "Hanna Klein", "", "Youth", 47.0, 6.0),
+      ("124", "Noah Schmitt", "MX Team Nord", "Youth", 50.0, 7.0),
+      ("133", "Lina Krüger", "RSV Blitz", "Youth", 53.0, 8.0),
+      ("150", "Ben Hartmann", "", "Youth", 56.0, 9.0)
+    };
+
+    var reads = new List<DemoCrossing>();
+
+    foreach (var rider in field)
+    {
+      // One clock runs from the first gate, so it runs out this much earlier in
+      // a later class's own race. Reads are anchored to their class's gate.
+      var clock = minutes * 60 - Array.IndexOf(classes, rider.Class) * gap.TotalSeconds;
+
+      // Far enough past the flag for the leader to come round and for everyone
+      // else to finish the lap they are on afterwards.
+      for (var t = rider.First; t <= clock + 2.5 * rider.Pace; t += rider.Pace)
+        reads.Add(new DemoCrossing(Seconds(t), Tag(rider.Number), DemoReadKind.Lap, rider.Class));
+    }
+
+    return new DemoScenario
+    {
+      Id = WaitingId,
+      Title = "Waiting for the leader",
+      Length = "About 8 minutes",
+      Summary = "12 riders in three classes, a gate apart, race for 5 minutes with no extra laps. The clock " +
+                "does not end the race - it sends the leader out to finish the lap they are on.",
+      WhatHappens = new[]
+      {
+        "MX1 leaves the gate when you press START RACE, MX2 30 seconds later and Youth 30 seconds after that.",
+        "When the 5 minutes are up the board reads Time is up - the leader is finishing their lap. The race " +
+        "is not over: every rider still out keeps racing.",
+        "The flag falls when the leader crosses. Everyone else then finishes the lap they are on, that lap " +
+        "counts, and the race finishes by itself."
+      },
+      WhatToTry = new[]
+      {
+        "#7 Lukas Brandt crosses the line a second before the clock runs out, so he goes out on a fresh lap. " +
+        "Watch the clock reach 00:00 while he is still out - that is normal.",
+        "#111 Hanna Klein crosses a second after the clock. She is sent out again, because the race is still " +
+        "waiting for Lukas, and the lap she rides counts.",
+        "Compare their last lap times on the Results... sheet: Hanna's last lap ends after Lukas finishes, " +
+        "not when the clock ran out.",
+        "The sheet says Extra laps: none - the flag comes out when the leader finishes the lap in progress."
+      },
+      SessionType = SessionType.Race,
+      DurationMinutes = minutes,
+      AdditionalLaps = 0,
+      WaveGap = gap,
       Roster = field.Select(r => new DemoRider(Tag(r.Number), r.Number, r.Name, r.Club, r.Class)).ToList(),
       Crossings = Ordered(reads)
     };
@@ -249,8 +335,9 @@ public static class DemoScenarios
     for (var c = 0; c < classes.Length; c++)
     {
       var cls = classes[c];
-      // Counted from the class's own start. The flag falls for everyone at
-      // the same moment, which for a later class is earlier in its own race.
+      // Counted from the class's own start. One clock runs from the first
+      // gate, so for a later class it runs out earlier in its own race - and
+      // then the race waits for the leader, so there are laps to ride after it.
       var flag = minutes * 60 - c * gap.TotalSeconds;
 
       for (var i = 0; i < cls.Riders.Length; i++)
@@ -276,14 +363,15 @@ public static class DemoScenarios
       Title = "Enduro in waves",
       Length = "About 13 minutes",
       Summary = "24 riders in three classes. MX1 leaves the gate when you press START RACE, MX2 a minute " +
-                "later and Youth a minute after that. After 10 minutes everyone finishes the lap they are on.",
+                "later and Youth a minute after that. After 10 minutes the race waits for the leader, and " +
+                "then everyone finishes the lap they are on.",
       WhatHappens = new[]
       {
         "Nothing moves until you press START RACE: that is the moment MX1 leaves the gate. The application " +
         "sends MX2 and Youth off by itself, a minute apart, and the Race Day screen counts down to each.",
         "Every rider is timed from their own class's start.",
-        "After 10 minutes the chequered flag comes out, everyone finishes the lap they are on, and the race " +
-        "finishes by itself."
+        "After 10 minutes the leader finishes the lap they are on. The flag comes out as they cross, " +
+        "everyone else finishes the lap they are on, and the race finishes by itself."
       },
       WhatToTry = new[]
       {
@@ -413,8 +501,8 @@ public static class DemoScenarios
         "The clock starts when the first rider crosses the line. Each team is one entry: a lap counts for the " +
         "team whichever of its riders rides it.",
         "Riders hand over every few laps. The lap with the handover is a little longer; that is normal.",
-        "After 8 minutes the chequered flag comes out, everyone finishes the lap they are on, and the race " +
-        "finishes by itself."
+        "After 8 minutes the race waits for the leader to finish the lap they are on. The flag comes out as " +
+        "they cross, everyone else finishes the lap they are on, and the race finishes by itself."
       },
       WhatToTry = new[]
       {
@@ -704,8 +792,8 @@ public static class DemoScenarios
                 "race day does, one thing after another, for you to put right.",
       WhatHappens = new[]
       {
-        "The clock starts when the first rider crosses the line. After 12 minutes everyone finishes the lap " +
-        "they are on, and the race finishes by itself.",
+        "The clock starts when the first rider crosses the line. After 12 minutes the race waits for the " +
+        "leader, then everyone finishes the lap they are on, and the race finishes by itself.",
         "A new problem turns up every minute or so: missed reads, transponder mix-ups, two riders of a team on " +
         "track at once, a rider reported retired who is not, and a reader that goes quiet."
       },
