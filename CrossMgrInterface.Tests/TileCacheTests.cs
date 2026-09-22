@@ -149,7 +149,9 @@ public class TileStoreTests : IDisposable
   {
     var path = Store().PathFor(new TileId(17, 68424, 44324));
 
-    Assert.Equal(Path.Combine("17", "68424", "44324.png"), path[(path.IndexOf("17" + Path.DirectorySeparatorChar, StringComparison.Ordinal))..]);
+    // The end of the path, not the first "17\" in it: the random test folder
+    // above can end in 17 too, and once in a while did.
+    Assert.EndsWith(Path.DirectorySeparatorChar + Path.Combine("17", "68424", "44324.png"), path);
   }
 
   [Fact]
