@@ -241,6 +241,13 @@ public partial class Form1 : Form
     // Logging first of all, so the startup sequence itself is on record.
     InitializeLogging();
 
+    // Before anything else can take long: a laptop that goes to sleep during a
+    // race reads nothing, and the race is lost. See KeepAwake.
+    if (KeepAwake.On())
+      AddMessage("💡 While this window is open, Windows will not go to sleep, switch the screen off or lock.");
+    else
+      AddMessage("⚠️ Windows would not promise to stay awake - check the laptop's power settings before the race.");
+
     // Infrastructure next. Almost everything below - UpdateConnectionCount,
     // UpdateUI, the settings handlers - now writes to the status bar or asks the
     // correction service a question, so these have to exist before any of it runs.
@@ -490,6 +497,9 @@ public partial class Form1 : Form
     // Before the listener drops the connection out from under it.
     StopDemoReader();
     StopTcpListener();
+
+    // The laptop may sleep again once nothing is being timed.
+    KeepAwake.Off();
 
     // Write final log entry
     WriteToLogFile("SYSTEM", $"=== CrossMgr Interface Log Ended at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
