@@ -86,7 +86,8 @@ public static class HelpTopics
 
   private static HelpTopic Demo() => Topic(HelpTopicIds.Demo, GettingStarted,
     "Try a demo race",
-    "Watch the application time a whole session with simulated riders - no reader and no rider list needed.",
+    "Watch the application time a whole session - simulated riders, or a real race replayed - with no " +
+    "reader and no rider list needed.",
     new[]
     {
       Para("Help > Try a demo race... lists the demos; so does the link under Set up race... on the Race Day " +
@@ -109,11 +110,17 @@ public static class HelpTopics
         "Problems to fix - two teams and six solo riders, and nearly everything that goes wrong on a race day, " +
         "one thing after another: missed reads, transponder mix-ups, a rider reported retired who is not, and " +
         "a reader that goes quiet. A checklist says what each problem is and ticks it off once it is put " +
-        "right. About 16 minutes."),
+        "right. About 16 minutes.",
+        "A real race: Lauf 1 - 81 riders in five classes, timed by the club on 20 September 2026 and " +
+        "replayed read for read, with the riders' names hidden. Two hours and no extra laps, one start " +
+        "for everyone. You press START RACE. About 2 hours 20 minutes.",
+        "A real race: Lauf 2 - the afternoon race of the same day: 119 riders in three classes a minute " +
+        "apart. About 2 hours 25 minutes."),
 
       Heading("How a demo runs"),
       Bullets(
-        "In real time: a demo takes as long as the session it shows.",
+        "In real time: a demo takes as long as the session it shows - the two real races take the two " +
+        "hours and more they took on the day.",
         "A card at the start says what is going to happen and what to try. What's happening? on the DEMO bar " +
         "shows it again. In Problems to fix, the checklist opens beside the race, and again from the DEMO bar.",
         "Everything works as it does on a race day: fixing laps, identifying a transponder, undo, the results " +

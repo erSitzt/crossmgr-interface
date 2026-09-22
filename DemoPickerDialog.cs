@@ -25,9 +25,9 @@ public sealed class DemoPickerDialog : Form
 
     var caption = new Label
     {
-      Text = "Watch the application time a whole session with simulated riders - no reader and no rider list " +
-             "needed. The demo opens in a window of its own and runs in real time. Nothing in it touches your " +
-             "real races, rider lists or reader settings.",
+      Text = "Watch the application time a whole session - simulated riders, or a real race replayed - with no " +
+             "reader and no rider list needed. The demo opens in a window of its own and runs in real time. " +
+             "Nothing in it touches your real races, rider lists or reader settings.",
       Location = new Point(14, 12),
 
       // Three lines of text. At 44 the last one was cut in half.

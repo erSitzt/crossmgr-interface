@@ -23,6 +23,11 @@
     <EmbeddedResource Include="help_images\*.png" LogicalName="help_images/%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- The two real races the demos replay, names hidden: see DemoScenarios. -->
+  <ItemGroup>
+    <EmbeddedResource Include="demo_data\*.txt" LogicalName="demo_data/%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <!-- The screenshot scenes open dialogs at a given step, which is not public API. -->
   <ItemGroup>
     <InternalsVisibleTo Include="CrossMgrInterface.Tests" />

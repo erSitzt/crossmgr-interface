@@ -144,13 +144,18 @@ public partial class Form1
     _demoReaderStop = new CancellationTokenSource();
     var stop = _demoReaderStop.Token;
 
-    var reader = new DemoReader(readerPort, demo.Scenario.Crossings, DemoWaveStartedAt, () => raceFinished);
+    var reader = new DemoReader(readerPort, demo.Scenario.Crossings, DemoStartedAt, () => raceFinished)
+    {
+      AfterTheStart = demo.Scenario.ManualStart
+    };
     _demoReader = reader;
     reader.Connected += () =>
     {
-      AddMessage(demo.Scenario.ManualStart
+      AddMessage(demo.Scenario.WaveGap.HasValue
         ? "🎬 Demo reader connected. Press START RACE to send the first class off."
-        : "🎬 Demo reader connected. The first riders are on their way to the line.");
+        : demo.Scenario.ManualStart
+          ? "🎬 Demo reader connected. Press START RACE to send the field off."
+          : "🎬 Demo reader connected. The first riders are on their way to the line.");
 
       if (demo.Unattended && demo.Scenario.ManualStart)
         BeginInvoke(new Action(() => buttonStartRace_Click(this, EventArgs.Empty)));
@@ -251,12 +256,12 @@ public partial class Form1
     }
   }
 
-  /// <summary>When a class left the gate, asked from the demo reader's thread.</summary>
-  private DateTime? DemoWaveStartedAt(string className)
+  /// <summary>When a class left the gate - or, asked with null, when the race was started. From the demo reader's thread.</summary>
+  private DateTime? DemoStartedAt(string? className)
   {
     lock (ridersLock)
     {
-      return waves?.StartTimeFor(className);
+      return className == null ? raceStartTime : waves?.StartTimeFor(className);
     }
   }
 

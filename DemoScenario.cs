@@ -73,8 +73,18 @@ public sealed class DemoScenario
   /// <summary>The problems planted for the operator to put right, in the order they happen. Empty for most demos.</summary>
   public IReadOnlyList<DemoProblem> Problems { get; init; } = Array.Empty<DemoProblem>();
 
-  /// <summary>A wave start is always a manual one: the operator sends the first class.</summary>
-  public bool ManualStart => WaveGap.HasValue;
+  private readonly bool? _manualStart;
+
+  /// <summary>
+  /// The operator presses START RACE rather than the first crossing starting the
+  /// clock. A wave start is always a manual one; a race with one start can be
+  /// either, and the reads of a manual one count from that press.
+  /// </summary>
+  public bool ManualStart
+  {
+    get => _manualStart ?? WaveGap.HasValue;
+    init => _manualStart = value;
+  }
 
   /// <summary>The classes on the rider list, in the order it has them - which is the start order.</summary>
   public IReadOnlyList<string> Classes =>

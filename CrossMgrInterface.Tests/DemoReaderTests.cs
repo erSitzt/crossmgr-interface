@@ -74,6 +74,32 @@ public class DemoReaderTests
   }
 
   [Fact]
+  public async Task InARaceStartedByHandAReadWaitsForStartRace()
+  {
+    using var app = new FakeApp();
+    DateTime? started = null;
+    var reader = new DemoReader(app.Port,
+      new[] { new DemoCrossing(TimeSpan.FromMilliseconds(50), "A") },
+      cls => cls == null ? started : throw new InvalidOperationException($"asked for the class {cls}"),
+      () => false) { Lead = TimeSpan.Zero, Tick = Quick, AfterTheStart = true };
+
+    using var stop = new CancellationTokenSource();
+    var running = reader.RunAsync(stop.Token);
+    await app.HandshakeAsync();
+
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => app.NextLineAsync(TimeSpan.FromMilliseconds(300)));
+
+    var pressed = DateTime.Now;
+    started = pressed;
+    var read = await app.NextLineAsync(Patience);
+
+    Assert.Equal((pressed + TimeSpan.FromMilliseconds(50)).ToString("HH:mm:ss.fff"), read.Split(' ')[1]);
+
+    stop.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+  }
+
+  [Fact]
   public async Task APassReadTwiceGoesOutWithTheCountItAlreadyHad()
   {
     using var app = new FakeApp();
