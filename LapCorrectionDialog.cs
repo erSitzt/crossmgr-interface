@@ -26,6 +26,9 @@ public sealed class LapCorrectionDialog : Form
   private readonly Func<string, IReadOnlyList<RejectedRead>> _getRejectedReads;
   private readonly Func<DateTime?> _getRaceStartTime;
 
+  /// <summary>Asks the main window to move this rider to another class; true if it did.</summary>
+  private readonly Func<string, bool> _changeClass;
+
   private readonly Label _header = new();
   private readonly TableLayoutPanel _fixes = new();
   private readonly DataGridView _laps = new();
@@ -41,6 +44,7 @@ public sealed class LapCorrectionDialog : Form
   private readonly Button _markDnf = new();
   private readonly Button _markDns = new();
   private readonly Button _clearStatus = new();
+  private readonly Button _changeClassButton = new();
   private readonly Button _undo = new();
   private readonly Button _redo = new();
 
@@ -76,13 +80,15 @@ public sealed class LapCorrectionDialog : Form
     string tagId,
     Func<string, RiderInfo?> lookupRider,
     Func<string, IReadOnlyList<RejectedRead>> getRejectedReads,
-    Func<DateTime?> getRaceStartTime)
+    Func<DateTime?> getRaceStartTime,
+    Func<string, bool> changeClass)
   {
     _service = service;
     _tagId = tagId;
     _lookupRider = lookupRider;
     _getRejectedReads = getRejectedReads;
     _getRaceStartTime = getRaceStartTime;
+    _changeClass = changeClass;
     _boldFont = new Font(Font, FontStyle.Bold);
 
     BuildLayout();
@@ -237,6 +243,7 @@ public sealed class LapCorrectionDialog : Form
     Add(_markDnf, "Mark as DNF", (_, _) => OnSetStatus(RiderStatus.DNF), spaceAbove: true);
     Add(_markDns, "Mark as DNS", (_, _) => OnSetStatus(RiderStatus.DNS));
     Add(_clearStatus, "Back in the race", (_, _) => OnSetStatus(RiderStatus.Racing));
+    Add(_changeClassButton, "Change class...", (_, _) => OnChangeClass());
 
     Add(_undo, "Undo last change", (_, _) => OnUndo(), spaceAbove: true);
     Add(_redo, "Redo", (_, _) => OnRedo());
@@ -569,6 +576,9 @@ public sealed class LapCorrectionDialog : Form
     _markDns.Enabled = rider is { IsDNS: false };
     _clearStatus.Enabled = rider is not null && (rider.IsDNF || rider.IsDNS);
 
+    // A team's class comes from its riders on the list, not from here.
+    _changeClassButton.Enabled = rider is { IsTeam: false };
+
     _undo.Enabled = _service.History.CanUndo;
     _undo.Text = _service.History.CanUndo ? "Undo last change" : "Nothing to undo";
     _redo.Enabled = _service.History.CanRedo;
@@ -715,6 +725,27 @@ public sealed class LapCorrectionDialog : Form
   private void OnSetStatus(RiderStatus status)
   {
     Apply(_service.SetRiderStatus(_tagId, status));
+  }
+
+  /// <summary>
+  /// The main window owns this one: the classes on offer, the wave schedule and
+  /// the team rule all live there. Here it is a button and a reload.
+  /// </summary>
+  private void OnChangeClass()
+  {
+    _asking = true;
+    try
+    {
+      if (!_changeClass(_tagId)) return;
+    }
+    finally
+    {
+      _asking = false;
+    }
+
+    AnyChangesApplied = true;
+    _lastDone = "Class changed";
+    Reload();
   }
 
   private void OnUndo()

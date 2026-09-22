@@ -107,9 +107,76 @@ public partial class Form1
       tagId,
       LookupRider,
       GetRejectedReadsFor,
-      () => raceStartTime);
+      () => raceStartTime,
+      ChangeRiderClass);
 
     dialog.ShowDialog(this);
+  }
+
+  /// <summary>
+  /// Moves a rider into another class, from the Fix laps window. Returns whether
+  /// anything changed.
+  ///
+  /// The window asks; everything that decides the answer lives here - the classes
+  /// on offer, the wave schedule, and whether this entry is a team at all.
+  /// </summary>
+  private bool ChangeRiderClass(string tagId)
+  {
+    string current;
+    bool isTeam;
+    lock (ridersLock)
+    {
+      if (!riders.TryGetValue(tagId, out var rider)) return false;
+      current = rider.Category;
+      isTeam = rider.IsTeam;
+    }
+
+    // Same reason the Identify window gives: a team's class is worked out from
+    // its members' classes, so it is the list that decides it, not this window.
+    if (isTeam)
+    {
+      MessageBox.Show(this,
+        "This is a team. Its class comes from the classes of its riders on the rider list - to change " +
+        "it, correct the list and import it again.",
+        "Change class", MessageBoxButtons.OK, MessageBoxIcon.Information);
+      return false;
+    }
+
+    var caption = waves == null
+      ? "Which class should this rider be scored in?"
+      : "Which class should this rider be scored in? They keep the start time they " +
+        "already have, so their lap times do not change.";
+
+    var chosen = TextPrompt.Ask(this, "Change class", current, caption, AvailableClasses());
+    if (chosen == null) return false;
+
+    // Match an existing class's spelling rather than adding one that differs
+    // only in case: the riders grid filters on an exact match, so "mx1" beside
+    // "MX1" would be two classes on screen and one everywhere else.
+    chosen = AvailableClasses()
+      .FirstOrDefault(c => string.Equals(c, chosen, StringComparison.OrdinalIgnoreCase)) ?? chosen;
+
+    if (string.Equals(chosen, current, StringComparison.Ordinal)) return false;
+
+    // A read from a class still at the gate is thrown away, so moving a rider
+    // into one would quietly stop counting their laps until it goes.
+    if (waves != null && !waves.HasStarted(chosen))
+    {
+      MessageBox.Show(this,
+        $"{chosen} has not left the gate yet. A rider in a class that has not started is not counted, " +
+        "so this would stop their laps being recorded. Wait until that class has started.",
+        "Change class", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+      return false;
+    }
+
+    var result = _corrections.SetRiderClass(tagId, chosen);
+    if (!result.Ok)
+    {
+      MessageBox.Show(this, result.Error, "Change class", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+      return false;
+    }
+
+    return result.Command != null;
   }
 
   /// <summary>
@@ -269,7 +336,16 @@ public partial class Form1
       AddDiagnostic("Correction applied after the race was called - the results sheet changes, the race does not restart.");
     }
 
-    // 6. Repaint straight away: the operator is watching the standings behind
+    // 6. The classes on offer may have moved: identifying a transponder can
+    //    introduce one, changing a rider's class can introduce or empty one.
+    //    Here rather than at the call site, because undo and redo come through
+    //    this and nowhere else - which is why undoing an Identify used to leave
+    //    a class in the filter that no longer had anyone in it. The track tab
+    //    keeps its own list; Qualifying rebuilds its own as it renders.
+    PopulateClassFilter();
+    _trackTab.SetClasses(AvailableClasses());
+
+    // 7. Repaint straight away: the operator is watching the standings behind
     //    the dialog to see what their change did.
     _refresh.RenderNow(RaceViewKind.All);
   }

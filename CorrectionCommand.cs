@@ -10,6 +10,7 @@ public enum CorrectionKind
   DismissSuggestion,
   RestoreRejectedRead,
   SetStatus,
+  SetCategory,
   AssignTag,
   DismissOverlap
 }
