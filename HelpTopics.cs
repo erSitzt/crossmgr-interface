@@ -76,6 +76,9 @@ public static class HelpTopics
         "Press NEW SESSION... for the next one. The finished session is kept: Race > Past sessions... " +
         "(Ctrl+O) prints it again at any time."),
 
+      Tip("While this window is open, Windows does not go to sleep, switch the screen off or lock itself - " +
+          "so the laptop keeps reading through a race nobody is touching it during. Closing the lid or " +
+          "pressing the power button still does what the laptop is set to do, so leave it open and plugged in."),
       Tip("Each session type has its own topic under Session types: how to set it up, what happens when " +
           "the clock runs out, and what its sheet shows."),
       Tip("No reader to hand? Help > Try a demo race... runs a whole session with simulated riders, in a " +
@@ -961,6 +964,12 @@ public static class HelpTopics
       Para("A race notices the clock has run out on the next crossing; then the leader rides the lap in " +
            "progress plus the extra laps, and everyone else finishes their lap. Wait for Race finished, or " +
            "press End race now...."),
+
+      Heading("The laptop went to sleep or locked during the session"),
+      Para("It should not while the application is open: it asks Windows to stay awake and keep the screen " +
+           "on, and says so in the feed at start-up. A lid closed, the power button, or a lock a company " +
+           "policy forces are outside its reach - keep the lid open, and plug the laptop in. A rider read " +
+           "while the laptop slept is a lap lost: Fix laps... can split the long lap that leaves."),
 
       Heading("Anything else"),
       Para("Help > Open log folder. The log records every read, every race event and every correction with " +
