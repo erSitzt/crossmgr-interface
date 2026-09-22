@@ -25,11 +25,18 @@ public sealed class DemoReader
 
   private readonly int _port;
   private readonly IReadOnlyList<DemoCrossing> _crossings;
-  private readonly Func<string, DateTime?> _waveStartedAt;
+  private readonly Func<string?, DateTime?> _startedAt;
   private readonly Func<bool> _finished;
 
   /// <summary>From the end of the handshake to the reader's own start, the moment un-waved reads count from.</summary>
   public TimeSpan Lead { get; init; } = TimeSpan.FromSeconds(3);
+
+  /// <summary>
+  /// Un-waved reads count from the operator's START RACE instead of from the
+  /// reader's own start - for a race started by hand, where the clock runs
+  /// from that press and the riders were sent off by it.
+  /// </summary>
+  public bool AfterTheStart { get; init; }
 
   /// <summary>How often the reader looks for reads that have come due.</summary>
   public TimeSpan Tick { get; init; } = TimeSpan.FromMilliseconds(200);
@@ -45,14 +52,17 @@ public sealed class DemoReader
   /// </summary>
   public DateTime? StartedAt => Interlocked.Read(ref _startedAtTicks) is var ticks and > 0 ? new DateTime(ticks) : null;
 
-  /// <param name="waveStartedAt">When a class left the gate, or null while it is still waiting.</param>
+  /// <param name="startedAt">
+  /// When a class left the gate, or - asked with null - when the operator
+  /// started the race. Null while that has not happened yet.
+  /// </param>
   /// <param name="finished">True once the session is over and nothing more would count.</param>
   public DemoReader(int port, IReadOnlyList<DemoCrossing> crossings,
-    Func<string, DateTime?> waveStartedAt, Func<bool> finished)
+    Func<string?, DateTime?> startedAt, Func<bool> finished)
   {
     _port = port;
     _crossings = crossings;
-    _waveStartedAt = waveStartedAt;
+    _startedAt = startedAt;
     _finished = finished;
   }
 
@@ -89,7 +99,9 @@ public sealed class DemoReader
 
       foreach (var crossing in pending)
       {
-        var anchor = crossing.AfterWaveOf == null ? start : _waveStartedAt(crossing.AfterWaveOf);
+        var anchor = crossing.AfterWaveOf != null ? _startedAt(crossing.AfterWaveOf)
+          : AfterTheStart ? _startedAt(null)
+          : start;
         if (anchor is not { } from) continue;
 
         var at = from + crossing.At;

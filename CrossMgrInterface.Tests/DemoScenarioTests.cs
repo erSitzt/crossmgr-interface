@@ -14,9 +14,10 @@ public class DemoScenarioTests
   public static TheoryData<string> Ids => new()
   {
     DemoScenarios.RaceId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId,
-    DemoScenarios.WaitingId, DemoScenarios.ProblemsId
+    DemoScenarios.WaitingId, DemoScenarios.ProblemsId, DemoScenarios.Lauf1Id, DemoScenarios.Lauf2Id
   };
 
+  /// <summary>The races planned here. The two real ones keep their day's retirements; see RealRaceDemoTests.</summary>
   public static TheoryData<string> Races => new()
   {
     DemoScenarios.RaceId, DemoScenarios.EnduroId, DemoScenarios.TeamsId, DemoScenarios.WaitingId,
@@ -30,7 +31,7 @@ public class DemoScenarioTests
       new[]
       {
         DemoScenarios.RaceId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId,
-        DemoScenarios.WaitingId, DemoScenarios.ProblemsId
+        DemoScenarios.WaitingId, DemoScenarios.ProblemsId, DemoScenarios.Lauf1Id, DemoScenarios.Lauf2Id
       },
       DemoScenarios.All.Select(s => s.Id));
     Assert.All(DemoScenarios.All, s => Assert.Same(s, DemoScenarios.Find(s.Id.ToUpperInvariant())));

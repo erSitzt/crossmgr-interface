@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text;
+
 namespace CrossMgrInterface;
 
 /// <summary>
@@ -18,6 +21,8 @@ public static class DemoScenarios
   public const string TeamsId = "teams";
   public const string ProblemsId = "problems";
   public const string WaitingId = "waiting";
+  public const string Lauf1Id = "lauf1";
+  public const string Lauf2Id = "lauf2";
 
   /// <summary>The spare transponder the race demo's forgetful rider borrows. Not on the rider list.</summary>
   public const string SpareTransponder = "20269999";
@@ -28,7 +33,10 @@ public static class DemoScenarios
   /// <summary>The marshal's bike that crosses the loop in the problems demo. Not on the rider list.</summary>
   public const string MarshalTransponder = "20269990";
 
-  public static IReadOnlyList<DemoScenario> All { get; } = new[] { Race(), Qualifying(), Enduro(), Teams(), WaitingForTheLeader(), ProblemsToFix() };
+  public static IReadOnlyList<DemoScenario> All { get; } = new[]
+  {
+    Race(), Qualifying(), Enduro(), Teams(), WaitingForTheLeader(), ProblemsToFix(), Lauf1(), Lauf2()
+  };
 
   public static DemoScenario? Find(string? id) =>
     All.FirstOrDefault(s => string.Equals(s.Id, id?.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -42,6 +50,8 @@ public static class DemoScenarios
     TeamsId => Teams(),
     WaitingId => WaitingForTheLeader(),
     ProblemsId => ProblemsToFix(),
+    Lauf1Id => Lauf1(),
+    Lauf2Id => Lauf2(),
     _ => throw new ArgumentException($"There is no demo called {id}.", nameof(id))
   };
 
@@ -812,6 +822,150 @@ public static class DemoScenarios
       Crossings = Ordered(reads),
       Problems = problems.OrderBy(p => p.At).ToList()
     };
+  }
+
+  // ---- Two real races --------------------------------------------------------
+
+  /// <summary>
+  /// The morning race of 20 September 2026, as the club's own timing recorded
+  /// it: every crossing the reader sent, at the moment it sent it. Nothing is
+  /// planted - what went wrong that day goes wrong again, in real time.
+  /// </summary>
+  private static DemoScenario Lauf1()
+  {
+    var day = ReadRealRace(Lauf1Id);
+
+    return new DemoScenario
+    {
+      Id = Lauf1Id,
+      Title = "A real race: Lauf 1",
+      Length = "About 2 hours 20 minutes",
+      Summary = "81 riders in five classes, timed on 20 September 2026 and replayed read for read - the riders' " +
+                "names hidden. Two hours and no extra laps, one start for everyone.",
+      WhatHappens = new[]
+      {
+        "Press START RACE: that is the moment the field left the gate. The first riders reach the line about " +
+        "a minute and a half later, and a lap takes ten to twelve minutes.",
+        "After 2 hours the race waits for the leader to finish the lap they are on - their thirteenth - and " +
+        "then everyone finishes theirs. Seven riders pull in for good along the way and end up DNF.",
+        "Nothing here is made up. Every read is one the reader sent that day, with the gaps it left."
+      },
+      WhatToTry = new[]
+      {
+        "Watch the READER tile: with laps this long the reader is quiet for a minute at a time, and the " +
+        "application judges from the lap times whether anyone is overdue. Early on, a few are.",
+        "Some laps are long enough to be two or more and show CHECK. Open Fix laps... and judge for " +
+        "yourself: a missed read, or a rider who stopped for a while?",
+        "Nothing to do for the riders who pull in: once the leader is home and the grace has run out, " +
+        "they become DNF by themselves.",
+        "When the race has finished, press Results... for the sheet. The names are hidden the way the " +
+        "website hides them for a rider who asks: Ale****** Sch******."
+      },
+      SessionType = SessionType.Race,
+      DurationMinutes = 120,
+      AdditionalLaps = 0,
+      ManualStart = true,
+      Roster = day.Roster,
+      Crossings = day.Reads
+    };
+  }
+
+  /// <summary>The afternoon race of the same day, started in three waves a minute apart.</summary>
+  private static DemoScenario Lauf2()
+  {
+    var day = ReadRealRace(Lauf2Id);
+
+    return new DemoScenario
+    {
+      Id = Lauf2Id,
+      Title = "A real race: Lauf 2",
+      Length = "About 2 hours 25 minutes",
+      Summary = "119 riders in three classes a minute apart, timed on 20 September 2026 and replayed read for " +
+                "read - the riders' names hidden. Two hours and no extra laps.",
+      WhatHappens = new[]
+      {
+        "Press START RACE to send 1_expert off. The application sends 2_racer and 3_senior1 off by itself, " +
+        "a minute apart, and every rider is timed from their own class's start.",
+        "After 2 hours the race waits for the leader to finish the lap they are on - their sixteenth - and " +
+        "then everyone finishes theirs. Ten riders pull in for good along the way and end up DNF.",
+        "Nothing here is made up. Every read is one the reader sent that day, with the gaps it left."
+      },
+      WhatToTry = new[]
+      {
+        "Two riders in 2_racer both carry #123. Their transponders tell them apart, and so does the " +
+        "application.",
+        "#128 is on the rider list and never goes out. The sheet lists them last.",
+        "#166's transponder is missed twice, so two of their laps show CHECK - and later that afternoon " +
+        "race control reported them retired. Right-click them on the Riders tab, Fix laps, then Mark as DNF.",
+        "When the race has finished, press Results... for the sheet. The names are hidden the way the " +
+        "website hides them for a rider who asks: Hen**** Van**********."
+      },
+      SessionType = SessionType.Race,
+      DurationMinutes = 120,
+      AdditionalLaps = 0,
+      WaveGap = TimeSpan.FromMinutes(1),
+      Roster = day.Roster,
+      Crossings = day.Reads
+    };
+  }
+
+  /// <summary>A real race's file, parsed. See <see cref="ReadRealRace"/>.</summary>
+  internal sealed record RealRace(IReadOnlyList<DemoRider> Roster, IReadOnlyList<DemoCrossing> Reads,
+    IReadOnlyDictionary<string, int> LapsOnTheSheet);
+
+  /// <summary>
+  /// Reads a real race from demo_data/, embedded in the application like the
+  /// help pictures. One line per rider - transponder, number, class, the laps
+  /// on the day's sheet, name - and one per read, counted in seconds from the
+  /// moment the rider's class left the gate. The riders' names are hidden in
+  /// the files themselves, the way <see cref="NamePrivacy"/> hides a name on
+  /// the website, so a real name is never in the application at all; a test
+  /// holds every name to that shape.
+  /// </summary>
+  internal static RealRace ReadRealRace(string id)
+  {
+    using var stream = typeof(DemoScenarios).Assembly.GetManifestResourceStream($"demo_data/{id}.txt")
+      ?? throw new InvalidOperationException($"The real race {id} is not embedded in the application.");
+    using var text = new StreamReader(stream, Encoding.UTF8);
+
+    var roster = new List<DemoRider>();
+    var laps = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    var reads = new List<DemoCrossing>();
+
+    // A read is anchored to its class's gate only when the race has waves; with
+    // one start it counts from START RACE, which is what null means to the
+    // demo reader. Riders come before reads in the file, so the class is known.
+    var waved = false;
+    var classOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    while (text.ReadLine() is { } line)
+    {
+      if (line.Length == 0 || line[0] == '#') continue;
+      var fields = line.Split('\t');
+
+      switch (fields[0])
+      {
+        case "rider":
+          roster.Add(new DemoRider(fields[1], fields[2], fields[5], "", fields[3]));
+          laps[fields[1]] = int.Parse(fields[4], CultureInfo.InvariantCulture);
+          classOf[fields[1]] = fields[3];
+          break;
+
+        case "read":
+          var at = Seconds(double.Parse(fields[1], CultureInfo.InvariantCulture));
+          reads.Add(new DemoCrossing(at, fields[2], DemoReadKind.Lap, waved ? classOf[fields[2]] : null));
+          break;
+
+        case "waves":
+          waved = true;
+          break;
+
+        default:
+          throw new InvalidDataException($"demo_data/{id}.txt: a line starts with \"{fields[0]}\".");
+      }
+    }
+
+    return new RealRace(roster, Ordered(reads), laps);
   }
 
   // ---- Helpers ---------------------------------------------------------------
