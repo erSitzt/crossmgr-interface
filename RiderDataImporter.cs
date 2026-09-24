@@ -37,6 +37,13 @@ public class RiderDataImporter
   public IReadOnlyList<RiderImportData> Rows => _rows;
 
   /// <summary>
+  /// The rows the last import could not use, and why. Kept so the Rider list can
+  /// still show them after the import's own message has scrolled away.
+  /// </summary>
+  public IReadOnlyList<(int Row, string Reason)> LastSkipped { get; private set; } =
+    Array.Empty<(int Row, string Reason)>();
+
+  /// <summary>
   /// Data structure for imported rider information
   /// </summary>
   public class RiderImportData
@@ -135,6 +142,7 @@ public class RiderDataImporter
       }
 
       result.ImportedCount = importedCount;
+      LastSkipped = result.Skipped.ToList();
       return result;
     }
     catch (Exception ex)
@@ -195,6 +203,7 @@ public class RiderDataImporter
       }
 
       result.ImportedCount = importedCount;
+      LastSkipped = result.Skipped.ToList();
       return result;
     }
     catch (Exception ex)
@@ -239,7 +248,93 @@ public class RiderDataImporter
   {
     _riderDataLookup.Clear();
     _rows.Clear();
+    LastSkipped = Array.Empty<(int Row, string Reason)>();
   }
+
+  /// <summary>
+  /// Puts an edited list in place of the imported one, as if it had been read
+  /// from a file. The skipped rows go too: they were rows of the old file, and
+  /// the edited list has been saved without them.
+  /// </summary>
+  public void ReplaceRows(IEnumerable<RiderImportData> rows)
+  {
+    Clear();
+    foreach (var row in rows.Where(r => !string.IsNullOrWhiteSpace(r.TagID)))
+    {
+      _riderDataLookup[row.TagID.ToUpper()] = row;
+      _rows.Add(row);
+    }
+  }
+
+  /// <summary>
+  /// The column names <see cref="SaveToExcel"/> writes - ones the importer
+  /// recognises, so a saved list reads back exactly as it was.
+  /// </summary>
+  private static readonly string[] SavedColumns =
+    { "tagid", "number", "firstname", "lastname", "team", "class", "machine", "showname" };
+
+  /// <summary>
+  /// Writes a rider list as an Excel file that this importer reads back as it was.
+  /// Every value is written as text: a transponder like 10000001 or a number like
+  /// 007 must not come back as a number Excel has reformatted.
+  /// </summary>
+  public static void SaveToExcel(IEnumerable<RiderImportData> rows, string filePath)
+  {
+    using var workbook = new XLWorkbook();
+    var sheet = workbook.Worksheets.Add("Riders");
+
+    for (var column = 0; column < SavedColumns.Length; column++)
+      sheet.Cell(1, column + 1).SetValue(SavedColumns[column]);
+
+    var line = 2;
+    foreach (var row in rows)
+    {
+      var values = new[]
+      {
+        row.TagID, row.RiderNumber, row.FirstName, row.LastName, row.Team, row.Category, row.Machine,
+        row.ShowName switch { true => "yes", false => "no", null => "" }
+      };
+
+      for (var column = 0; column < values.Length; column++)
+        sheet.Cell(line, column + 1).SetValue(values[column] ?? "");
+
+      line++;
+    }
+
+    sheet.Row(1).Style.Font.Bold = true;
+    sheet.Columns().AdjustToContents();
+    workbook.SaveAs(filePath);
+  }
+
+  /// <summary>
+  /// Where the Rider list saves an edited list: "-edited" beside the file it came
+  /// from, so the club's own file is never overwritten. A list that already is
+  /// such a copy is saved over itself rather than growing "-edited-edited".
+  /// </summary>
+  public static string EditedCopyPath(string? sourceFile, string fallbackFolder)
+  {
+    if (string.IsNullOrEmpty(sourceFile))
+      return Path.Combine(fallbackFolder, "riders-edited.xlsx");
+
+    var name = Path.GetFileNameWithoutExtension(sourceFile);
+    if (!name.EndsWith("-edited", StringComparison.OrdinalIgnoreCase)) name += "-edited";
+
+    var folder = Path.GetDirectoryName(sourceFile);
+    return Path.Combine(string.IsNullOrEmpty(folder) ? fallbackFolder : folder, name + ".xlsx");
+  }
+
+  /// <summary>A copy of <paramref name="row"/>, so an edit can be thrown away without touching the list in use.</summary>
+  public static RiderImportData Copy(RiderImportData row) => new()
+  {
+    TagID = row.TagID,
+    RiderNumber = row.RiderNumber,
+    FirstName = row.FirstName,
+    LastName = row.LastName,
+    Team = row.Team,
+    Category = row.Category,
+    Machine = row.Machine,
+    ShowName = row.ShowName
+  };
 
   /// <summary>
   /// Get the number of imported riders

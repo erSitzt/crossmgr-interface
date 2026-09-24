@@ -48,6 +48,7 @@ Then:
 | `reader-settings` | Reader connection dialog | `ReaderSettingsDialog.cs` | reader |
 | `demo-picker` | Try a demo race dialog | `DemoPickerDialog.cs`, `DemoScenarios.cs` | demo |
 | `publish-results` | Publish results dialog, before anything is sent | `PublishResultsDialog.cs`, `PublishPayloadBuilder.cs` | publish |
+| `rider-list` | Rider list dialog, a number given twice and a missing class marked | `RiderListDialog.cs`, `RiderListCheck.cs` | rider-lists |
 
 Also:
 

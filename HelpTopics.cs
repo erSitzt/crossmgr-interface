@@ -55,7 +55,10 @@ public static class HelpTopics
         "On the Riders step press Choose file... and pick the rider list (Excel or CSV). Check the preview: " +
         "every rider needs a transponder. For a team race, tick Team event here.",
         "Press Finish. The SET UP checklist on the Race Day screen shows the name, the riders, the length " +
-        "and the reader."),
+        "and the reader.",
+        "Before the first session of the day, press Check rider list... under the rider count. Riders who " +
+        "need a look are coloured: a number given twice, one transponder on two riders, a rider with no " +
+        "class. Correct them there and press Save."),
       Picture("new-race-wizard", "The wizard's Riders step, with a rider list loaded."),
 
       Heading("During the session"),
@@ -459,11 +462,12 @@ public static class HelpTopics
       Bullets(
         "The board shows the top ten. Everyone else is on the Riders tab.",
         "The SET UP checklist shows the name, how many riders are imported (entries, in a team event), the " +
-        "length, and whether the reader is connected.",
+        "length, and whether the reader is connected. Before the session starts, Check rider list... under " +
+        "the rider count opens the list, with any rider who needs a look coloured.",
         "Banners: blue for information (it goes by itself), gold for a warning, red for something urgent - it " +
         "beeps and stays until OK is pressed. The status bar repeats the latest one.")
     },
-    HelpTopicIds.QuickStart, HelpTopicIds.Fixing, HelpTopicIds.Reader);
+    HelpTopicIds.QuickStart, HelpTopicIds.Fixing, HelpTopicIds.Reader, HelpTopicIds.RiderLists);
 
   private static HelpTopic Fixing() => Topic(HelpTopicIds.Fixing, DuringASession,
     "Fixing laps",
@@ -847,8 +851,29 @@ public static class HelpTopics
         "A row without a transponder is skipped, and the application says which rows. A file without a " +
         "transponder column is refused, naming the columns it did find.",
         "The list is loaded again by itself when the application starts."),
-      Tip("Check the preview in the wizard before the session: a rider missing from the list shows as UNKNOWN " +
-          "when they cross the line.")
+
+      Heading("Checking and correcting the list"),
+      Para("Riders > Rider list... (Ctrl+L), or Check rider list... on the Race Day screen before a session, shows every rider " +
+           "on the list. Do this before the first session: a rider missing from the list shows as UNKNOWN " +
+           "when they cross the line, and a mistake is easier to fix before anyone has laps."),
+      Picture("rider-list", "The rider list, with a start number given twice and a rider with no class."),
+      Keys(
+        ("Red", "Cannot be timed right: no transponder, or one transponder on two different riders - its laps would all go to one of them"),
+        ("Orange", "Worth a look: a start number on two riders, or no number, name or class"),
+        ("Problem", "The column that says what is wrong with the row")),
+      Bullets(
+        "Click a cell and type to change it. Find: and Class: narrow the list; Needs a look shows only the " +
+        "coloured riders.",
+        "Add rider adds a late entry. Remove rider takes a rider off; laps already recorded are kept.",
+        "Scan transponder: select the rider, press it, and hold their transponder at the reader. The next " +
+        "read goes on that rider. If another rider already has that transponder, it says who instead.",
+        "Save writes the list as a copy beside the file it came from - riders.xlsx becomes riders-edited.xlsx - " +
+        "and uses that copy from then on, also after a restart. The club's own file is never changed.",
+        "A saved change reaches riders already on track too: their number, name, team and class. Laps stay " +
+        "with the transponder that was read - to move laps, use Identify in Fix laps.",
+        "Import again... reads a file afresh, replacing the whole list."),
+      Tip("The same person on two rows with two transponders is a spare transponder, not a mistake, and is " +
+          "not coloured. In a team event, team mates sharing a transponder is how a team is entered.")
     },
     HelpTopicIds.Teams, HelpTopicIds.Unknown);
 
@@ -915,6 +940,7 @@ public static class HelpTopics
         ("F1", "Help"),
         ("Ctrl+N", "New race... - set up a session"),
         ("Ctrl+I", "Import riders..."),
+        ("Ctrl+L", "Rider list... - check and correct the riders"),
         ("F5", "Start race / Start session"),
         ("Ctrl+E", "End race now... / End session now..."),
         ("Ctrl+P", "Results..."),
