@@ -17,7 +17,7 @@ internal static class HelpScreenshotScenes
   {
     "race-day", "new-race-wizard", "fix-laps", "unknown-transponder",
     "track-map", "circuit-editor", "past-sessions", "reader-settings", "demo-picker",
-    "publish-results"
+    "publish-results", "rider-list"
   };
 
   public static HelpScene Build(string name) => name switch
@@ -32,6 +32,7 @@ internal static class HelpScreenshotScenes
     "reader-settings" => new HelpScene { Form = new ReaderSettingsDialog(53135, true, true, 60) },
     "demo-picker" => new HelpScene { Form = new DemoPickerDialog(DemoScenarios.All) },
     "publish-results" => PublishResults(),
+    "rider-list" => RiderList(),
     _ => throw new ArgumentException($"There is no help screenshot scene called {name}.", nameof(name))
   };
 
@@ -135,6 +136,36 @@ internal static class HelpScreenshotScenes
     wizard.Show(2);
 
     return new HelpScene { Form = wizard };
+  }
+
+  /// <summary>
+  /// The race demo's list with two mistakes a club secretary makes: a start
+  /// number typed twice, and a rider whose class was left blank.
+  /// </summary>
+  private static HelpScene RiderList()
+  {
+    var rows = RaceDemo.Roster
+      .Select(entry =>
+      {
+        var (first, last) = SplitName(entry.Name);
+        return new RiderDataImporter.RiderImportData
+        {
+          TagID = entry.Tag, RiderNumber = entry.Number, FirstName = first, LastName = last, Category = entry.Class
+        };
+      })
+      .ToList();
+
+    rows[5].RiderNumber = rows[2].RiderNumber;
+    rows[9].Category = "";
+
+    var dialog = new RiderListDialog(new RiderListSource(rows, Array.Empty<(int, string)>()), teamEvent: false,
+      save: _ => null, importAgain: () => null)
+    {
+      ClientSize = new Size(1000, 560)
+    };
+    dialog.SelectRow(5);
+
+    return new HelpScene { Form = dialog };
   }
 
   private static HelpScene FixLaps()

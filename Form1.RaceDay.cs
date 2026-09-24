@@ -30,6 +30,7 @@ public partial class Form1
     _raceDayView.FixLapsClicked += (s, e) => OpenLapCorrectionForMostUrgentRider();
     _raceDayView.EndRaceNowClicked += (s, e) => EndRaceNow();
     _raceDayView.SetupClicked += (s, e) => RunNewRaceWizard();
+    _raceDayView.RiderListClicked += (s, e) => ShowRiderList();
     _raceDayView.PublishClicked += (s, e) => PublishCurrentSession();
     _raceDayView.LiveToggleClicked += (s, e) => SetLiveTiming(!_liveOn);
     _raceDayView.StartNextWaveClicked += (s, e) => StartNextWaveNow();

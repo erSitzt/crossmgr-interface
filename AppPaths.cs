@@ -77,6 +77,20 @@ public static class AppPaths
     }
   }
 
+  /// <summary>
+  /// Where an edited rider list is saved when the folder it came from cannot be
+  /// written to - a list opened from a USB stick that is write-protected, say.
+  /// </summary>
+  public static string RiderListsFolder
+  {
+    get
+    {
+      var dir = Path.Combine(EnsureRoot(), "rider-lists");
+      Directory.CreateDirectory(dir);
+      return dir;
+    }
+  }
+
   private static string EnsureRoot()
   {
     Directory.CreateDirectory(Root);

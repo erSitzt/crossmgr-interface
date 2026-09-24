@@ -387,6 +387,7 @@ public partial class Form1
     var fixLaps = Item("Fix laps...", Keys.F2, (s, e) => OpenLapCorrectionForMostUrgentRider());
     _menuUndo = Item("Undo last change", Keys.Control | Keys.Z, (s, e) => UndoLastCorrection());
     _menuRedo = Item("Redo", Keys.Control | Keys.Y, (s, e) => RedoLastCorrection());
+    var riderList = Item("Rider list...", Keys.Control | Keys.L, (s, e) => ShowRiderList());
     var ignored = Item("Ignored transponders...", Keys.None, (s, e) => ShowIgnoreList());
 
     _menuShowTransponders = new ToolStripMenuItem("Show transponder IDs")
@@ -403,6 +404,7 @@ public partial class Form1
 
     ridersMenu.DropDownItems.AddRange(new ToolStripItem[]
     {
+      riderList, new ToolStripSeparator(),
       fixLaps, _menuUndo, _menuRedo, new ToolStripSeparator(), ignored, _menuShowTransponders
     });
 

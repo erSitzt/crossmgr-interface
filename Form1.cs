@@ -795,6 +795,10 @@ public partial class Form1 : Form
       string tagID = content.Substring(0, firstSpace);
       string remainder = content.Substring(firstSpace + 1);
 
+      // Before the filter: a new transponder being scanned onto the rider list
+      // may well not match the prefix yet. The read still counts as usual.
+      OfferReadToRiderList(tagID);
+
       // Parse time (should be next)
       int nextSpace = remainder.IndexOf(' ');
       if (nextSpace == -1)
@@ -1910,7 +1914,14 @@ public partial class Form1 : Form
     }
   }
 
-  private void buttonImportRiders_Click(object? sender, EventArgs e)
+  private void buttonImportRiders_Click(object? sender, EventArgs e) => ImportRidersFromFile();
+
+  /// <summary>
+  /// Asks for a rider list and imports it. True when a file was read - even one
+  /// with no usable rows, which leaves the list empty - and false when the
+  /// operator cancelled, so the list in use is untouched.
+  /// </summary>
+  private bool ImportRidersFromFile()
   {
     try
     {
@@ -1940,7 +1951,7 @@ public partial class Form1 : Form
             ErrorDialog.Show(this,
               "That file type can't be read.",
               "Choose an Excel file (.xlsx) or a CSV file (.csv).");
-            return;
+            return false;
           }
 
           var importedCount = importResult.ImportedCount;
@@ -1997,6 +2008,8 @@ public partial class Form1 : Form
                 ? $"The file has a transponder column but no usable rows. Columns found: {columns}."
                 : $"The file needs a column called 'tagid'. Columns found: {columns}.");
           }
+
+          return true;
         }
       }
     }
@@ -2006,13 +2019,22 @@ public partial class Form1 : Form
       ErrorDialog.Show(this,
         "The rider list could not be read.",
         "Check that the file is not open in another program, then try again.", ex);
+      // The importer clears the list before it reads, so it may be gone now.
+      return true;
     }
+
+    return false;
   }
 
   /// <summary>
-  /// Apply imported rider data to existing riders that don't have names/teams
+  /// Apply imported rider data to existing riders that don't have names/teams.
+  ///
+  /// With <paramref name="overwrite"/>, the list wins over what the rider already
+  /// has: that is the Rider list's Save, where the operator has just corrected a
+  /// name or a class on purpose. An import only fills gaps, so it never undoes
+  /// an identity given with Identify.
   /// </summary>
-  private void ApplyImportedDataToExistingRiders()
+  private void ApplyImportedDataToExistingRiders(bool overwrite = false)
   {
     lock (ridersLock)
     {
@@ -2048,7 +2070,15 @@ public partial class Form1 : Form
         }
 
         var importedData = _riderDataImporter.GetRiderData(rider.TagID);
-        if (importedData != null)
+        if (importedData != null && overwrite)
+        {
+          if (OverwriteFromList(rider, importedData))
+          {
+            updatedCount++;
+            if (currentRaceId.HasValue) _raceDb.UpsertRider(rider);
+          }
+        }
+        else if (importedData != null)
         {
           // Update rider information if not already set
           if (string.IsNullOrEmpty(rider.FirstName) && !string.IsNullOrEmpty(importedData.FirstName))

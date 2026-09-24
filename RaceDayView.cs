@@ -77,6 +77,9 @@ public sealed class RaceDayView
 
   private Label _checkName = null!;
   private Label _checkRiders = null!;
+  private LinkLabel _riderListLink = null!;
+  private bool _hasRiders;
+  private bool _beforeSession = true;
   private Label _checkDuration = null!;
   private Label _checkReader = null!;
 
@@ -102,6 +105,7 @@ public sealed class RaceDayView
   public event EventHandler? LiveToggleClicked;
   public event EventHandler? FixLapsClicked;
   public event EventHandler? SetupClicked;
+  public event EventHandler? RiderListClicked;
   public event EventHandler? DemoClicked;
   public event EventHandler? BannerDismissed;
 
@@ -532,7 +536,20 @@ public sealed class RaceDayView
     _checkRiders = ChecklistLabel();
     _checkDuration = ChecklistLabel();
     _checkReader = ChecklistLabel();
-    column.Controls.AddRange(new Control[] { _checkName, _checkRiders, _checkDuration, _checkReader });
+
+    // Under the count, where the operator looks before the first session: a
+    // number alone does not show #127 twice or a rider with no class.
+    _riderListLink = new LinkLabel
+    {
+      Text = "Check rider list...",
+      AutoSize = true,
+      Font = new Font("Segoe UI", 9.5F),
+      Margin = new Padding(22, 0, 0, 4),
+      Visible = false
+    };
+    _riderListLink.LinkClicked += (s, e) => RiderListClicked?.Invoke(s, e);
+
+    column.Controls.AddRange(new Control[] { _checkName, _checkRiders, _riderListLink, _checkDuration, _checkReader });
 
     _setup = new Button
     {
@@ -714,8 +731,10 @@ public sealed class RaceDayView
     _setup.Visible = !finished;
 
     // Before a session gets going only: during one, nobody should be tempted away.
+    _beforeSession = state is RaceDayState.WaitingForFirstRider or RaceDayState.ReadyToStart;
     if (_demoLink != null)
-      _demoLink.Visible = _demoOffered && state is RaceDayState.WaitingForFirstRider or RaceDayState.ReadyToStart;
+      _demoLink.Visible = _demoOffered && _beforeSession;
+    UpdateRiderListLink();
   }
 
   /// <param name="quiet">What the reader check made of the silence, or null outside a running session.</param>
@@ -939,9 +958,18 @@ public sealed class RaceDayView
   {
     Check(_checkName, raceName is { Length: > 0 }, raceName is { Length: > 0 } ? $"Named \"{raceName}\"" : "Race not named");
     Check(_checkRiders, riderCount > 0, riderCount > 0 ? $"{riderCount} riders imported" : "No riders imported");
+    _hasRiders = riderCount > 0;
+    UpdateRiderListLink();
     Check(_checkDuration, duration > TimeSpan.Zero, $"{duration.TotalMinutes:F0} minutes");
     Check(_checkReader, readerConnected, readerConnected ? "Reader connected" : "Reader not connected");
   }
+
+  /// <summary>
+  /// Only before the clock starts, which is when the list is worth checking -
+  /// and a race's buttons leave the column no room for it. Riders > Rider list...
+  /// still opens it any time.
+  /// </summary>
+  private void UpdateRiderListLink() => _riderListLink.Visible = _hasRiders && _beforeSession;
 
   private static void Check(Label label, bool done, string text)
   {
