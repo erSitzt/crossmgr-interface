@@ -172,7 +172,7 @@ public static class SpectatorBoardBuilder
         Class = rider.Category,
         ClassPosition = isOut ? "" : NextPlace(classPlaces, rider.Category),
         Laps = rider.TotalLaps.ToString(),
-        LastLap = BoardText.LapTime(rider.LastLapTime),
+        LastLap = BoardText.LapTime(LastLap(rider)),
         BestLap = BoardText.LapTime(rider.BestLapTime),
         Gap = BoardText.Gap(rider, leader, i, timedSession: false),
         Podium = !isOut && i < 3 ? i + 1 : 0,
@@ -205,7 +205,7 @@ public static class SpectatorBoardBuilder
         Class = rider.Category,
         ClassPosition = hasTime ? NextPlace(classPlaces, rider.Category) : "",
         Laps = entry.TimedLaps.ToString(),
-        LastLap = BoardText.LapTime(rider.LastLapTime),
+        LastLap = BoardText.LapTime(LastLap(rider)),
         BestLap = hasTime ? BoardText.LapTime(entry.BestLapTime) : "NO TIME",
         Gap = hasTime && entry.GapToPole.HasValue ? $"+{entry.GapToPole.Value.TotalSeconds:F2}" : "",
         Podium = hasTime && i < 3 ? i + 1 : 0,
@@ -258,25 +258,32 @@ public static class SpectatorBoardBuilder
 
   // ---- Highlights -------------------------------------------------------------------
 
-  /// <summary>The quickest timed lap anyone has done, and whose. The first to set a time keeps it on a tie.</summary>
+  /// <summary>
+  /// The quickest lap anyone has done, and whose. The first to set a time keeps it on a tie.
+  ///
+  /// Each rider's own <see cref="RiderInfo.BestLap"/>, so the rules are the
+  /// results sheet's: never the first crossing, which runs from the start to the
+  /// line and can be a second long; never a team's handover lap, or a lap with
+  /// two of its riders out. Taking every lap made a team's first crossing, 1.0s
+  /// after the gate, the fastest lap of the race.
+  /// </summary>
   private static (RiderInfo Rider, RiderLap Lap)? FastestLap(IEnumerable<RiderInfo> field)
   {
     (RiderInfo Rider, RiderLap Lap)? best = null;
 
     foreach (var rider in field)
     {
-      if (rider.IsDNS) continue;
-      foreach (var lap in rider.Laps)
-      {
-        if (lap.LapTime is not { } time || time <= TimeSpan.Zero) continue;
-        if (best == null || time < best.Value.Lap.LapTime ||
-            (time == best.Value.Lap.LapTime && lap.CrossingTime < best.Value.Lap.CrossingTime))
-          best = (rider, lap);
-      }
+      if (rider.IsDNS || rider.BestLap is not { LapTime: { } time } lap) continue;
+      if (best == null || time < best.Value.Lap.LapTime ||
+          (time == best.Value.Lap.LapTime && lap.CrossingTime < best.Value.Lap.CrossingTime))
+        best = (rider, lap);
     }
 
     return best;
   }
+
+  /// <summary>The last lap, but not the first crossing: that is the run from the start, not a lap.</summary>
+  private static TimeSpan? LastLap(RiderInfo rider) => rider.Laps.Count > 1 ? rider.LastLapTime : null;
 
   private static List<SpectatorCrossing> Recent(IEnumerable<RiderInfo> field) =>
     field
@@ -287,7 +294,8 @@ public static class SpectatorBoardBuilder
         x.Rider.RiderNumber,
         $"{x.Rider.FirstName} {x.Rider.LastName}".Trim(),
         x.Lap.LapNumber,
-        x.Lap.LapTime is { } t ? BoardText.LapTime(t) : "start"))
+        // The first crossing ends no lap: say so rather than show its time.
+        x.Lap.LapNumber > 1 && x.Lap.LapTime is { } t ? BoardText.LapTime(t) : "first lap"))
       .ToList();
 
   // ---- Header -----------------------------------------------------------------------
