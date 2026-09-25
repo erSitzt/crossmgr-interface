@@ -465,7 +465,29 @@ public static class HelpTopics
         "length, and whether the reader is connected. Before the session starts, Check rider list... under " +
         "the rider count opens the list, with any rider who needs a look coloured.",
         "Banners: blue for information (it goes by itself), gold for a warning, red for something urgent - it " +
-        "beeps and stays until OK is pressed. The status bar repeats the latest one.")
+        "beeps and stays until OK is pressed. The status bar repeats the latest one."),
+
+      Heading("A leaderboard for the spectators"),
+      Para("View > Spectator screen... (Ctrl+Shift+S) opens the live leaderboard in a window of its own, meant for " +
+           "a TV or projector the crowd can see. With a second screen connected it opens there, full screen; " +
+           "without one it opens as a window on this screen."),
+      Picture("spectator-screen", "The spectator screen during a race."),
+      Bullets(
+        "It shows the session's name, the state (race running, laps to go, chequered flag), the clock, and " +
+        "for every rider: position, number, name, laps, last lap, best lap and gap. With more than one class " +
+        "it adds the class and the rider's place in it. In a timed session it is the gate pick order, ranked " +
+        "on best lap.",
+        "The fastest lap is shown in purple, and along the bottom with the last riders across the line. A " +
+        "chequered flag marks riders who have finished.",
+        "Before the start it lists who is entered.",
+        "It shows full names - it is a screen at the track, not the website."),
+      Keys(
+        ("Right-click", "The menu: Top 10, Top 20, All riders, full screen, next screen, close"),
+        ("1 / 2 / A", "Top 10 / Top 20 / all riders - with all, the rows shrink to fit, in two columns on a wide screen"),
+        ("F11 or double-click", "Full screen on and off; Esc leaves full screen"),
+        ("Ctrl+Right", "Move it to the next screen")),
+      Tip("The spectator screen remembers its screen and its number of rows. Keep the laptop's own screen for the " +
+          "operator: the spectator screen follows the race by itself and needs nothing pressed.")
     },
     HelpTopicIds.QuickStart, HelpTopicIds.Fixing, HelpTopicIds.Reader, HelpTopicIds.RiderLists);
 
@@ -951,7 +973,8 @@ public static class HelpTopics
         ("Ctrl+1", "Race Day"),
         ("Ctrl+2", "Riders"),
         ("Ctrl+3", "Track map"),
-        ("Ctrl+Shift+A", "Show or hide the advanced tabs")),
+        ("Ctrl+Shift+A", "Show or hide the advanced tabs"),
+        ("Ctrl+Shift+S", "Spectator screen...")),
 
       Heading("In the circuit editor"),
       Keys(

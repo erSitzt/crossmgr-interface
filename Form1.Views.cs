@@ -34,6 +34,7 @@ public partial class Form1
     _refresh.Register(new TrackMapViewAdapter(this));
     _refresh.Register(new QualifyingViewAdapter(this));
     _refresh.Register(new TransponderViewAdapter(this));
+    _refresh.Register(new SpectatorViewAdapter(this));
 
     _refresh.Start();
   }
