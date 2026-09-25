@@ -156,4 +156,31 @@ public class SpectatorBoardTests
     Assert.Equal(new[] { "7", "12" }, board.Rows.Select(r => r.Number));
     Assert.Empty(board.Recent);
   }
+
+  [Fact]
+  public void The_first_crossing_is_never_the_fastest_lap()
+  {
+    // A team away first, 1.0s from the gate to the line: the run from the
+    // start, not a lap - and it was shown as the fastest lap of the race.
+    var team = RiderBuilder.Team("RC Falke",
+        RiderBuilder.Member("21", "Carla Hoff", "T21"), RiderBuilder.Member("22", "David Kern", "T22"))
+      .Lap(1.0).Build();
+    var rider = RiderBuilder.Rider("A", "7", "Anna Berg").Lap(5).Lap(48).Build();
+
+    var board = SpectatorBoardBuilder.Build(new SpectatorInputs
+    {
+      Field = PositionCalculator.GetSortedRidersFromSnapshot(new List<RiderInfo> { team, rider }),
+      TeamEvent = true,
+      State = RaceDayState.Running
+    });
+
+    Assert.StartsWith("#7 Anna Berg", board.FastestLap);
+    Assert.Contains("0:48.0", board.FastestLap);
+
+    var teamRow = board.Rows.Single(r => r.Number == "21/22");
+    Assert.False(teamRow.FastestLap);
+    Assert.Equal("-", teamRow.LastLap);
+    Assert.Equal("-", teamRow.BestLap);
+    Assert.Equal("first lap", board.Recent.Single(c => c.Number == "21/22").LapTime);
+  }
 }
