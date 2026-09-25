@@ -627,8 +627,7 @@ public sealed class RaceDayView
     _clockSub.Text = $"of {duration.TotalMinutes:F0}:00";
   }
 
-  private static string FormatClock(TimeSpan value) =>
-    value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"mm\:ss");
+  private static string FormatClock(TimeSpan value) => BoardText.Clock(value);
 
   /// <summary>
   /// Retitles the state words and the start/end buttons for a practice session.
@@ -838,8 +837,8 @@ public sealed class RaceDayView
         riderText += $" · {rider.Category}";
       row.Cells["Rider"].Value = riderText;
       row.Cells["Laps"].Value = rider.TotalLaps.ToString();
-      row.Cells["LastLap"].Value = rider.LastLapTime?.ToString(@"m\:ss\.f") ?? "-";
-      row.Cells["Gap"].Value = DescribeGap(rider, leader, i);
+      row.Cells["LastLap"].Value = BoardText.LapTime(rider.LastLapTime);
+      row.Cells["Gap"].Value = BoardText.Gap(rider, leader, i, _timedSession);
 
       row.DefaultCellStyle.BackColor = (rider.IsDNF || rider.IsDNS) switch
       {
@@ -892,7 +891,7 @@ public sealed class RaceDayView
       row.Cells["Rider"].Value = RiderNameOnly(entry.Rider);
       row.Cells["Laps"].Value = entry.TimedLaps.ToString();
       row.Cells["LastLap"].Value = timed
-        ? entry.BestLapTime?.ToString(@"m\:ss\.f") ?? "-"
+        ? BoardText.LapTime(entry.BestLapTime)
         : "NO TIME";
       row.Cells["Gap"].Value = timed && entry.GapToPole.HasValue
         ? $"+{entry.GapToPole.Value.TotalSeconds:F2}"
@@ -933,26 +932,7 @@ public sealed class RaceDayView
     return rider.RiderNumber.Length > 0 ? "" : "unidentified transponder";
   }
 
-  /// <summary>
-  /// "DNF" or "DNS" - except that in a timed session the flag's timeout only
-  /// means a rider is off track, with every time they set still counting. Free
-  /// practice used to end with half the board reading DNF.
-  /// </summary>
-  private string StatusOf(RiderInfo rider) =>
-    _timedSession && rider.IsDNF && !rider.IsDNS ? "off track" : rider.StatusText;
-
-  private string DescribeGap(RiderInfo rider, RiderInfo? leader, int index)
-  {
-    if (rider.IsDNS) return "DNS";
-    if (rider.IsDNF) return _timedSession ? "-" : "DNF";
-    if (leader == null || index == 0) return "-";
-
-    var lapsDown = leader.TotalLaps - rider.TotalLaps;
-    if (lapsDown > 0) return lapsDown == 1 ? "-1 lap" : $"-{lapsDown} laps";
-
-    var gap = rider.TotalTime - leader.TotalTime;
-    return gap > TimeSpan.Zero ? $"+{gap.TotalSeconds:F1}" : "-";
-  }
+  private string StatusOf(RiderInfo rider) => BoardText.Status(rider, _timedSession);
 
   public void SetChecklist(string? raceName, int riderCount, TimeSpan duration, bool readerConnected)
   {

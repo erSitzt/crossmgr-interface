@@ -24,6 +24,9 @@ public enum RaceViewKind
   /// <summary>The transponder check. Present for any timed session.</summary>
   Transponder = 1 << 7,
 
+  /// <summary>The spectator screen, a window of its own rather than a tab.</summary>
+  Spectator = 1 << 8,
+
   /// <summary>
   /// The views that move when a lap is recorded.
   ///
@@ -31,9 +34,9 @@ public enum RaceViewKind
   /// site, which is how the qualifying sheet would otherwise have been left out
   /// of one of them and quietly gone stale.
   /// </summary>
-  Standings = Riders | LapChart | RaceDay | Track | Qualifying | Transponder,
+  Standings = Riders | LapChart | RaceDay | Track | Qualifying | Transponder | Spectator,
 
-  All = Riders | Statistics | LapChart | LapProgression | RaceDay | Track | Qualifying | Transponder
+  All = Riders | Statistics | LapChart | LapProgression | RaceDay | Track | Qualifying | Transponder | Spectator
 }
 
 /// <summary>

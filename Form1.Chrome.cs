@@ -445,10 +445,12 @@ public partial class Form1
     };
 
     var clearLog = Item("Clear event log", Keys.None, buttonClear_Click);
+    var spectator = Item("Spectator screen...", Keys.Control | Keys.Shift | Keys.S, (s, e) => ShowSpectatorScreen());
 
     view.DropDownItems.AddRange(new ToolStripItem[]
     {
-      goRaceDay, goRiders, goTrack, _menuAdvanced, new ToolStripSeparator(), clearLog
+      goRaceDay, goRiders, goTrack, _menuAdvanced, new ToolStripSeparator(), spectator,
+      new ToolStripSeparator(), clearLog
     });
 
     // ---- Help ----

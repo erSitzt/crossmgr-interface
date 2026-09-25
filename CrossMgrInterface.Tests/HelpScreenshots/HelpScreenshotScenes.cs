@@ -17,7 +17,7 @@ internal static class HelpScreenshotScenes
   {
     "race-day", "new-race-wizard", "fix-laps", "unknown-transponder",
     "track-map", "circuit-editor", "past-sessions", "reader-settings", "demo-picker",
-    "publish-results", "rider-list"
+    "publish-results", "rider-list", "spectator-screen"
   };
 
   public static HelpScene Build(string name) => name switch
@@ -33,6 +33,7 @@ internal static class HelpScreenshotScenes
     "demo-picker" => new HelpScene { Form = new DemoPickerDialog(DemoScenarios.All) },
     "publish-results" => PublishResults(),
     "rider-list" => RiderList(),
+    "spectator-screen" => SpectatorScreen(),
     _ => throw new ArgumentException($"There is no help screenshot scene called {name}.", nameof(name))
   };
 
@@ -166,6 +167,29 @@ internal static class HelpScreenshotScenes
     dialog.SelectRow(5);
 
     return new HelpScene { Form = dialog };
+  }
+
+  /// <summary>The race demo five minutes in, as the crowd sees it: top 10, the fastest lap, the last crossings.</summary>
+  private static HelpScene SpectatorScreen()
+  {
+    var field = PositionCalculator.GetSortedRidersFromSnapshot(RaceField());
+    var window = new SpectatorWindow { RowLimit = 10 };
+    window.PlaceOn(Screen.PrimaryScreen!, fullScreen: false);
+    window.ClientSize = new Size(1280, 720);
+
+    window.ShowBoard(SpectatorBoardBuilder.Build(new SpectatorInputs
+    {
+      Field = field,
+      SessionType = SessionType.Race,
+      Waves = false,
+      Title = "Moto 1 - MX1 / MX2",
+      State = RaceDayState.Running,
+      Remaining = TimeSpan.FromMinutes(14) + TimeSpan.FromSeconds(38),
+      Duration = TimeSpan.FromMinutes(20),
+      RowLimit = 10
+    }));
+
+    return new HelpScene { Form = window };
   }
 
   private static HelpScene FixLaps()

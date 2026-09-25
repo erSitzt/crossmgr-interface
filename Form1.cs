@@ -494,6 +494,9 @@ public partial class Form1 : Form
     // unmanaged memory the GC will not reclaim in time on its own.
     _trackTab?.Dispose();
 
+    // Not owned by this window (see ShowSpectatorScreen), so it would outlive it.
+    CloseSpectatorScreen();
+
     // Before the listener drops the connection out from under it.
     StopDemoReader();
     StopTcpListener();

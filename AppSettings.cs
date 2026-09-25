@@ -56,6 +56,13 @@ public sealed class AppSettings
   /// </summary>
   public string? LastRiderListPath { get; set; }
 
+  /// <summary>Rows on the spectator screen: 10, 20, or 0 for every rider.</summary>
+  public int SpectatorRows { get; set; } = 10;
+
+  /// <summary>The screen the spectator screen was last on, by device name, and whether it was full screen.</summary>
+  public string? SpectatorScreen { get; set; }
+  public bool SpectatorFullScreen { get; set; } = true;
+
   // Race setup. A club runs the same format all day, so re-entering it after
   // every restart is pure friction - and silently falling back to a 20-minute
   // default is worse than friction.

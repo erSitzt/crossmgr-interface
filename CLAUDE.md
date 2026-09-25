@@ -49,6 +49,7 @@ Then:
 | `demo-picker` | Try a demo race dialog | `DemoPickerDialog.cs`, `DemoScenarios.cs` | demo |
 | `publish-results` | Publish results dialog, before anything is sent | `PublishResultsDialog.cs`, `PublishPayloadBuilder.cs` | publish |
 | `rider-list` | Rider list dialog, a number given twice and a missing class marked | `RiderListDialog.cs`, `RiderListCheck.cs` | rider-lists |
+| `spectator-screen` | Spectator screen during a race, top 10 | `SpectatorWindow.cs`, `SpectatorBoard.cs`, `BoardText.cs` | race-day |
 
 Also:
 
