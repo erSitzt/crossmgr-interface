@@ -1,10 +1,17 @@
 namespace CrossMgrInterface;
 
-/// <summary>What a session looks like before it is published.</summary>
+/// <summary>What a session - or an overall - looks like before it is published.</summary>
 public sealed record PublishRequest
 {
-  public required PublishedSession Session { get; init; }
+  /// <summary>The session to send. Null when <see cref="Overall"/> is what goes out.</summary>
+  public PublishedSession? Session { get; init; }
+
+  /// <summary>An overall of several motos, sent instead of a session.</summary>
+  public PublishedOverall? Overall { get; init; }
+
   public required string SiteName { get; init; }
+
+  public string Title => Overall?.Overall.Title ?? Session?.Session.Title ?? "";
 
   /// <summary>Riders and laps, for the summary. Counted rather than recomputed.</summary>
   public int Riders { get; init; }
@@ -62,7 +69,7 @@ public sealed class PublishResultsDialog : Form
 
     var heading = new Label
     {
-      Text = $"Publish \u201c{request.Session.Session.Title}\u201d to {request.SiteName}?",
+      Text = $"Publish \u201c{request.Title}\u201d to {request.SiteName}?",
       Location = new Point(16, 16),
       Size = new Size(438, 38),
       Font = new Font(Font, FontStyle.Bold)
@@ -136,17 +143,24 @@ public sealed class PublishResultsDialog : Form
       return "The results website has not been set up yet.\r\n\r\n" +
              "Press Settings... to enter the address and the key your club was given.";
 
-    var lines = new List<string>
+    var lines = new List<string>();
+
+    if (_request.Overall is { } overall)
     {
-      $"{_request.Riders} riders, {_request.Laps} laps."
-    };
-
-    lines.Add(_request.CircuitName != null
-      ? $"Circuit: {_request.CircuitName}."
-      : "No circuit - the website will show the results without a map.");
-
-    lines.Add("");
-    lines.Add("Riders' names, numbers, classes, teams and lap times are sent.");
+      lines.Add($"{_request.Riders} riders in {overall.Classes.Count} class(es), over {overall.Motos.Count} motos.");
+      lines.Add("Each moto keeps its own page; the overall links to them.");
+      lines.Add("");
+      lines.Add("Riders' names, numbers, classes, places and points are sent.");
+    }
+    else
+    {
+      lines.Add($"{_request.Riders} riders, {_request.Laps} laps.");
+      lines.Add(_request.CircuitName != null
+        ? $"Circuit: {_request.CircuitName}."
+        : "No circuit - the website will show the results without a map.");
+      lines.Add("");
+      lines.Add("Riders' names, numbers, classes, teams and lap times are sent.");
+    }
     lines.Add("Transponder IDs are not.");
 
     if (_request.PublishedBefore is { } before)
@@ -179,7 +193,9 @@ public sealed class PublishResultsDialog : Form
 
     try
     {
-      var outcome = await _publisher.PublishAsync(_request.Session, progress, _cancel.Token);
+      var outcome = _request.Overall != null
+        ? await _publisher.PublishOverallAsync(_request.Overall, progress, _cancel.Token)
+        : await _publisher.PublishAsync(_request.Session!, progress, _cancel.Token);
       Finish(outcome);
     }
     catch (Exception ex)

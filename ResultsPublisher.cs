@@ -43,6 +43,10 @@ public interface IResultsPublisher
   Task<PublishOutcome> PublishAsync(PublishedSession session, IProgress<PublishProgress>? progress,
                                     CancellationToken cancellationToken);
 
+  /// <summary>Sends an overall. Its motos must be on the website already: it links to them.</summary>
+  Task<PublishOutcome> PublishOverallAsync(PublishedOverall overall, IProgress<PublishProgress>? progress,
+                                           CancellationToken cancellationToken);
+
   Task<PublishOutcome> TestAsync(CancellationToken cancellationToken);
 }
 
@@ -137,7 +141,18 @@ public sealed class HttpResultsPublisher : IResultsPublisher
     }
   }
 
-  public async Task<PublishOutcome> PublishAsync(PublishedSession session,
+  public Task<PublishOutcome> PublishAsync(PublishedSession session,
+    IProgress<PublishProgress>? progress, CancellationToken cancellationToken) =>
+    PutAsync($"sessions/{Uri.EscapeDataString(session.Session.PublicId)}",
+      () => PublishPayloadBuilder.Serialise(session), progress, cancellationToken);
+
+  public Task<PublishOutcome> PublishOverallAsync(PublishedOverall overall,
+    IProgress<PublishProgress>? progress, CancellationToken cancellationToken) =>
+    PutAsync($"overalls/{Uri.EscapeDataString(overall.Overall.PublicId)}",
+      () => PublishPayloadBuilder.Serialise(overall), progress, cancellationToken);
+
+  /// <summary>One upload, retried, whatever is being sent. <paramref name="path"/> is under /api/v1/.</summary>
+  private async Task<PublishOutcome> PutAsync(string path, Func<string> serialise,
     IProgress<PublishProgress>? progress, CancellationToken cancellationToken)
   {
     if (!IsConfigured)
@@ -145,7 +160,7 @@ public sealed class HttpResultsPublisher : IResultsPublisher
 
     progress?.Report(new PublishProgress(PublishPhase.Preparing, 0, 1, MaxAttempts));
 
-    var json = PublishPayloadBuilder.Serialise(session);
+    var json = serialise();
     var raw = Encoding.UTF8.GetBytes(json);
 
     if (raw.LongLength > MaxPayloadBytes)
@@ -155,7 +170,7 @@ public sealed class HttpResultsPublisher : IResultsPublisher
     }
 
     var body = Compress(raw);
-    var url = $"{_baseUrl}/api/v1/sessions/{Uri.EscapeDataString(session.Session.PublicId)}";
+    var url = $"{_baseUrl}/api/v1/{path}";
 
     for (var attempt = 1; attempt <= MaxAttempts; attempt++)
     {

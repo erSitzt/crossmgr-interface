@@ -91,6 +91,32 @@ public class DbRace
   public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
+/// <summary>
+/// Motos scored together for one result of the day - Moto 1 and Moto 2 of a
+/// class, say. Kept apart from the races rather than as a field on each: a
+/// race is recorded before anybody may know it will count towards an overall,
+/// and an overall can be put together from finished sessions afterwards.
+/// See <see cref="OverallScorer"/>.
+/// </summary>
+public class DbOverall
+{
+  public int Id { get; set; }
+
+  /// <summary>The website identity, for the same reason as <see cref="DbRace.PublicId"/>.</summary>
+  public string PublicId { get; set; } = "";
+  public string Name { get; set; } = "";
+
+  /// <summary>The motos, in the order they were run. The last one breaks a tie on points.</summary>
+  public List<int> RaceIds { get; set; } = new();
+
+  /// <summary>Points for 1st, 2nd, ... in each moto. Null means <see cref="OverallRules.FimPoints"/>.</summary>
+  public List<int>? PointsTable { get; set; }
+
+  public DateTime CreatedAt { get; set; } = DateTime.Now;
+  public DateTime? PublishedAt { get; set; }
+  public string? PublishedUrl { get; set; }
+}
+
 /// <summary>One class of a staggered start, as stored. See <see cref="WaveSchedule"/>.</summary>
 public class DbStartWave
 {
@@ -224,7 +250,7 @@ public class DbLapDifference
 }
 
 /// <summary>One row of the Past sessions list: the race and what it holds.</summary>
-public sealed record SessionSummary(DbRace Race, int Riders, int Laps);
+public sealed record SessionSummary(DbRace Race, int Riders, int Laps, string? Overall = null);
 
 /// <summary>
 /// Database service for managing race data with LiteDB
@@ -238,6 +264,7 @@ public class RaceDataService : IDisposable
   private ILiteCollection<DbPositionSnapshot> _positions;
   private ILiteCollection<DbRaceEvent> _events;
   private ILiteCollection<DbLapDifference> _lapDiffs;
+  private ILiteCollection<DbOverall> _overalls;
 
   public int CurrentRaceId { get; private set; }
 
@@ -300,7 +327,7 @@ public class RaceDataService : IDisposable
   private static string NewPublicId() => Guid.NewGuid().ToString("N");
 
   [MemberNotNull(nameof(_db), nameof(_races), nameof(_riders), nameof(_laps),
-                 nameof(_positions), nameof(_events), nameof(_lapDiffs))]
+                 nameof(_positions), nameof(_events), nameof(_lapDiffs), nameof(_overalls))]
   private void Initialise(string dbPath)
   {
     _db = new LiteDatabase(dbPath);
@@ -311,6 +338,7 @@ public class RaceDataService : IDisposable
     _positions = _db.GetCollection<DbPositionSnapshot>("positions");
     _events = _db.GetCollection<DbRaceEvent>("events");
     _lapDiffs = _db.GetCollection<DbLapDifference>("lap_differences");
+    _overalls = _db.GetCollection<DbOverall>("overalls");
 
     // Touching an index forces the first real read, so a damaged file fails here.
     _riders.EnsureIndex(x => x.RaceId);
@@ -1008,13 +1036,15 @@ public class RaceDataService : IDisposable
   public List<SessionSummary> ListSessions()
   {
     var summaries = new List<SessionSummary>();
+    var overalls = _overalls.FindAll().ToList();
 
     foreach (var race in GetAllRaces())
     {
       var riders = _riders.Find(r => r.RaceId == race.Id)
         .Count(r => !r.RosterOnly && !r.IsIgnored);
       var laps = _laps.Count(l => l.RaceId == race.Id);
-      summaries.Add(new SessionSummary(race, riders, laps));
+      var overall = overalls.FirstOrDefault(o => o.RaceIds.Contains(race.Id));
+      summaries.Add(new SessionSummary(race, riders, laps, overall?.Name));
     }
 
     return summaries;
@@ -1036,7 +1066,79 @@ public class RaceDataService : IDisposable
     _lapDiffs.DeleteMany(ld => ld.RaceId == raceId);
     _races.Delete(raceId);
 
+    // An overall that counted this moto no longer does. One left with no motos
+    // at all has nothing to show and goes too.
+    foreach (var overall in _overalls.FindAll().Where(o => o.RaceIds.Contains(raceId)).ToList())
+    {
+      overall.RaceIds.RemoveAll(id => id == raceId);
+      if (overall.RaceIds.Count == 0) _overalls.Delete(overall.Id);
+      else _overalls.Update(overall);
+    }
+
     if (CurrentRaceId == raceId) CurrentRaceId = 0;
+  }
+
+  #endregion
+
+  #region Overall results
+
+  public DbOverall CreateOverall(string name, IEnumerable<int> raceIds)
+  {
+    var overall = new DbOverall
+    {
+      Name = name,
+      PublicId = NewPublicId(),
+      RaceIds = raceIds.Distinct().ToList()
+    };
+    overall.Id = _overalls.Insert(overall);
+    return overall;
+  }
+
+  public DbOverall? GetOverall(int overallId) => overallId > 0 ? _overalls.FindById(overallId) : null;
+
+  /// <summary>Every overall, newest first.</summary>
+  public List<DbOverall> ListOveralls() =>
+    _overalls.FindAll().OrderByDescending(o => o.CreatedAt).ToList();
+
+  /// <summary>The overall a race counts towards, if any. A race counts towards one at most.</summary>
+  public DbOverall? OverallFor(int raceId) =>
+    _overalls.FindAll().FirstOrDefault(o => o.RaceIds.Contains(raceId));
+
+  /// <summary>
+  /// Adds a moto at the end, taking it out of any other overall first - a race
+  /// that counted twice would score its riders twice over.
+  /// </summary>
+  public void AddRaceToOverall(int overallId, int raceId)
+  {
+    var target = _overalls.FindById(overallId);
+    if (target == null) return;
+
+    var previous = OverallFor(raceId);
+    if (previous != null && previous.Id != overallId)
+    {
+      previous.RaceIds.RemoveAll(id => id == raceId);
+      _overalls.Update(previous);
+    }
+
+    if (!target.RaceIds.Contains(raceId))
+    {
+      target.RaceIds.Add(raceId);
+      _overalls.Update(target);
+    }
+  }
+
+  public void UpdateOverall(DbOverall overall) => _overalls.Update(overall);
+
+  public void DeleteOverall(int overallId) => _overalls.Delete(overallId);
+
+  public void MarkOverallPublished(int overallId, DateTime at, string url)
+  {
+    var overall = _overalls.FindById(overallId);
+    if (overall == null) return;
+
+    overall.PublishedAt = at;
+    overall.PublishedUrl = url;
+    _overalls.Update(overall);
   }
 
   #endregion

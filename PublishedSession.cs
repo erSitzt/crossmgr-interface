@@ -250,3 +250,70 @@ public sealed record PublishedGatePick
 
 /// <summary>Which build sent this, so a wrong-looking result can be traced.</summary>
 public sealed record PublishedClient(string App, string Version);
+
+/// <summary>
+/// An overall: several published motos added up into one result of the day.
+/// Sent on its own address rather than inside a session, because it belongs to
+/// no single moto and is republished whenever one of them changes. The motos
+/// are named by their public ids, so the website links to pages it already has.
+/// </summary>
+public sealed record PublishedOverall
+{
+  public int SchemaVersion { get; init; } = PublishSchema.Version;
+  public required PublishedOverallHeader Overall { get; init; }
+
+  /// <summary>The motos' <see cref="DbRace.PublicId"/>s, in the order they were run.</summary>
+  public required IReadOnlyList<string> Motos { get; init; }
+
+  public required IReadOnlyList<PublishedOverallClass> Classes { get; init; }
+  public required PublishedClient Client { get; init; }
+}
+
+public sealed record PublishedOverallHeader
+{
+  /// <summary>See <see cref="DbOverall.PublicId"/>.</summary>
+  public required string PublicId { get; init; }
+  public required string Title { get; init; }
+
+  /// <summary>Points for 1st, 2nd, ... in a moto.</summary>
+  public required IReadOnlyList<int> PointsTable { get; init; }
+
+  /// <summary>False while any of the motos is still running: the website says "provisional".</summary>
+  public bool Final { get; init; }
+  public bool TeamEvent { get; init; }
+  public DateTimeOffset GeneratedAt { get; init; }
+
+  /// <summary>How it was scored, as the sheet prints it.</summary>
+  public IReadOnlyList<PublishedCondition> Conditions { get; init; } = Array.Empty<PublishedCondition>();
+}
+
+public sealed record PublishedOverallClass
+{
+  /// <summary>Empty for riders entered without a class.</summary>
+  public string Name { get; init; } = "";
+  public required IReadOnlyList<PublishedOverallEntry> Entries { get; init; }
+}
+
+public sealed record PublishedOverallEntry
+{
+  /// <summary>Null for a rider placed in no moto: listed, but without a place.</summary>
+  public int? Rank { get; init; }
+  public string Number { get; init; } = "";
+  public string Name { get; init; } = "";
+  public string? Team { get; init; }
+  public bool IsTeam { get; init; }
+  public int Points { get; init; }
+
+  /// <summary>One per moto, in moto order.</summary>
+  public required IReadOnlyList<PublishedOverallMoto> Motos { get; init; }
+}
+
+public sealed record PublishedOverallMoto
+{
+  /// <summary>Place in the class, or null for no place.</summary>
+  public int? Position { get; init; }
+
+  /// <summary>"3", "12 DNF" for a retired rider who keeps their place, "DNF", "DNS", or "-" for not entered.</summary>
+  public string Result { get; init; } = "";
+  public int Points { get; init; }
+}

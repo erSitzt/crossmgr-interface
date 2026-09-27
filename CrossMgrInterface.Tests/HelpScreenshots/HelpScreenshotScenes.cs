@@ -17,7 +17,7 @@ internal static class HelpScreenshotScenes
   {
     "race-day", "new-race-wizard", "fix-laps", "unknown-transponder",
     "track-map", "circuit-editor", "past-sessions", "reader-settings", "demo-picker",
-    "publish-results", "rider-list", "spectator-screen"
+    "publish-results", "rider-list", "spectator-screen", "overall-results"
   };
 
   public static HelpScene Build(string name) => name switch
@@ -34,6 +34,7 @@ internal static class HelpScreenshotScenes
     "publish-results" => PublishResults(),
     "rider-list" => RiderList(),
     "spectator-screen" => SpectatorScreen(),
+    "overall-results" => OverallResults(),
     _ => throw new ArgumentException($"There is no help screenshot scene called {name}.", nameof(name))
   };
 
@@ -54,6 +55,40 @@ internal static class HelpScreenshotScenes
 
       for (var lap = 0; lap < (int)(320 / pace); lap++)
         builder.Lap(pace + (lap * 7 + i * 3) % 5 * 0.35);
+
+      var rider = builder.Build();
+      rider.Team = entry.Team;
+      riders.Add(rider);
+    }
+
+    return riders;
+  }
+
+  /// <summary>
+  /// The race demo's riders over a whole moto. The order is shuffled by
+  /// <paramref name="moto"/>, so the two motos of the overall picture finish
+  /// differently - that is what makes adding them up worth showing.
+  /// </summary>
+  private static List<RiderInfo> MotoField(int moto)
+  {
+    var riders = new List<RiderInfo>();
+    var count = RaceDemo.Roster.Count;
+
+    for (var i = 0; i < count; i++)
+    {
+      var entry = RaceDemo.Roster[i];
+      var place = moto == 1 ? i : (i * 5 + 3) % count;
+      var pace = 46.5 + place * 0.9;
+      var builder = RiderBuilder.Rider(entry.Tag, entry.Number, entry.Name).Category(entry.Class);
+
+      // One rider retires two thirds of the way through Moto 2 and keeps the
+      // points of their place, which is what the "DNF" beside a place shows.
+      var stops = moto == 2 && place == count - 2;
+      var laps = (int)(1200 / pace);
+      if (stops) laps = laps * 2 / 3;
+      for (var lap = 0; lap < laps; lap++)
+        builder.Lap(pace + (lap * 7 + i * 3) % 5 * 0.35);
+      if (stops) builder.Dnf();
 
       var rider = builder.Build();
       rider.Team = entry.Team;
@@ -327,7 +362,7 @@ internal static class HelpScreenshotScenes
   // Wider than it opens: at its opening size the Status column is cut off, and
   // that column is half of what the picture is there to show.
   private static HelpScene PastSessions() =>
-    new() { Form = new SessionManagerDialog(new SampleSessions()) { ClientSize = new Size(1100, 420) } };
+    new() { Form = new SessionManagerDialog(new SampleSessions()) { ClientSize = new Size(1260, 440) } };
 
   /// <summary>
   /// The publish window as it looks before anything is sent - the screen a club
@@ -374,12 +409,51 @@ internal static class HelpScreenshotScenes
     return new HelpScene { Form = new PublishResultsDialog(request, new StubPublisher()) };
   }
 
+  /// <summary>
+  /// The overall of the day's two motos, scored from the race demo's riders -
+  /// what the window shows once both motos have run.
+  /// </summary>
+  private static HelpScene OverallResults()
+  {
+    var rules = new RaceRules { SessionType = SessionType.Race, Duration = TimeSpan.FromMinutes(20), AdditionalLaps = 1 };
+    var start = new DateTime(2026, 9, 12, 13, 30, 0);
+
+    OverallMoto Moto(int number, DateTime at) => new($"Moto {number} - MX1 / MX2",
+      MotoField(number).ToDictionary(r => r.TagID, r => r), rules, at, at.AddMinutes(23));
+
+    var result = OverallScorer.Score("Overall - MX1 / MX2",
+      new[] { Moto(1, start), Moto(2, start.AddHours(1).AddMinutes(40)) }, new OverallRules());
+
+    var overall = new DbOverall { Id = 1, Name = "Overall - MX1 / MX2", RaceIds = new List<int> { 3, 4 } };
+    return new HelpScene
+    {
+      Form = new OverallResultsDialog(new SampleOverall(result), overall) { ClientSize = new Size(900, 560) }
+    };
+  }
+
+  private sealed class SampleOverall : IOverallResultsHost
+  {
+    private readonly OverallResult _result;
+    public SampleOverall(OverallResult result) => _result = result;
+
+    public OverallResult Score(DbOverall overall) => _result;
+    public void Save(DbOverall overall) { }
+    public void PrintResults(IWin32Window owner, DbOverall overall, OverallResult result) { }
+    public bool PublishingAvailable => true;
+    public void Publish(IWin32Window owner, DbOverall overall) { }
+    public bool Delete(IWin32Window owner, DbOverall overall) => false;
+  }
+
   /// <summary>Configured, so the picture shows the summary rather than the set-up message. Never sends.</summary>
   private sealed class StubPublisher : IResultsPublisher
   {
     public bool IsConfigured => true;
 
     public Task<PublishOutcome> PublishAsync(PublishedSession session, IProgress<PublishProgress>? progress,
+      CancellationToken cancellationToken) =>
+      Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published."));
+
+    public Task<PublishOutcome> PublishOverallAsync(PublishedOverall overall, IProgress<PublishProgress>? progress,
       CancellationToken cancellationToken) =>
       Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published."));
 
@@ -459,8 +533,10 @@ internal static class HelpScreenshotScenes
       {
         // The morning's sessions are already on the website and the afternoon's
         // are not, which is what the Published column is there to show.
-        Session(4, "Moto 2 - MX1 / MX2", day.AddHours(15).AddMinutes(10), 20, SessionType.Race, 16, 214),
-        Session(3, "Moto 1 - MX1 / MX2", day.AddHours(13).AddMinutes(30), 20, SessionType.Race, 16, 221),
+        Session(4, "Moto 2 - MX1 / MX2", day.AddHours(15).AddMinutes(10), 20, SessionType.Race, 16, 214,
+          overall: "Overall - MX1 / MX2"),
+        Session(3, "Moto 1 - MX1 / MX2", day.AddHours(13).AddMinutes(30), 20, SessionType.Race, 16, 221,
+          overall: "Overall - MX1 / MX2"),
         Session(2, "Timed qualifying", day.AddHours(11), 15, SessionType.TimedQualifying, 16, 187,
           published: day.AddHours(11).AddMinutes(22)),
         Session(1, "Free practice", day.AddHours(9).AddMinutes(30), 15, SessionType.FreePractice, 15, 164,
@@ -469,7 +545,7 @@ internal static class HelpScreenshotScenes
     }
 
     private static SessionSummary Session(int id, string name, DateTime start, int minutes, SessionType type,
-      int riders, int laps, DateTime? published = null) =>
+      int riders, int laps, DateTime? published = null, string? overall = null) =>
       new(new DbRace
       {
         Id = id,
@@ -480,7 +556,7 @@ internal static class HelpScreenshotScenes
         IsFinished = true,
         SessionType = type,
         PublishedAt = published
-      }, riders, laps);
+      }, riders, laps, overall);
 
     public IReadOnlyList<SessionSummary> ListSessions() => _sessions;
     public int? CurrentSessionId => 4;
@@ -491,5 +567,6 @@ internal static class HelpScreenshotScenes
     public bool OpenSession(SessionSummary session) => false;
     public void RenameSession(SessionSummary session, string name) { }
     public bool DeleteSession(IWin32Window owner, SessionSummary session) => false;
+    public void ShowOverall(IWin32Window owner, IReadOnlyList<SessionSummary> sessions) { }
   }
 }

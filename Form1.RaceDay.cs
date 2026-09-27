@@ -89,7 +89,8 @@ public partial class Form1
       _settings.StaggeredStart,
       _settings.WaveDelays,
       teamEvent,
-      () => _riderDataImporter.Rows);
+      () => _riderDataImporter.Rows,
+      TodaysOveralls());
 
     if (wizard.ShowDialog(this) != DialogResult.OK) return;
 
@@ -123,6 +124,9 @@ public partial class Form1
     // Before the start-mode radios, which are locked to manual for a wave start.
     waves = WaveSchedule.From(setup.Waves);
     raceName = setup.RaceName;
+    _overallChoice = setup.SessionType == SessionType.Race && (setup.NewOverall || setup.OverallId.HasValue)
+      ? (setup.OverallId, setup.NewOverall)
+      : null;
     Text = string.IsNullOrEmpty(raceName)
       ? "CrossMgr RFID Interface"
       : $"CrossMgr - {raceName}";

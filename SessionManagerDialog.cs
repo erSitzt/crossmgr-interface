@@ -29,6 +29,12 @@ public interface ISessionManagerHost
 
   /// <summary>Asks the operator, then deletes. True if it was deleted.</summary>
   bool DeleteSession(IWin32Window owner, SessionSummary session);
+
+  /// <summary>
+  /// Shows the overall these motos make up - the one they already count
+  /// towards, or a new one after asking.
+  /// </summary>
+  void ShowOverall(IWin32Window owner, IReadOnlyList<SessionSummary> sessions);
 }
 
 /// <summary>
@@ -50,6 +56,7 @@ public sealed class SessionManagerDialog : Form
   private readonly Label _hint = new();
   private readonly Button _results = new();
   private readonly Button _publish = new();
+  private readonly Button _overall = new();
   private readonly Button _open = new();
   private readonly Button _rename = new();
   private readonly Button _delete = new();
@@ -69,7 +76,7 @@ public sealed class SessionManagerDialog : Form
     MinimizeBox = false;
     MaximizeBox = true;
     ShowInTaskbar = false;
-    ClientSize = new Size(900, 520);
+    ClientSize = new Size(1080, 540);
     MinimumSize = new Size(700, 360);
 
     var root = new TableLayoutPanel
@@ -110,7 +117,9 @@ public sealed class SessionManagerDialog : Form
     _grid.AllowUserToResizeRows = false;
     _grid.RowHeadersVisible = false;
     _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-    _grid.MultiSelect = false;
+    // Several at once only for putting motos together into an overall; every
+    // other button acts on one session and is off while more are selected.
+    _grid.MultiSelect = true;
     _grid.BackgroundColor = Color.White;
     _grid.BorderStyle = BorderStyle.FixedSingle;
     _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
@@ -130,6 +139,7 @@ public sealed class SessionManagerDialog : Form
     // The point of this window for a secretary working through eight motos:
     // which of them are already on the website.
     AddColumn("Published", 90);
+    AddColumn("Overall", 150);
 
     _grid.SelectionChanged += (_, _) => UpdateButtons();
     _grid.CellDoubleClick += (_, e) =>
@@ -172,6 +182,7 @@ public sealed class SessionManagerDialog : Form
     Configure(_results, "Results...", () => PrintSelected());
     Configure(_publish, "Publish...", () => PublishSelected());
     _publish.Visible = _host.PublishingAvailable;
+    Configure(_overall, "Overall results...", () => ShowOverall());
     Configure(_open, "Open", () => OpenSelected());
     Configure(_rename, "Rename...", () => RenameSelected());
     Configure(_delete, "Delete...", () => DeleteSelected());
@@ -185,7 +196,7 @@ public sealed class SessionManagerDialog : Form
       DialogResult = DialogResult.Cancel
     };
 
-    column.Controls.AddRange(new Control[] { _results, _publish, _open, _rename, _delete, close });
+    column.Controls.AddRange(new Control[] { _results, _publish, _overall, _open, _rename, _delete, close });
     CancelButton = close;
     return column;
 
@@ -217,7 +228,8 @@ public sealed class SessionManagerDialog : Form
         session.Riders.ToString(),
         session.Laps.ToString(),
         DescribeStatus(race),
-        race.PublishedAt?.ToString("dd.MM HH:mm") ?? "");
+        race.PublishedAt?.ToString("dd.MM HH:mm") ?? "",
+        session.Overall ?? "");
 
       var row = _grid.Rows[index];
       if (race.Id == _host.CurrentSessionId)
@@ -244,21 +256,37 @@ public sealed class SessionManagerDialog : Form
     }
 
     _hint.Text = any
-      ? "Double-click a session to print its results. The session in bold is the one on screen now."
+      ? "Double-click a session to print its results. The session in bold is the one on screen now.\n" +
+        "For the overall of a day, select its motos with Ctrl+click and press Overall results."
       : "";
 
     UpdateButtons();
   }
 
+  /// <summary>The one session selected, or null when none or several are.</summary>
   private SessionSummary? Selected =>
-    _grid.SelectedRows.Count > 0 && _grid.SelectedRows[0].Index < _sessions.Count
+    _grid.SelectedRows.Count == 1 && _grid.SelectedRows[0].Index < _sessions.Count
       ? _sessions[_grid.SelectedRows[0].Index]
       : null;
+
+  /// <summary>Every selected session, in list order.</summary>
+  private List<SessionSummary> AllSelected =>
+    _grid.SelectedRows.Cast<DataGridViewRow>()
+      .Where(r => r.Index < _sessions.Count)
+      .OrderBy(r => r.Index)
+      .Select(r => _sessions[r.Index])
+      .ToList();
 
   private void UpdateButtons()
   {
     var selected = Selected;
     var isCurrent = selected != null && selected.Race.Id == _host.CurrentSessionId;
+
+    // Two or more races to put together, or one that already counts towards
+    // an overall. Practice and qualifying are never part of one.
+    var all = AllSelected;
+    _overall.Enabled = all.Count > 0 && all.All(s => s.Race.SessionType == SessionType.Race) &&
+                       (all.Count >= 2 || all[0].Overall != null);
 
     _results.Enabled = selected != null;
 
@@ -306,6 +334,15 @@ public sealed class SessionManagerDialog : Form
     // The Published column has to catch up, and the operator is most likely
     // working through a list of motos one after another.
     Reload(selected.Race.Id);
+  }
+
+  private void ShowOverall()
+  {
+    var all = AllSelected;
+    if (all.Count == 0) return;
+
+    _host.ShowOverall(this, all);
+    Reload(selectId: all[0].Race.Id);
   }
 
   private void OpenSelected()
