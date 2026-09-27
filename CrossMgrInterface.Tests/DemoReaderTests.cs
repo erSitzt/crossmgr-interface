@@ -126,20 +126,37 @@ public class DemoReaderTests
   [Fact]
   public async Task ItStopsSendingOnceTheSessionIsOverButStaysConnected()
   {
+    // No race against the clock: this used to count on the second read, 450 ms
+    // after the first, not going out before "over" was set - which a slow CI
+    // runner did not always manage. Now the second read only becomes due when
+    // the test releases it, and that is only after the reader has seen the
+    // session end. A reader that ignored the end would send it at once.
     using var app = new FakeApp();
     var over = false;
+    var sawOver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    long secondDueTicks = 0;
+
     var reader = new DemoReader(app.Port, new[]
     {
       new DemoCrossing(TimeSpan.FromMilliseconds(50), "A"),
-      new DemoCrossing(TimeSpan.FromMilliseconds(500), "A")
-    }, _ => null, () => over) { Lead = TimeSpan.Zero, Tick = Quick };
+      new DemoCrossing(TimeSpan.Zero, "A", AfterWaveOf: "later")
+    },
+    wave => wave == "later" && Interlocked.Read(ref secondDueTicks) is var ticks and > 0 ? new DateTime(ticks) : null,
+    () =>
+    {
+      if (Volatile.Read(ref over)) sawOver.TrySetResult();
+      return Volatile.Read(ref over);
+    }) { Lead = TimeSpan.Zero, Tick = Quick };
 
     using var stop = new CancellationTokenSource();
     var running = reader.RunAsync(stop.Token);
     await app.HandshakeAsync();
 
     await app.NextLineAsync(Patience);
-    over = true;
+    Volatile.Write(ref over, true);
+    await sawOver.Task.WaitAsync(Patience);
+
+    Interlocked.Exchange(ref secondDueTicks, DateTime.Now.AddSeconds(-1).Ticks);
 
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => app.NextLineAsync(TimeSpan.FromMilliseconds(900)));
     Assert.False(running.IsCompleted);
