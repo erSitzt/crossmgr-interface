@@ -19,6 +19,9 @@ public sealed record LiveCapture
   public TimeSpan TotalTime { get; init; }
   public TimeSpan? LastLap { get; init; }
   public TimeSpan? BestLap { get; init; }
+
+  /// <summary>When the best lap was completed: the tie-break in a timed session, as on the gate pick sheet.</summary>
+  public DateTime? BestLapSetAt { get; init; }
   public bool IsDnf { get; init; }
   public bool IsDns { get; init; }
 
@@ -57,6 +60,7 @@ public sealed record LiveCapture
       // BestLapTime already knows that; LastLapTime does not.
       LastLap = laps.Count > 1 ? r.LastLapTime : null,
       BestLap = r.BestLapTime,
+      BestLapSetAt = r.BestLap?.CrossingTime,
       IsDnf = r.IsDNF,
       IsDns = r.IsDNS,
       Recent = recent
@@ -94,13 +98,26 @@ public static class LiveSnapshotBuilder
 
   public static LiveSnapshot Build(LiveInputs inputs)
   {
-    var ordered = inputs.Riders
-      .OrderBy(r => r.IsDns ? 2 : r.IsDnf ? 1 : 0)
-      .ThenByDescending(r => r.Laps)
-      .ThenBy(r => r.TotalTime)
-      .ToList();
+    var timed = inputs.SessionType != SessionType.Race;
 
-    var leader = ordered.FirstOrDefault(r => !r.IsDnf && !r.IsDns);
+    // A timed session is decided on best lap - the Qualifying tab's order, not
+    // the race's laps-then-time, which put whoever circulated longest on top.
+    var ordered = timed
+      ? inputs.Riders
+        .OrderBy(r => r.IsDns ? 2 : r.BestLap.HasValue ? 0 : 1)
+        .ThenBy(r => r.BestLap ?? TimeSpan.MaxValue)
+        .ThenBy(r => r.BestLapSetAt ?? DateTime.MaxValue)
+        .ThenByDescending(r => r.Laps)
+        .ToList()
+      : inputs.Riders
+        .OrderBy(r => r.IsDns ? 2 : r.IsDnf ? 1 : 0)
+        .ThenByDescending(r => r.Laps)
+        .ThenBy(r => r.TotalTime)
+        .ToList();
+
+    var leader = timed
+      ? ordered.FirstOrDefault(r => !r.IsDns && r.BestLap.HasValue)
+      : ordered.FirstOrDefault(r => !r.IsDnf && !r.IsDns);
 
     var entries = new List<LiveEntry>(ordered.Count);
     for (var i = 0; i < ordered.Count; i++)
@@ -110,7 +127,13 @@ public static class LiveSnapshotBuilder
 
       long? gap = null;
       var lapsDown = 0;
-      if (racing && leader != null && r != leader)
+      if (timed)
+      {
+        // Behind P1's best lap. Nobody is a lap down in a timed session.
+        if (!r.IsDns && leader != null && r != leader && r.BestLap.HasValue)
+          gap = Ms(r.BestLap.Value - leader.BestLap!.Value);
+      }
+      else if (racing && leader != null && r != leader)
       {
         lapsDown = Math.Max(0, leader.Laps - r.Laps);
         if (lapsDown == 0) gap = Ms(r.TotalTime - leader.TotalTime);
@@ -129,7 +152,9 @@ public static class LiveSnapshotBuilder
         BestLapMs = Ms(r.BestLap),
         GapToLeaderMs = gap,
         LapsDown = lapsDown,
-        Status = r.IsDns ? "dns" : r.IsDnf ? "dnf" : "racing"
+        // In a timed session the flag's timeout only means off track: every time
+        // they set still stands, so they are not out of anything.
+        Status = r.IsDns ? "dns" : r.IsDnf && !timed ? "dnf" : "racing"
       });
     }
 

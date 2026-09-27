@@ -166,7 +166,9 @@ public partial class Form1
       PublicId = _raceDb.EnsurePublicId(race.Id) ?? Guid.NewGuid().ToString("N"),
       SessionType = race.SessionType,
       Track = track,
-      GatePick = gatePick ? QualifyingRanking.Rank(field.Values) : null,
+      // Qualifying and practice alike are decided on best lap, so both go out in
+      // the Qualifying tab's order.
+      TimedRanking = race.SessionType != SessionType.Race ? QualifyingRanking.Rank(field.Values) : null,
       Field = field,
       PublishNamesByDefault = _settings.PublishNamesByDefault,
       HiddenNameStyle = _settings.HiddenNameStyle
