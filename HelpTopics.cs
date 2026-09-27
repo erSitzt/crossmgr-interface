@@ -755,6 +755,8 @@ public static class HelpTopics
       Bullets(
         "What goes: number, name, class, team, laps, last and best lap, and the gap - plus the last " +
         "twenty crossings. Never transponder IDs, never your notes about corrections.",
+        "In timed qualifying and free practice the order is by best lap, as on the Qualifying tab, and the " +
+        "gap is to the fastest rider's best lap. The results website lists those sessions the same way.",
         "The LIVE tile's dot says how it is going: green means sending, amber means the last update did " +
         "not get through and it is trying again, red means the website has not been reached for a while. " +
         "The race is timed exactly the same whatever the colour - nothing on this laptop waits for the website.",

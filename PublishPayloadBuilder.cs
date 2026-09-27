@@ -17,8 +17,12 @@ public sealed record PublishInputs
   /// <summary>The circuit, or null when the race was not run on a surveyed one.</summary>
   public TrackDefinition? Track { get; init; }
 
-  /// <summary>Gate pick order, for timed qualifying only. See QualifyingRanking.Rank.</summary>
-  public IReadOnlyList<QualifyingEntry>? GatePick { get; init; }
+  /// <summary>
+  /// The field ranked on best lap (QualifyingRanking.Rank), for a timed
+  /// session: qualifying or free practice. The entries go out in this order,
+  /// and it is sent as the gate pick list. Ignored for a race.
+  /// </summary>
+  public IReadOnlyList<QualifyingEntry>? TimedRanking { get; init; }
 
   public string ClientVersion { get; init; } = CrossMgrInterface.AppVersion.Display;
 
@@ -69,7 +73,11 @@ public static class PublishPayloadBuilder
   public static PublishedSession Build(PublishInputs inputs)
   {
     var report = inputs.Report;
-    var entries = report.RiderResults.Select(r => Entry(r, inputs)).ToList();
+    var ranking = inputs.SessionType != SessionType.Race ? inputs.TimedRanking : null;
+
+    var entries = ranking != null
+      ? RankedEntries(report, ranking, inputs)
+      : report.RiderResults.Select(r => Entry(r, inputs)).ToList();
 
     return new PublishedSession
     {
@@ -77,11 +85,9 @@ public static class PublishPayloadBuilder
       Track = Track(inputs.Track),
       Statistics = Statistics(report, inputs),
       Entries = entries,
-      // Only qualifying has one. A race publishes nothing rather than an empty
-      // list, so the website can tell "no gate pick" from "gate pick of nobody".
-      GatePick = inputs.SessionType == SessionType.TimedQualifying && inputs.GatePick != null
-        ? inputs.GatePick.Select(e => GatePickEntry(e, inputs)).ToList()
-        : null,
+      // Only a timed session has one. A race publishes nothing rather than an
+      // empty list, so the website can tell "no gate pick" from "gate pick of nobody".
+      GatePick = ranking?.Select(e => GatePickEntry(e, report, inputs)).ToList(),
       Client = new PublishedClient("CrossMgrInterface", inputs.ClientVersion)
     };
   }
@@ -137,6 +143,43 @@ public static class PublishPayloadBuilder
         FastestLapBy(fastest, inputs),
         fastest.RiderNumber)
     };
+  }
+
+  /// <summary>
+  /// A timed session's entries, in the order its best laps put them - the Qualifying
+  /// tab's order, not the sheet's laps-then-time order.
+  ///
+  /// Qualifying and practice are decided on the quickest lap. Published in race
+  /// order, the rider who circulated slowly all session headed the page, and the
+  /// fastest rider on the track sat halfway down it.
+  /// </summary>
+  private static List<PublishedEntry> RankedEntries(RaceReportData report, IReadOnlyList<QualifyingEntry> ranking,
+    PublishInputs inputs)
+  {
+    var byTag = report.RiderResults
+      .GroupBy(r => r.TagID, StringComparer.OrdinalIgnoreCase)
+      .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+    var entries = new List<PublishedEntry>(report.RiderResults.Count);
+    var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var ranked in ranking)
+    {
+      if (!byTag.TryGetValue(ranked.Rider.TagID, out var rider) || !placed.Add(rider.TagID)) continue;
+
+      var entry = Entry(rider, inputs);
+      entries.Add(entry with
+      {
+        Rank = rider.IsDNS ? null : ranked.GatePick,
+        Position = rider.IsDNS ? entry.Position : ranked.GatePick.ToString(CultureInfo.InvariantCulture),
+        GapToLeaderMs = Ms(ranked.GapToPole),
+        LapsDownToLeader = 0
+      });
+    }
+
+    // Anyone the ranking did not have keeps the sheet's order, after it.
+    entries.AddRange(report.RiderResults.Where(r => placed.Add(r.TagID)).Select(r => Entry(r, inputs)));
+    return entries;
   }
 
   private static PublishedEntry Entry(RiderResult rider, PublishInputs inputs)
@@ -251,11 +294,17 @@ public static class PublishPayloadBuilder
     Unattributed = line.IsUnattributed
   };
 
-  private static PublishedGatePick GatePickEntry(QualifyingEntry entry, PublishInputs inputs) => new()
+  private static PublishedGatePick GatePickEntry(QualifyingEntry entry, RaceReportData report, PublishInputs inputs) => new()
   {
     GatePick = entry.GatePick,
     Number = entry.Rider.RiderNumber,
-    Name = $"#{entry.Rider.RiderNumber} {NamePrivacy.Publish(entry.Rider, inputs.PublishNamesByDefault, inputs.HiddenNameStyle)}".Trim(),
+    // Exactly the entry's name: the website finds the entry a gate pick line
+    // belongs to by number and name. It once carried a "#12 " the entry did
+    // not, so no line ever matched and qualifying was shown in race order.
+    Name = report.RiderResults.FirstOrDefault(r => string.Equals(r.TagID, entry.Rider.TagID, StringComparison.OrdinalIgnoreCase))
+      is { } result
+      ? PublishedName(result, inputs.Field?.GetValueOrDefault(result.TagID), inputs)
+      : NamePrivacy.Publish(entry.Rider, inputs.PublishNamesByDefault, inputs.HiddenNameStyle),
     Category = Text(entry.Rider.Category),
     BestLapMs = Ms(entry.BestLapTime),
     BestLapNumber = entry.BestLapNumber > 0 ? entry.BestLapNumber : null,

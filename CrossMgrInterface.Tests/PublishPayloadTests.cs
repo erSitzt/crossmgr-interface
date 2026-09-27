@@ -25,7 +25,7 @@ public class PublishPayloadTests
       PublicId = "b3f1c0de0000000000000000000000ff",
       SessionType = type,
       Track = track,
-      GatePick = gatePick,
+      TimedRanking = gatePick,
       ClientVersion = "v0.11.0"
     });
 
@@ -222,6 +222,69 @@ public class PublishPayloadTests
     Assert.Equal(ranked.Select(e => e.GatePick), payload.GatePick!.Select(g => g.GatePick));
     Assert.Equal("1", payload.GatePick[0].Number);
     Assert.Equal("timedQualifying", payload.Session.Type);
+  }
+
+  [Fact]
+  public void QualifyingEntriesGoOutInBestLapOrderNotLapsOrder()
+  {
+    // Anna circulated all session; Ben did two laps and the fastest one.
+    var steady = RiderBuilder.Rider("A", "1", "Anna Berger").Lap(0).Laps(8, 52).Build();
+    var fastest = RiderBuilder.Rider("B", "2", "Ben Fischer").Lap(0).Lap(47).Lap(49).Build();
+    var rules = new RaceRules { SessionType = SessionType.TimedQualifying };
+
+    var ranked = QualifyingRanking.Rank(new[] { steady, fastest });
+    var payload = Build(Prepare(rules, steady, fastest), SessionType.TimedQualifying, gatePick: ranked);
+
+    Assert.Equal(new[] { "2", "1" }, payload.Entries.Select(e => e.Number));
+    Assert.Equal(new int?[] { 1, 2 }, payload.Entries.Select(e => e.Rank));
+    Assert.Equal(new[] { "1", "2" }, payload.Entries.Select(e => e.Position));
+    Assert.Null(payload.Entries[0].GapToLeaderMs);
+    Assert.Equal(5000, payload.Entries[1].GapToLeaderMs);
+    Assert.Equal(0, payload.Entries[1].LapsDownToLeader);
+  }
+
+  [Fact]
+  public void FreePracticeIsRankedOnBestLapToo()
+  {
+    var steady = RiderBuilder.Rider("A", "1", "Anna Berger").Lap(0).Laps(8, 52).Build();
+    var fastest = RiderBuilder.Rider("B", "2", "Ben Fischer").Lap(0).Lap(47).Build();
+    var rules = new RaceRules { SessionType = SessionType.FreePractice };
+
+    var ranked = QualifyingRanking.Rank(new[] { steady, fastest });
+    var payload = Build(Prepare(rules, steady, fastest), SessionType.FreePractice, gatePick: ranked);
+
+    Assert.Equal(new[] { "2", "1" }, payload.Entries.Select(e => e.Number));
+    Assert.NotNull(payload.GatePick);
+    Assert.Equal("freePractice", payload.Session.Type);
+  }
+
+  [Fact]
+  public void AGatePickLineCarriesExactlyItsEntrysName()
+  {
+    // The website finds a line's entry by number and name; a "#1 " in front of
+    // the name meant no line ever matched.
+    var quick = RiderBuilder.Rider("A", "1", "Anna Berger").Laps(3, 40).Build();
+    var slower = RiderBuilder.Rider("B", "2", "Ben Fischer").Laps(3, 50).Build();
+    var rules = new RaceRules { SessionType = SessionType.TimedQualifying };
+
+    var ranked = QualifyingRanking.Rank(new[] { quick, slower });
+    var payload = Build(Prepare(rules, quick, slower), SessionType.TimedQualifying, gatePick: ranked);
+
+    foreach (var line in payload.GatePick!)
+      Assert.Contains(payload.Entries, e => e.Number == line.Number && e.Name == line.Name);
+  }
+
+  [Fact]
+  public void ARaceIgnoresARankingAndKeepsTheSheetsOrder()
+  {
+    var steady = RiderBuilder.Rider("A", "1", "Anna Berger").Lap(0).Laps(8, 52).Build();
+    var fastest = RiderBuilder.Rider("B", "2", "Ben Fischer").Lap(0).Lap(47).Build();
+
+    var payload = Build(Prepare(new RaceRules(), steady, fastest), SessionType.Race,
+      gatePick: QualifyingRanking.Rank(new[] { steady, fastest }));
+
+    Assert.Equal(new[] { "1", "2" }, payload.Entries.Select(e => e.Number));
+    Assert.Null(payload.GatePick);
   }
 
   [Fact]

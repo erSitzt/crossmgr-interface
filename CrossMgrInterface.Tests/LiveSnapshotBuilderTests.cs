@@ -184,4 +184,62 @@ public class LiveSnapshotBuilderTests
     // A real race is not one, whatever it is called.
     Assert.False(Build(RaceDayState.Running).Demo);
   }
+
+  private static LiveSnapshot BuildTimed(SessionType type, params RiderInfo[] riders) =>
+    LiveSnapshotBuilder.Build(new LiveInputs
+    {
+      PublicId = "b3f1c0de0000000000000000000000ff",
+      Title = "Qualifying",
+      SessionType = type,
+      State = RaceDayState.Running,
+      StartedAt = Start,
+      Duration = TimeSpan.FromMinutes(15),
+      Remaining = TimeSpan.FromMinutes(5),
+      Now = Start.AddMinutes(10),
+      Seq = 1,
+      Riders = riders.Select(r => LiveCapture.Of(r)).ToList(),
+      ClientVersion = "test"
+    });
+
+  [Theory]
+  [InlineData(SessionType.TimedQualifying)]
+  [InlineData(SessionType.FreePractice)]
+  public void ATimedSessionIsOrderedOnBestLap(SessionType type)
+  {
+    // Anna has done the most laps; Ben the quickest one.
+    var steady = RiderBuilder.Rider("A", "1", "Anna Berger").Lap(0).Laps(8, 52).Build();
+    var fastest = RiderBuilder.Rider("B", "2", "Ben Fischer").Lap(0).Lap(47).Build();
+    var outLapOnly = RiderBuilder.Rider("C", "3", "Carla Hoff").Lap(5).Build();
+    var dns = RiderBuilder.Rider("D", "4", "David Kern").Dns().Build();
+
+    var entries = BuildTimed(type, dns, outLapOnly, steady, fastest).Entries;
+
+    Assert.Equal(new[] { "2", "1", "3", "4" }, entries.Select(e => e.Number));
+    Assert.Equal(new[] { 1, 2, 3, 4 }, entries.Select(e => e.Rank));
+    Assert.Null(entries[0].GapToLeaderMs);
+    Assert.Equal(5000, entries[1].GapToLeaderMs);
+    Assert.Null(entries[2].GapToLeaderMs);
+    Assert.All(entries, e => Assert.Equal(0, e.LapsDown));
+  }
+
+  [Fact]
+  public void AnEqualBestLapGoesToWhoeverSetItFirst()
+  {
+    var later = RiderBuilder.Rider("A", "1", "Anna Berger").Lap(0).Lap(60).Lap(48).Build();
+    var first = RiderBuilder.Rider("B", "2", "Ben Fischer").Lap(0).Lap(48).Build();
+
+    var entries = BuildTimed(SessionType.TimedQualifying, later, first).Entries;
+
+    Assert.Equal(new[] { "2", "1" }, entries.Select(e => e.Number));
+  }
+
+  [Fact]
+  public void ARiderOffTrackInATimedSessionIsNotShownAsRetired()
+  {
+    var offTrack = RiderBuilder.Rider("A", "1", "Anna Berger").Lap(0).Lap(47).Dnf().Build();
+    var entry = Assert.Single(BuildTimed(SessionType.TimedQualifying, offTrack).Entries);
+
+    Assert.Equal("racing", entry.Status);
+    Assert.Equal(1, entry.Rank);
+  }
 }
