@@ -105,6 +105,10 @@ public static class HelpTopics
       Bullets(
         "A short motocross race - 16 riders in two classes, 6 minutes and one lap, with a missed read, a rider " +
         "on a spare transponder, a pass read twice and a rider who retires. About 10 minutes.",
+        "Moto 1 + Moto 2 overall - 12 riders in two classes ride two motos of 4 minutes and one lap. " +
+        "Moto 2 is set up by itself as the next moto of the same overall, and when it has finished the " +
+        "Overall results window opens: two riders level on points, a rider who retires and still scores, " +
+        "and one who misses Moto 2. About 20 minutes.",
         "Qualifying to gate pick - ten riders, 6 minutes of timed qualifying, a lap that ends after the flag " +
         "and still counts, and two riders with the same best lap. About 7 minutes.",
         "Enduro in waves - 24 riders in three classes a minute apart. You press START RACE. About 13 minutes.",
@@ -135,7 +139,8 @@ public static class HelpTopics
       Tip("A demo keeps everything in a folder of its own. Your real races, rider lists and reader settings are " +
           "never touched, and a session being timed in the main window carries on undisturbed.")
     },
-    HelpTopicIds.QuickStart, HelpTopicIds.Race, HelpTopicIds.Qualifying, HelpTopicIds.Waves, HelpTopicIds.Teams);
+    HelpTopicIds.QuickStart, HelpTopicIds.Race, HelpTopicIds.Overall, HelpTopicIds.Qualifying, HelpTopicIds.Waves,
+    HelpTopicIds.Teams);
 
   private static HelpTopic Screens() => Topic(HelpTopicIds.Screens, GettingStarted,
     "The screens",
@@ -740,6 +745,9 @@ public static class HelpTopics
     new[]
     {
       Picture("overall-results", "Overall results of two motos, with each rider's place and points in both."),
+
+      Tip("Help > Try a demo race... has a demo of it: Moto 1 + Moto 2 overall. Two short motos run " +
+          "one after the other and the overall opens at the end."),
 
       Heading("Putting the motos together"),
       Para("There are two ways, and they end in the same place."),

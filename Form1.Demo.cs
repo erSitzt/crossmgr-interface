@@ -23,6 +23,15 @@ public partial class Form1
   private LinkLabel? _demoChecklistLink;
   private System.Windows.Forms.Timer? _demoChecklistTimer;
 
+  // A demo of several motos: the one being run now, and the watch for its end.
+  private DemoScenario? _demoMoto;
+  private string? _demoRiderList;
+  private System.Windows.Forms.Timer? _demoMotoTimer;
+  private bool _demoMotoOver;
+
+  /// <summary>How long the field takes to line up again between motos.</summary>
+  private static readonly TimeSpan BetweenMotos = TimeSpan.FromSeconds(30);
+
   /// <summary>Help > Try a demo race..., and the link on the Race Day screen.</summary>
   private void ShowDemoPicker()
   {
@@ -108,6 +117,8 @@ public partial class Form1
     var riderList = Path.Combine(Path.GetDirectoryName(AppPaths.SettingsFile)!, "riders.csv");
     File.WriteAllText(riderList, scenario.ToRiderCsv());
     _riderDataImporter.ImportFromCsvDetailed(riderList);
+    _demoRiderList = riderList;
+    _demoMoto = scenario;
 
     // Not 53135: that may be the real reader's, in the window behind this one.
     readerPort = DemoLaunch.FreeLoopbackPort();
@@ -123,6 +134,7 @@ public partial class Form1
 
     StartDemoReader();
     StartDemoChecklist();
+    WatchDemoMotos();
 
     // An unattended demo is the automated test rig, and nobody is there to
     // press Switch on. It may reach the real site now, so it switches itself
@@ -141,12 +153,13 @@ public partial class Form1
   private void StartDemoReader()
   {
     var demo = _demo!;
+    var moto = _demoMoto ?? demo.Scenario;
     _demoReaderStop = new CancellationTokenSource();
     var stop = _demoReaderStop.Token;
 
-    var reader = new DemoReader(readerPort, demo.Scenario.Crossings, DemoStartedAt, () => raceFinished)
+    var reader = new DemoReader(readerPort, moto.Crossings, DemoStartedAt, () => raceFinished)
     {
-      AfterTheStart = demo.Scenario.ManualStart
+      AfterTheStart = moto.ManualStart
     };
     _demoReader = reader;
     reader.Connected += () =>
@@ -269,5 +282,70 @@ public partial class Form1
   {
     _demoReaderStop?.Cancel();
     _demoChecklistTimer?.Stop();
+    _demoMotoTimer?.Stop();
+  }
+
+  /// <summary>
+  /// For a demo of several motos: notices each one finishing, sets the next one
+  /// up as the next moto of the same overall - what New race does with Counts
+  /// towards an overall - and after the last one opens the overall.
+  ///
+  /// Polled on the UI thread rather than hooked into the finish, which can run
+  /// on the reader's thread, and which a demo has no business being part of.
+  /// </summary>
+  private void WatchDemoMotos()
+  {
+    if (_demo?.Scenario.NextMoto == null) return;
+
+    _demoMotoTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+    _demoMotoTimer.Tick += (_, _) => CheckDemoMoto();
+    _demoMotoTimer.Start();
+  }
+
+  private void CheckDemoMoto()
+  {
+    if (!raceFinished || _demoMotoOver || currentRaceId is not { } raceId) return;
+    _demoMotoOver = true;
+
+    var overall = _raceDb.OverallFor(raceId);
+    if (_demoMoto?.NextMoto is { } next)
+    {
+      AddMessage($"🎬 {raceName} is over. {next.SessionName} starts in {BetweenMotos.TotalSeconds:0} seconds - " +
+                 "the riders are lining up again.");
+      RaiseNotice(NoticeLevel.Info, $"{raceName} is over. {next.SessionName} starts in half a minute.");
+
+      var wait = new System.Windows.Forms.Timer { Interval = (int)BetweenMotos.TotalMilliseconds };
+      wait.Tick += (_, _) =>
+      {
+        wait.Stop();
+        wait.Dispose();
+        StartNextDemoMoto(next, overall?.Id);
+      };
+      wait.Start();
+      return;
+    }
+
+    _demoMotoTimer?.Stop();
+    if (overall == null) return;
+
+    AddMessage($"🎬 Both motos are over. The overall '{overall.Name}' is ready - Race > Past sessions... shows it again.");
+    RaiseNotice(NoticeLevel.Info, "Both motos are over - here is the overall.");
+    if (!_demo!.Unattended) BeginInvoke(new Action(() => ShowOverall(this, overall)));
+  }
+
+  /// <summary>Puts the finished moto away and sets the next one up, as NEW SESSION... would.</summary>
+  private void StartNextDemoMoto(DemoScenario next, int? overallId)
+  {
+    if (IsDisposed) return;
+
+    _demoReaderStop?.Cancel();
+    ResetForNextSession();
+
+    _demoMoto = next;
+    _demoMotoOver = false;
+    ApplyNewRaceSetup(next.ToSetup(_demoRiderList!, overallId));
+    AddMessage($"🎬 {next.SessionName} set up as the next moto of the same overall.");
+
+    StartDemoReader();
   }
 }

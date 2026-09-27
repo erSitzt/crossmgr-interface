@@ -41,6 +41,9 @@ public sealed class NewRaceSetup
   /// </summary>
   public int? OverallId { get; init; }
   public bool NewOverall { get; init; }
+
+  /// <summary>The name for a new overall. Unset, it is made from the race's name.</summary>
+  public string? OverallName { get; init; }
 }
 
 /// <summary>An overall a new race could count towards, as the wizard offers it.</summary>
