@@ -96,6 +96,59 @@ public static class PublishPayloadBuilder
   public static string Serialise(PublishedSession session) =>
     JsonSerializer.Serialize(session, PublishSchema.Json);
 
+  public static string Serialise(PublishedOverall overall) =>
+    JsonSerializer.Serialize(overall, PublishSchema.Json);
+
+  /// <summary>
+  /// An overall as the website is told it. Same naming rules as a session: a
+  /// rider who asked for a short name gets it here too, and a transponder code
+  /// never goes out.
+  /// </summary>
+  public static PublishedOverall BuildOverall(OverallResult result, string publicId, IReadOnlyList<string> motoPublicIds,
+    bool publishNamesByDefault = true, NameStyle hiddenNameStyle = NameStyle.FirstNameInitial,
+    string? clientVersion = null) => new()
+  {
+    Overall = new PublishedOverallHeader
+    {
+      PublicId = publicId,
+      Title = result.Title,
+      PointsTable = result.Rules.Points.ToList(),
+      Final = result.UnfinishedMotos.Count == 0,
+      TeamEvent = result.TeamEvent,
+      GeneratedAt = Moment(result.GeneratedAt) ?? DateTimeOffset.Now,
+      Conditions = result.Rules.Describe().Select(l => new PublishedCondition(l.Caption, l.Value)).ToList()
+    },
+    Motos = motoPublicIds.ToList(),
+    Classes = result.Classes.Select(c => new PublishedOverallClass
+    {
+      Name = c.Name,
+      Entries = c.Entries.Select(e => new PublishedOverallEntry
+      {
+        Rank = e.Rank,
+        Number = e.Number,
+        Name = OverallName(e, publishNamesByDefault, hiddenNameStyle),
+        Team = Text(e.Team),
+        IsTeam = e.IsTeam,
+        Points = e.Points,
+        Motos = e.Motos.Select(m => new PublishedOverallMoto
+        {
+          Position = m.Placed ? m.Position : null,
+          Result = m.Text,
+          Points = m.Points
+        }).ToList()
+      }).ToList()
+    }).ToList(),
+    Client = new PublishedClient("CrossMgrInterface", clientVersion ?? CrossMgrInterface.AppVersion.Display)
+  };
+
+  private static string OverallName(OverallEntry entry, bool showByDefault, NameStyle style)
+  {
+    if (string.IsNullOrWhiteSpace(entry.Name)) return UnidentifiedRider;
+    // A team is named by its team name, which nobody asked to shorten.
+    if (entry.IsTeam || entry.Rider == null) return entry.Name;
+    return NamePrivacy.Publish(entry.Rider, showByDefault, style);
+  }
+
   private static PublishedSessionHeader Header(PublishInputs inputs)
   {
     var report = inputs.Report;

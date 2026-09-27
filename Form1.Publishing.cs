@@ -83,12 +83,13 @@ public partial class Form1
   /// Publishes a stored session, restoring it exactly as printing one does -
   /// including which riders count - so the website and the sheet agree.
   /// </summary>
-  private void PublishSession(DbRace race)
+  /// <returns>True when the session is now on the website.</returns>
+  private bool PublishSession(DbRace race)
   {
     try
     {
       var request = BuildPublishRequest(race);
-      if (request == null) return;
+      if (request == null) return false;
 
       var publisher = HttpResultsPublisher.FromSettings(_settings, AddDiagnostic);
 
@@ -100,22 +101,23 @@ public partial class Form1
         ShowPublishSettings();
         // Straight back to publishing: the operator opened settings in order
         // to finish what they were doing.
-        if (PublishingAvailable) PublishSession(race);
-        return;
+        return PublishingAvailable && PublishSession(race);
       }
 
-      if (!dialog.Published) return;
+      if (!dialog.Published) return false;
 
       var url = dialog.PublishedUrl ?? "";
       _raceDb.MarkPublished(race.Id, DateTime.Now, url);
       AddMessage($"🌐 Results published to {PublishSiteName}");
       RaiseNotice(NoticeLevel.Info, $"Results published to {PublishSiteName}.");
       RenderRaceDay();
+      return true;
     }
     catch (Exception ex)
     {
       ErrorDialog.Show(this, "The results could not be published.",
         "Nothing has been changed here, and the stored session is unaffected.", ex);
+      return false;
     }
   }
 

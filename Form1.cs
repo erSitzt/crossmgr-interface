@@ -1072,6 +1072,7 @@ public partial class Form1 : Form
       // Create new race in database
       currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
         LiveRules(), _currentTrack?.Id);
+      JoinChosenOverall(currentRaceId.Value);
 
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
@@ -3885,6 +3886,7 @@ public partial class Form1 : Form
       // Create new race in database
       currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
         LiveRules(), _currentTrack?.Id);
+      JoinChosenOverall(currentRaceId.Value);
 
       // Update race start time for all existing riders
       lock (ridersLock)

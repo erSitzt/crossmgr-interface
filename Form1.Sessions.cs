@@ -242,7 +242,7 @@ public partial class Form1
   /// <summary>
   /// What the Past sessions window is allowed to ask of the form. An adapter
   /// rather than the form itself, as the refresh views do, so the dialog can
-  /// only reach these seven things.
+  /// only reach these few things.
   /// </summary>
   private sealed class SessionManagerHost : ISessionManagerHost
   {
@@ -258,5 +258,7 @@ public partial class Form1
     public bool OpenSession(SessionSummary session) => _form.OpenStoredSession(session.Race);
     public void RenameSession(SessionSummary session, string name) => _form.RenameStoredSession(session.Race, name);
     public bool DeleteSession(IWin32Window owner, SessionSummary session) => _form.DeleteStoredSession(owner, session);
+    public void ShowOverall(IWin32Window owner, IReadOnlyList<SessionSummary> sessions) =>
+      _form.ShowOverallFor(owner, sessions.Select(s => s.Race).ToList());
   }
 }

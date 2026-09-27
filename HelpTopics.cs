@@ -28,7 +28,7 @@ public static class HelpTopics
     QuickStart(), Demo(), Screens(),
     Race(), Qualifying(), Practice(), Waves(), Teams(),
     RaceDay(), Fixing(), Unknown(), TransponderCheck(), Track(),
-    Results(), Publish(), PastSessions(),
+    Results(), Overall(), Publish(), PastSessions(),
     RiderLists(), Reader(), Settings(), Shortcuts(), Troubleshooting()
   };
 
@@ -182,7 +182,8 @@ public static class HelpTopics
       Heading("Setting up"),
       Steps(
         "Race > New race... (Ctrl+N) and choose Race.",
-        "Name it. The name is printed on the results sheet.",
+        "Name it. The name is printed on the results sheet. For a day run as Moto 1 and Moto 2, choose " +
+        "under Counts towards an overall whether this moto starts a new overall or joins today's - see Overall results.",
         "Choose the rider list. Tick Team event only for a team race - see Team events.",
         "Set the length in minutes and the extra laps: how many more laps the leader rides after the clock " +
         "runs out, on top of the lap in progress. 0 means the leader rides only the lap they are on.",
@@ -223,13 +224,15 @@ public static class HelpTopics
 
       Heading("The sheet"),
       Para("Results... (Ctrl+P) prints the classification: an overall sheet and, when the rider list has " +
-           "more than one class, one sheet per class. See Results and sheets."),
+           "more than one class, one sheet per class. See Results and sheets. The result of a day over " +
+           "several motos is a separate sheet - see Overall results."),
 
       Tip("The length can still be changed on the Race Settings tab while the race runs; the end time moves " +
           "with it. Riders who crossed before the rider list was loaded are timed as UNKNOWN and named as " +
           "soon as the list is imported.")
     },
-    HelpTopicIds.Waves, HelpTopicIds.Teams, HelpTopicIds.Results, HelpTopicIds.Fixing, HelpTopicIds.RaceDay);
+    HelpTopicIds.Waves, HelpTopicIds.Teams, HelpTopicIds.Results, HelpTopicIds.Overall, HelpTopicIds.Fixing,
+    HelpTopicIds.RaceDay);
 
   private static HelpTopic Qualifying() => Topic(HelpTopicIds.Qualifying, SessionTypes,
     "Timed qualifying",
@@ -721,10 +724,68 @@ public static class HelpTopics
 
       Heading("Later"),
       Para("Race > Past sessions... (Ctrl+O) prints the sheet of any stored session, with the rules it was " +
-           "run under - and publishes it, if that was not done on the day.")
+           "run under - and publishes it, if that was not done on the day."),
+
+      Heading("Over two motos"),
+      Para("On the sheets above, Overall means all classes of one session together. The result of a day - " +
+           "the points of Moto 1 and Moto 2 added up - is the Overall results window. See Overall results.")
     },
-    HelpTopicIds.PastSessions, HelpTopicIds.Publish, HelpTopicIds.Race, HelpTopicIds.Qualifying,
-    HelpTopicIds.TransponderCheck);
+    HelpTopicIds.Overall, HelpTopicIds.PastSessions, HelpTopicIds.Publish, HelpTopicIds.Race,
+    HelpTopicIds.Qualifying, HelpTopicIds.TransponderCheck);
+
+  private static HelpTopic Overall() => Topic(HelpTopicIds.Overall, AfterASession,
+    "Overall results over two motos",
+    "When a day is run as Moto 1 and Moto 2, the overall adds up each class's points from both and says who " +
+    "won the day - no more adding up by hand.",
+    new[]
+    {
+      Picture("overall-results", "Overall results of two motos, with each rider's place and points in both."),
+
+      Heading("Putting the motos together"),
+      Para("There are two ways, and they end in the same place."),
+      Keys(
+        ("Before the race", "Race > New race..., on the name step: Counts towards an overall. Choose Moto 1 of " +
+                            "a new overall for the first moto, and the overall from today for the second"),
+        ("Afterwards", "Race > Past sessions..., select both motos with Ctrl+click and press Overall results...")),
+      Bullets(
+        "Only races count. Practice and qualifying can never be part of an overall.",
+        "A moto counts towards one overall at most. Putting it into another takes it out of the first.",
+        "The Overall column in Past sessions shows which overall each moto counts towards. Select one of " +
+        "them and press Overall results... to open it again.",
+        "Two classes that run their motos separately get an overall each."),
+
+      Heading("How it is scored"),
+      Bullets(
+        "Each class is scored on its own.",
+        "Each place is worth points. Unless changed it is the FIM and DMSB table: 25, 22, 20, 18, 16, 15, 14 " +
+        "and so on, one fewer per place down to 1 point for 20th.",
+        "The places are those of the moto's class sheet: first everyone who took the flag, then riders who " +
+        "retired, by the laps they completed. A rider who retired keeps the points of that place - the moto " +
+        "column shows it as, for example, 12 DNF. This is how the FIM and DMSB rules score a moto.",
+        "DNS, and a rider out before completing a lap, get no place and no points.",
+        "Most points wins. On equal points the better place in the last moto decides.",
+        "Riders without points follow, the lowest sum of places first. A rider placed in no moto is still " +
+        "listed, at the bottom, without a place."),
+      Para("Riders are matched between the motos by class and start number, not by transponder, so a spare " +
+           "transponder in Moto 2 changes nothing. A number that appears under two different names is " +
+           "highlighted - check the rider list before handing the sheet out."),
+      Tip("The points table is at the top of the window, for a club that scores differently. Type the points " +
+          "for 1st, 2nd, 3rd ... separated by commas. It is kept with this overall only."),
+
+      Heading("Always up to date"),
+      Para("The overall is worked out afresh from the stored motos every time it opens. Fix a lap in Moto 1 " +
+           "after Moto 2 has run, and the overall follows. While a moto is still running the window says " +
+           "provisional."),
+
+      Heading("Printing and publishing"),
+      Bullets(
+        "Results... previews, prints or exports it: one sheet per class, with the scoring rules at the bottom. " +
+        "Export saves one Excel file with a worksheet per class.",
+        "Publish... puts it on the results website, where it links to each moto's own page. A moto that has " +
+        "not been published yet is offered first. Publishing again replaces what is there.",
+        "Stop counting together... removes the overall. The motos and their results stay as they are.")
+    },
+    HelpTopicIds.Results, HelpTopicIds.PastSessions, HelpTopicIds.Publish, HelpTopicIds.Race);
 
   private static HelpTopic Publish() => Topic(HelpTopicIds.Publish, AfterASession,
     "Putting results on the website",
@@ -787,6 +848,10 @@ public static class HelpTopics
            "and what the session was scored under. The circuit is sent too, so the page can show a map."),
       Para("Transponder IDs are not sent, and neither are your notes about which laps were corrected."),
 
+      Heading("Overall results"),
+      Para("An overall over several motos is published from its own window - see Overall results. It needs " +
+           "its motos on the website first, and offers to publish any that are not."),
+
       Heading("Riders who would rather not be named"),
       Para("Not every rider wants their full name on a public website. Race > Results website... has a " +
            "setting for it: show full names unless a rider says no, or shorten every name unless a rider says " +
@@ -813,7 +878,7 @@ public static class HelpTopics
         ("The website is not answering", "Nothing was changed. Try again in a few minutes")),
       Tip("A demo race is never published. The menu item is not there inside a demo.")
     },
-    HelpTopicIds.Results, HelpTopicIds.PastSessions);
+    HelpTopicIds.Results, HelpTopicIds.Overall, HelpTopicIds.PastSessions);
 
   private static HelpTopic PastSessions() => Topic(HelpTopicIds.PastSessions, AfterASession,
     "Past sessions and crash recovery",
@@ -823,10 +888,13 @@ public static class HelpTopics
       Heading("Past sessions"),
       Picture("past-sessions", "Race > Past sessions..., listing a day's sessions."),
       Para("Race > Past sessions... (Ctrl+O) lists every stored session, newest first, with its date, name, " +
-           "type, length, riders, laps, status and when it was published, if it was."),
+           "type, length, riders, laps, status, when it was published, if it was, and the overall it counts " +
+           "towards, if any."),
       Bullets(
         "Results... (or double-click) - prints its sheet, with the rules it was run under.",
         "Publish... - puts it on the club's results website. Only shown once a website has been set up.",
+        "Overall results... - adds up two or more motos into the result of the day. Select the motos with " +
+        "Ctrl+click first; for motos that already count together, one of them is enough. See Overall results.",
         "Open - makes it the session on screen, to look at its laps or correct them. Not while another session is running.",
         "Rename... - changes the name printed on its sheet.",
         "Delete... - removes it and all its laps for good."),
@@ -844,7 +912,7 @@ public static class HelpTopics
           "is not part of a session: it stays as it was last set, and if it is on, a banner says so when the " +
           "application starts.")
     },
-    HelpTopicIds.Results, HelpTopicIds.Publish, HelpTopicIds.Settings);
+    HelpTopicIds.Results, HelpTopicIds.Overall, HelpTopicIds.Publish, HelpTopicIds.Settings);
 
   // ---- Setup and reference -------------------------------------------------
 

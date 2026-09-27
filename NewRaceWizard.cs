@@ -33,7 +33,18 @@ public sealed class NewRaceSetup
 
   /// <summary>Press Start Race as soon as the wizard closes.</summary>
   public bool StartRaceImmediately { get; init; }
+
+  /// <summary>
+  /// The overall this race counts towards: an existing one's id, or
+  /// <see cref="NewOverall"/> for a new one. Neither for a race scored alone.
+  /// Joined when the clock starts, because that is when the race is recorded.
+  /// </summary>
+  public int? OverallId { get; init; }
+  public bool NewOverall { get; init; }
 }
+
+/// <summary>An overall a new race could count towards, as the wizard offers it.</summary>
+public sealed record OverallChoice(int Id, string Name, int Motos);
 
 /// <summary>
 /// Walks a volunteer through setting up a race.
@@ -105,6 +116,12 @@ public sealed class NewRaceWizard : Form
     "For an enduro. The first class goes when you press START RACE; each of the others follows " +
     "after its delay, or when you press START <class> NOW. Every rider is timed from their own class's gate.";
 
+  // Step 2, races only
+  private readonly ComboBox _overall = new();
+  private readonly Label _overallLabel = new();
+  private readonly Label _overallHint = new();
+  private readonly IReadOnlyList<OverallChoice> _overalls;
+
   // Step 6
   private readonly Label _summary = new();
   private readonly CheckBox _startReader = new();
@@ -117,11 +134,14 @@ public sealed class NewRaceWizard : Form
   /// <param name="rememberedWaves">Last time's order and delays, offered again.</param>
   /// <param name="teamEvent">Whether last time's session was a team event.</param>
   /// <param name="rows">Every row of the rider list already loaded, so the teams it makes can be shown.</param>
+  /// <param name="overalls">Today's overalls, which a race can be added to as its next moto.</param>
   public NewRaceWizard(Func<string, ImportResult> import, int existingRiderCount, bool readerRunning,
     SessionType sessionType = SessionType.Race, Func<IReadOnlyList<string>>? classes = null,
     bool staggered = false, IReadOnlyList<WaveDelaySetting>? rememberedWaves = null,
-    bool teamEvent = false, Func<IReadOnlyList<RiderDataImporter.RiderImportData>>? rows = null)
+    bool teamEvent = false, Func<IReadOnlyList<RiderDataImporter.RiderImportData>>? rows = null,
+    IReadOnlyList<OverallChoice>? overalls = null)
   {
+    _overalls = overalls ?? Array.Empty<OverallChoice>();
     _import = import;
     _rows = rows ?? (() => Array.Empty<RiderDataImporter.RiderImportData>());
     _startTeamEvent = teamEvent;
@@ -264,9 +284,14 @@ public sealed class NewRaceWizard : Form
     _teamEvent.Visible = !IsTimedSession;
     if (IsTimedSession && _teamEvent.Checked) _teamEvent.Checked = false;
 
+    // An overall adds up races; practice and qualifying never count.
+    _overallLabel.Visible = !IsTimedSession;
+    _overall.Visible = !IsTimedSession;
+    _overallHint.Visible = !IsTimedSession;
+
     // Only while the operator has not typed over it, so a name they chose is
     // never silently replaced when they step back and change the format.
-    if (_defaultNames.Contains(_name.Text))
+    if (IsDefaultName(_name.Text))
       _name.Text = DefaultName();
   }
 
@@ -274,7 +299,17 @@ public sealed class NewRaceWizard : Form
     ? $"Qualifying - {DateTime.Now:dd.MM.yyyy}"
     : _formatPractice.Checked
       ? $"Practice - {DateTime.Now:dd.MM.yyyy}"
-      : $"Moto 1 - {DateTime.Now:dd.MM.yyyy}";
+      : $"Moto {NextMoto} - {DateTime.Now:dd.MM.yyyy}";
+
+  /// <summary>Which moto of its overall this race will be: 2 when joining one that has run once.</summary>
+  private int NextMoto => SelectedOverall is { } chosen ? chosen.Motos + 1 : 1;
+
+  private OverallChoice? SelectedOverall =>
+    !IsTimedSession && _overall.SelectedIndex >= 2 ? _overalls[_overall.SelectedIndex - 2] : null;
+
+  private bool IsDefaultName(string name) =>
+    _defaultNames.Contains(name) ||
+    System.Text.RegularExpressions.Regex.IsMatch(name, $@"^Moto \d+ - {DateTime.Now:dd\.MM\.yyyy}$");
 
   /// <summary>The three names this wizard offers, so a typed-over name is left alone.</summary>
   private readonly HashSet<string> _defaultNames = new()
@@ -309,7 +344,31 @@ public sealed class NewRaceWizard : Form
       ForeColor = Color.DimGray
     };
 
-    panel.Controls.AddRange(new Control[] { prompt, _name, hint });
+    _overallLabel.Text = "Counts towards an overall";
+    _overallLabel.Location = new Point(0, 140);
+    _overallLabel.Size = new Size(700, 24);
+    _overallLabel.Font = new Font(Font, FontStyle.Bold);
+
+    _overall.DropDownStyle = ComboBoxStyle.DropDownList;
+    _overall.Location = new Point(0, 168);
+    _overall.Width = 420;
+    _overall.Items.Add("No - this race is scored on its own");
+    _overall.Items.Add("Yes - as Moto 1 of a new overall");
+    foreach (var choice in _overalls)
+      _overall.Items.Add($"Yes - as Moto {choice.Motos + 1} of '{choice.Name}'");
+    _overall.SelectedIndex = 0;
+    _overall.SelectedIndexChanged += (_, _) =>
+    {
+      if (IsDefaultName(_name.Text)) _name.Text = DefaultName();
+    };
+
+    _overallHint.Text = "For a day run as Moto 1 and Moto 2: the overall adds up each class's points over the motos. " +
+                        "Motos can also be put together afterwards, in Race > Past sessions.";
+    _overallHint.Location = new Point(0, 200);
+    _overallHint.Size = new Size(680, 44);
+    _overallHint.ForeColor = Color.DimGray;
+
+    panel.Controls.AddRange(new Control[] { prompt, _name, hint, _overallLabel, _overall, _overallHint });
     return panel;
   }
 
@@ -791,7 +850,9 @@ public sealed class NewRaceWizard : Form
       TeamEvent = !IsTimedSession && _teamEvent.Checked,
       StartReader = _startReader.Checked && _startReader.Enabled,
       ImportedFile = _importedFile,
-      StartRaceImmediately = false
+      StartRaceImmediately = false,
+      OverallId = SelectedOverall?.Id,
+      NewOverall = !IsTimedSession && _overall.SelectedIndex == 1
     };
 
     DialogResult = DialogResult.OK;
