@@ -70,6 +70,21 @@ public sealed class DemoScenario
   /// <summary>Every read, in the order the reader plans to send them.</summary>
   public required IReadOnlyList<DemoCrossing> Crossings { get; init; }
 
+  /// <summary>
+  /// The session that follows this one in the same demo, set up and started
+  /// by itself once this one has finished: Moto 2 after Moto 1.
+  /// </summary>
+  public DemoScenario? NextMoto { get; init; }
+
+  /// <summary>
+  /// The name this session is recorded under. Unset, it is "Demo: " and the
+  /// title, which suits a demo that is one session.
+  /// </summary>
+  public string? SessionName { get; init; }
+
+  /// <summary>Set on a moto that starts an overall: the overall's name. See <see cref="NextMoto"/>.</summary>
+  public string? OverallName { get; init; }
+
   /// <summary>The problems planted for the operator to put right, in the order they happen. Empty for most demos.</summary>
   public IReadOnlyList<DemoProblem> Problems { get; init; } = Array.Empty<DemoProblem>();
 
@@ -100,11 +115,15 @@ public sealed class DemoScenario
   }
 
   /// <summary>The setup the wizard would have produced, for the rider list saved at <paramref name="riderListPath"/>.</summary>
-  public NewRaceSetup ToSetup(string riderListPath) => new()
+  /// <param name="overallId">The overall an earlier moto of this demo started, which this one joins.</param>
+  public NewRaceSetup ToSetup(string riderListPath, int? overallId = null) => new()
   {
     SessionType = SessionType,
     // On the printed sheet as well, so a demo result never passes for a real one.
-    RaceName = $"Demo: {Title}",
+    RaceName = SessionName ?? $"Demo: {Title}",
+    OverallId = overallId,
+    NewOverall = overallId == null && OverallName != null,
+    OverallName = OverallName,
     DurationMinutes = DurationMinutes,
     AdditionalLaps = AdditionalLaps,
     ManualStart = ManualStart,

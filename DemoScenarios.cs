@@ -23,6 +23,7 @@ public static class DemoScenarios
   public const string WaitingId = "waiting";
   public const string Lauf1Id = "lauf1";
   public const string Lauf2Id = "lauf2";
+  public const string MotosId = "motos";
 
   /// <summary>The spare transponder the race demo's forgetful rider borrows. Not on the rider list.</summary>
   public const string SpareTransponder = "20269999";
@@ -35,7 +36,7 @@ public static class DemoScenarios
 
   public static IReadOnlyList<DemoScenario> All { get; } = new[]
   {
-    Race(), Qualifying(), Enduro(), Teams(), WaitingForTheLeader(), ProblemsToFix(), Lauf1(), Lauf2()
+    Race(), Motos(), Qualifying(), Enduro(), Teams(), WaitingForTheLeader(), ProblemsToFix(), Lauf1(), Lauf2()
   };
 
   public static DemoScenario? Find(string? id) =>
@@ -52,6 +53,7 @@ public static class DemoScenarios
     ProblemsId => ProblemsToFix(),
     Lauf1Id => Lauf1(),
     Lauf2Id => Lauf2(),
+    MotosId => Motos(),
     _ => throw new ArgumentException($"There is no demo called {id}.", nameof(id))
   };
 
@@ -141,6 +143,131 @@ public static class DemoScenarios
       Roster = field.Select(r => new DemoRider(Tag(r.Number), r.Number, r.Name, r.Club, r.Class)).ToList(),
       Crossings = Ordered(reads)
     };
+  }
+
+  // ---- Moto 1 and Moto 2 ------------------------------------------------------
+
+  /// <summary>
+  /// A day run as two motos, and the overall they add up to.
+  ///
+  /// The places are planned, not left to chance: a pace a second and more a lap
+  /// apart within a class, and only a little jitter, so each moto finishes in
+  /// the order written here every time and the card can say who wins. The
+  /// orders are chosen so the overall has something to show - two riders level
+  /// on points with the last moto deciding, a rider who retires and still
+  /// scores, and one who does not line up for Moto 2 at all.
+  /// </summary>
+  private static DemoScenario Motos()
+  {
+    var moto2 = Moto(2, new[] { "12", "31", "7", "23", "44", "57", "101", "88", "124", "91", "111" },
+      retires: "57", seed: 2027);
+
+    var moto1 = Moto(1, new[] { "7", "23", "12", "31", "44", "57", "88", "91", "101", "111", "124", "150" },
+      retires: null, seed: 2026);
+
+    return new DemoScenario
+    {
+      Id = MotosId,
+      Title = "Moto 1 + Moto 2 overall",
+      SessionName = "Demo: Moto 1",
+      OverallName = "Demo: Overall",
+      Length = "About 20 minutes",
+      Summary = "12 riders in two classes ride two motos of 4 minutes and one lap. The application adds them " +
+                "up into the overall of the day.",
+      WhatHappens = new[]
+      {
+        "Moto 1 starts when the first rider crosses the line and finishes by itself.",
+        "Half a minute later the demo sets up Moto 2 as the next moto of the same overall - as New race does " +
+        "when you choose Counts towards an overall - and the riders line up again.",
+        "In Moto 2 #57 Lea Richter retires halfway, and #150 Ben Hartmann does not line up at all.",
+        "When Moto 2 has finished, the Overall results window opens."
+      },
+      WhatToTry = new[]
+      {
+        "MX1: #7 Lukas Brandt and #12 Mia Hoffmann both end on 45 points. #12 wins the day for the better " +
+        "place in Moto 2.",
+        "#57 Lea Richter shows as 6 DNF in Moto 2 and still gets the 15 points of 6th: a retired rider keeps the " +
+        "points of their place.",
+        "#150 Ben Hartmann has a dash for Moto 2 and only his Moto 1 points.",
+        "Type your own points table, for example 10, 8, 6, 5, 4, 3, and press Enter - the totals change at once.",
+        "Race > Past sessions... shows both motos with the overall they count towards. Results... prints it."
+      },
+      SessionType = SessionType.Race,
+      DurationMinutes = 4,
+      AdditionalLaps = 1,
+      Roster = MotoField.Select(r => new DemoRider(Tag(r.Number), r.Number, r.Name, r.Club, r.Class)).ToList(),
+      Crossings = moto1,
+      NextMoto = new DemoScenario
+      {
+        Id = MotosId,
+        Title = "Moto 1 + Moto 2 overall",
+        SessionName = "Demo: Moto 2",
+        Length = "",
+        Summary = "",
+        WhatHappens = Array.Empty<string>(),
+        WhatToTry = Array.Empty<string>(),
+        SessionType = SessionType.Race,
+        DurationMinutes = 4,
+        AdditionalLaps = 1,
+        Roster = MotoField.Select(r => new DemoRider(Tag(r.Number), r.Number, r.Name, r.Club, r.Class)).ToList(),
+        Crossings = moto2
+      }
+    };
+  }
+
+  // A property, not a field: All is built from the static initialisers in
+  // file order, and would otherwise read this before it was filled in.
+  private static (string Number, string Name, string Club, string Class)[] MotoField => new[]
+  {
+    ("7", "Lukas Brandt", "MSC Adler", "MX1"),
+    ("12", "Mia Hoffmann", "RC Falke", "MX1"),
+    ("23", "Jan Keller", "MX Team Nord", "MX1"),
+    ("31", "Sophie Wagner", "MSC Adler", "MX1"),
+    ("44", "Tim Schulz", "", "MX1"),
+    ("57", "Lea Richter", "MX Team Nord", "MX1"),
+    ("88", "Max Schröder", "RSV Blitz", "MX2"),
+    ("91", "Emma Koch", "RC Falke", "MX2"),
+    ("101", "Felix Bauer", "RSV Blitz", "MX2"),
+    ("111", "Hanna Klein", "", "MX2"),
+    ("124", "Noah Schmitt", "MX Team Nord", "MX2"),
+    ("150", "Ben Hartmann", "", "MX2")
+  };
+
+  /// <summary>
+  /// One moto: the riders in <paramref name="order"/> finish in that order
+  /// within their class. MX1 is a little quicker than MX2, and each place in a
+  /// class is 1.5 seconds a lap slower than the one before - far more than the
+  /// jitter, so nobody swaps places by luck. A rider missing from the order
+  /// does not line up.
+  /// </summary>
+  private static List<DemoCrossing> Moto(int moto, string[] order, string? retires, int seed)
+  {
+    const int minutes = 4;
+    const int extraLaps = 1;
+    var rng = new Random(seed);
+
+    var riders = order
+      .Select(number => MotoField.Single(r => r.Number == number))
+      .Select(r =>
+      {
+        var place = order.Where(n => MotoField.Single(f => f.Number == n).Class == r.Class).ToList().IndexOf(r.Number);
+        var pace = (r.Class == "MX1" ? 44.0 : 47.0) + place * 1.5;
+        return (r.Number, Pace: pace);
+      })
+      .OrderBy(r => r.Pace)
+      .ToList();
+
+    var reads = new List<DemoCrossing>();
+    var flag = 5.0 + minutes * 60;
+    for (var i = 0; i < riders.Count; i++)
+    {
+      var (number, pace) = riders[i];
+      var times = GoRound(rng, 5.0 + i * 0.7, pace, 0.3, flag + (extraLaps + 2.5) * pace);
+      if (number == retires) times = times.Take(times.Count / 2).ToList();
+      reads.AddRange(times.Select(t => new DemoCrossing(Seconds(t), Tag(number))));
+    }
+
+    return Ordered(reads);
   }
 
   // ---- Waiting for the leader ----------------------------------------------

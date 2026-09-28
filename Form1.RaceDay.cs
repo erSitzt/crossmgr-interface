@@ -125,7 +125,7 @@ public partial class Form1
     waves = WaveSchedule.From(setup.Waves);
     raceName = setup.RaceName;
     _overallChoice = setup.SessionType == SessionType.Race && (setup.NewOverall || setup.OverallId.HasValue)
-      ? (setup.OverallId, setup.NewOverall)
+      ? (setup.OverallId, setup.NewOverall, setup.OverallName)
       : null;
     Text = string.IsNullOrEmpty(raceName)
       ? "CrossMgr RFID Interface"

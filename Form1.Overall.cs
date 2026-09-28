@@ -14,7 +14,7 @@ public partial class Form1
   /// one, or a new one. Held until the clock starts, because that is when the
   /// race is recorded; null for a race scored alone.
   /// </summary>
-  private (int? Id, bool New)? _overallChoice;
+  private (int? Id, bool New, string? Name)? _overallChoice;
 
   /// <summary>The overalls a new race can join as its next moto: those begun today.</summary>
   private IReadOnlyList<OverallChoice> TodaysOveralls()
@@ -42,7 +42,7 @@ public partial class Form1
     try
     {
       var overall = choice.New
-        ? _raceDb.CreateOverall(OverallNameFor(raceName, DateTime.Now), Array.Empty<int>())
+        ? _raceDb.CreateOverall(choice.Name ?? OverallNameFor(raceName, DateTime.Now), Array.Empty<int>())
         : _raceDb.GetOverall(choice.Id ?? 0);
       if (overall == null) return;
 
