@@ -212,6 +212,9 @@ public partial class Form1
       return;
     }
 
+    // Someone is fixing laps: the day plan does not set up the next session under them.
+    _lastCorrectionAt = DateTime.Now;
+
     // A team's riders and their transponders are part of its snapshot, so
     // joining a transponder to a team - or undoing that - changes who owns it.
     // Only the application of the join used to rebuild the roster, so after an

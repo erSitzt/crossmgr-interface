@@ -29,7 +29,13 @@ public partial class Form1
     };
     _raceDayView.FixLapsClicked += (s, e) => OpenLapCorrectionForMostUrgentRider();
     _raceDayView.EndRaceNowClicked += (s, e) => EndRaceNow();
-    _raceDayView.SetupClicked += (s, e) => RunNewRaceWizard();
+    // With a plan the big button sets up the plan's next session; the wizard
+    // is still under Race > New race... for a session that is not planned.
+    _raceDayView.SetupClicked += (s, e) =>
+    {
+      if (_activePlan != null) SetUpNextPlannedByHand();
+      else RunNewRaceWizard();
+    };
     _raceDayView.RiderListClicked += (s, e) => ShowRiderList();
     _raceDayView.PublishClicked += (s, e) => PublishCurrentSession();
     _raceDayView.LiveToggleClicked += (s, e) => SetLiveTiming(!_liveOn);
@@ -111,14 +117,24 @@ public partial class Form1
 
       ApplyNewRaceSetup(setup);
     }
+
+    // Set up by hand: whatever the plan had on screen is not there any more.
+    _planEntryOnScreen = null;
   }
 
   /// <summary>
   /// Puts a finished setup into effect: the wizard's, or a demo's. The rider
   /// list named in it has already been imported.
   /// </summary>
-  private void ApplyNewRaceSetup(NewRaceSetup setup)
+  /// <param name="automatic">
+  /// Set up by the day plan rather than by the operator: the screen stays
+  /// where the operator is, and the club's remembered setup is left alone -
+  /// a planned Youth moto must not become what New race offers next time.
+  /// </param>
+  private void ApplyNewRaceSetup(NewRaceSetup setup, bool automatic = false)
   {
+    lock (ridersLock) _nothingSetUp = false;
+
     // Before the settings handlers below: buttonSetAdditionalLaps_Click and the
     // start-mode radios both read the session type as they go.
     sessionType = setup.SessionType;
@@ -168,7 +184,7 @@ public partial class Form1
     }
 
     ApplySessionTypeToUi();
-    RememberRaceSetup();
+    if (!automatic) RememberRaceSetup();
 
     var format = sessionType switch
     {
@@ -190,7 +206,7 @@ public partial class Form1
           : "Set up. Press START RACE when the gate drops."
         : "Set up. The clock starts on the first rider.");
 
-    tabControl.SelectedTab = tabPageRaceDay;
+    if (!automatic) tabControl.SelectedTab = tabPageRaceDay;
     _refresh.RenderNow(RaceViewKind.All);
   }
 

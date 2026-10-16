@@ -253,6 +253,7 @@ public partial class Form1 : Form
     // correction service a question, so these have to exist before any of it runs.
     tabPageLapProgression = _lapProgressionManager.CreateLapProgressionTab();
     InitializeRaceDayView();
+    InitializePlans();
     InitializeChrome();
 
     // After InitializeChrome, which is what loads _settings - the track view
@@ -441,6 +442,7 @@ public partial class Form1 : Form
     }
 
     AttemptCrashRecovery();
+    OfferTodaysPlan();
   }
 
   private void buttonStart_Click(object? sender, EventArgs e)
@@ -960,6 +962,14 @@ public partial class Form1 : Form
         return new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
 
+      // With a day plan, nothing on screen means between sessions, not "start
+      // a race on the first bike over the loop".
+      if (_planHoldsReads && _nothingSetUp)
+      {
+        messagesToAdd.Add(($"⏳ Read not counted: {tagID} crossed before the next planned session was set up", false));
+        return new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+      }
+
       // A transponder the operator has merged onto a rider counts as that rider
       // from here on, rather than spawning a fresh unknown entry every lap - and
       // in a team event a member's transponder counts for their team. The
@@ -980,6 +990,12 @@ public partial class Form1 : Form
         messagesToAdd.Add(($"🏁 Post-race crossing: {GetRiderDisplayText(tagID)} at {crossingTime:HH:mm:ss.fff} (recorded but not counted in final results)", true));
         messagesToAdd.Add(($"Post-race crossing: {GetRiderDisplayText(tagID)}", false));
         resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+
+        // The day plan watches for the next group arriving on track.
+        var postClass = riders.TryGetValue(tagID, out var known) ? known.Category
+          : _riderDataImporter.GetRiderData(tagID)?.Category ?? "";
+        _postRaceReads.Add((tagID, postClass, crossingTime));
+        if (_postRaceReads.Count > 200) _postRaceReads.RemoveAt(0);
       }
       // Check if this rider is already marked as DNF
       else if (riders.ContainsKey(tagID) && riders[tagID].IsDNF)
@@ -1086,7 +1102,7 @@ public partial class Form1 : Form
       // Create new race in database
       currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
         LiveRules(), _currentTrack?.Id);
-      JoinChosenOverall(currentRaceId.Value);
+      OnRaceRecorded(currentRaceId.Value);
 
       // These operations will be called later after the lock is released
       Task.Run(() => UpdateRaceStartControls());
@@ -1535,7 +1551,14 @@ public partial class Form1 : Form
       sessionClasses = null;
       _heldReads.Clear();
       _countedOtherClass.Clear();
+
+      _nothingSetUp = true;
+      _postRaceReads.Clear();
     }
+
+    _planEntryOnScreen = null;
+    _finishedAt = null;
+    InvalidatePlanRuns();
 
     // The next session may finish in its own right.
     Interlocked.Exchange(ref _finishedOnce, 0);
@@ -3217,6 +3240,10 @@ public partial class Form1 : Form
     {
       CheckIfAllFinalLapsCompleted();
     }
+
+    // Last: it may put the next session on screen, and everything above is
+    // about the one there now.
+    PlanTick();
   }
 
   private void UpdateRiderPredictions()
@@ -3908,7 +3935,7 @@ public partial class Form1 : Form
       // Create new race in database
       currentRaceId = _raceDb.StartNewRace(raceStartTime.Value, raceDuration, raceName, sessionType,
         LiveRules(), _currentTrack?.Id);
-      JoinChosenOverall(currentRaceId.Value);
+      OnRaceRecorded(currentRaceId.Value);
 
       // Update race start time for all existing riders
       lock (ridersLock)
@@ -4250,6 +4277,8 @@ public partial class Form1 : Form
     if (Interlocked.Exchange(ref _finishedOnce, 1) == 1) return;
 
     raceFinished = true;
+    _finishedAt = DateTime.Now;
+    InvalidatePlanRuns();
     waitingForFinalLaps = false;
 
     // One last live update saying so, then live timing switches itself off.
@@ -4978,11 +5007,19 @@ public partial class Form1 : Form
         return;
       }
 
-      var result = MessageBox.Show(
-        $"Found an unfinished race from {latestRace.StartTime:yyyy-MM-dd HH:mm:ss}.\n\n" +
-        $"Would you like to restore this race?\n\n" +
-        $"Race Duration: {TimeFormat.Clock(latestRace.Duration)}\n" +
-        $"Last Saved: {latestRace.LastSavedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown"}",
+      // One question, not two, when the race was one of today's plan: say which
+      // session it was, and carry on with the plan as well as the race.
+      var plan = latestRace.PlanId != null ? _plans.Find(latestRace.PlanId) : null;
+      if (plan != null && plan.Date.Date != DateTime.Today) plan = null;
+
+      var result = MessageBox.Show(plan != null
+          ? $"'{latestRace.Name}' from today's plan '{plan.Name}' was interrupted - last saved at " +
+            $"{latestRace.LastSavedAt?.ToString("HH:mm:ss") ?? "an unknown time"}.\n\n" +
+            "Carry on with it? Its riders, laps and clock come back, and the plan carries on after it."
+          : $"Found an unfinished race from {latestRace.StartTime:yyyy-MM-dd HH:mm:ss}.\n\n" +
+            $"Would you like to restore this race?\n\n" +
+            $"Race Duration: {TimeFormat.Clock(latestRace.Duration)}\n" +
+            $"Last Saved: {latestRace.LastSavedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown"}",
         "Crash Recovery",
         MessageBoxButtons.YesNo,
         MessageBoxIcon.Question);
@@ -4990,6 +5027,7 @@ public partial class Form1 : Form
       if (result == DialogResult.Yes)
       {
         RestoreRaceState(latestRace);
+        if (plan != null) ActivatePlan(plan);
       }
     }
     catch (Exception ex)
@@ -5042,6 +5080,7 @@ public partial class Form1 : Form
 
       raceFinished = raceToRestore.IsFinished;
       Interlocked.Exchange(ref _finishedOnce, raceFinished ? 1 : 0);
+      SyncPlanEntryOnScreen(raceToRestore);
       raceTimeExpired = raceToRestore.IsTimeExpired;
       waitingForLeaderFinish = raceToRestore.WaitingForLeaderFinish;
       waitingForFinalLaps = raceToRestore.WaitingForFinalLaps;

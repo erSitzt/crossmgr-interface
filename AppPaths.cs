@@ -63,6 +63,12 @@ public static class AppPaths
   public static string TracksFile => Path.Combine(EnsureRoot(), "tracks.json");
 
   /// <summary>
+  /// Day plans, one .cmplan file each. Not in races.db, for the same reasons
+  /// as the circuits: see PlanStore.
+  /// </summary>
+  public static string PlansFolder => Path.Combine(EnsureRoot(), "plans");
+
+  /// <summary>
   /// Downloaded map tiles, laid out as tiles/{host}/{z}/{x}/{y}.png. Kept
   /// indefinitely - a circuit's basemap does not change during a season, and a
   /// timing laptop is regularly on a field with no usable internet.

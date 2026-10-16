@@ -132,6 +132,12 @@ public sealed class AppSettings
   public string? LastTrackId { get; set; }
 
   /// <summary>
+  /// The day plan in use, so a restart on race day carries on with it rather
+  /// than asking again. Only honoured on the plan's own date.
+  /// </summary>
+  public string? ActivePlanId { get; set; }
+
+  /// <summary>
   /// The results website this club publishes to, or null when it has never
   /// been set up - which is the case for every club that does not use one, and
   /// is why the Publish button does not appear until it is filled in.
