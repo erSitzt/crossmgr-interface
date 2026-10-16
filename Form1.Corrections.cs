@@ -310,6 +310,9 @@ public partial class Form1
           }
         }
       }
+
+      // A finished session that changes has to be published and saved again.
+      if (raceFinished) MarkSessionChanged();
     }
 
     // 5. Race-finish state. Adding a lap to the leader can complete the race;

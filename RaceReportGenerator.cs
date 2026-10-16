@@ -1090,6 +1090,52 @@ public class RaceReportGenerator
   }
 
   /// <summary>
+  /// The session's sheets saved into a folder without a single question: the
+  /// overall sheet and, with more than one class, one per class - the same
+  /// sheets Export makes - as Excel and, when asked, as PDF. Returns the files.
+  /// </summary>
+  public List<string> SaveSheets(Dictionary<string, RiderInfo> riders, DateTime? raceStartTime,
+    DateTime? raceEndTime, TimeSpan raceDuration, bool raceFinished, string raceTitle,
+    DateTime? additionalLapsSignShown, DateTime? raceActuallyEnded, int additionalLapsCount, RaceRules? rules,
+    string folder, bool pdf)
+  {
+    Directory.CreateDirectory(folder);
+    var files = new List<string>();
+    var classes = GetUniqueClasses(riders);
+
+    var sheets = new List<(string File, Dictionary<string, RiderInfo> Field, string Title)>
+    {
+      ("Results", riders, classes.Count > 1 ? $"{raceTitle} - Overall Results" : raceTitle)
+    };
+    if (classes.Count > 1)
+      foreach (var className in classes.OrderBy(c => c))
+        sheets.Add(($"Class {SanitizeFileName(className)}", FilterRidersByClass(riders, className),
+          $"{raceTitle} - Class: {className}"));
+
+    foreach (var (file, field, title) in sheets)
+    {
+      if (field.Count == 0) continue;
+
+      _reportData = PrepareReportData(field, raceStartTime, raceEndTime, raceDuration, raceFinished, title,
+        additionalLapsSignShown, raceActuallyEnded, additionalLapsCount, rules);
+
+      var xlsx = SheetSaver.WritablePath(folder, file + ".xlsx");
+      ExportToExcel(xlsx);
+      files.Add(xlsx);
+
+      if (pdf)
+      {
+        _currentPage = 0;
+        _currentRiderIndex = 0;
+        var path = SheetSaver.WritablePath(folder, file + ".pdf");
+        if (SheetSaver.PrintToPdf(_printDocument, path)) files.Add(path);
+      }
+    }
+
+    return files;
+  }
+
+  /// <summary>
   /// Exports race report to Excel file
   /// </summary>
   private void ExportToExcel(string fileName)

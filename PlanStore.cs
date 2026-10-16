@@ -112,6 +112,7 @@ public sealed class PlanStore
       var plan = JsonSerializer.Deserialize<DayPlan>(json, Options);
       if (plan == null || string.IsNullOrWhiteSpace(plan.Id)) return null;
       plan.Sessions ??= new List<PlannedSession>();
+      plan.After ??= AfterSession.ForNewPlan();
       foreach (var session in plan.Sessions)
       {
         session.Classes ??= new List<string>();

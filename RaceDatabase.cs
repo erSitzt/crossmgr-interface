@@ -95,6 +95,29 @@ public class DbRace
   public string? PlanEntryId { get; set; }
 
   /// <summary>
+  /// Counts the changes to a finished session: one at the finish, one more for
+  /// every correction after it. What has been published and saved is recorded
+  /// as the count it was done at, so a correction made while an upload is on
+  /// its way is never mistaken for one the upload carried.
+  /// </summary>
+  public int Revision { get; set; }
+  public int? PublishedRevision { get; set; }
+  public int? SheetsRevision { get; set; }
+
+  /// <summary>
+  /// Publish and save this session by themselves, as the switches stood when
+  /// it finished. Null for every session before that existed - which is what
+  /// keeps the app from publishing a season of old sessions the first time
+  /// the switch is turned on.
+  /// </summary>
+  public bool? AutoPublish { get; set; }
+  public bool? AutoSaveSheets { get; set; }
+  public bool? AutoSavePdf { get; set; }
+
+  /// <summary>Where its sheets go, decided at the finish so a correction later saves over the same files.</summary>
+  public string? SheetsFolder { get; set; }
+
+  /// <summary>
   /// When this session was last sent to the results website, and the page it
   /// landed on. Null means it has never been published, which is what Past
   /// sessions shows in its Published column and what makes the publish dialog
@@ -130,6 +153,10 @@ public class DbOverall
   public DateTime CreatedAt { get; set; } = DateTime.Now;
   public DateTime? PublishedAt { get; set; }
   public string? PublishedUrl { get; set; }
+
+  /// <summary>The motos and their revisions it was last published and saved with. See DbRace.Revision.</summary>
+  public string? PublishedStamp { get; set; }
+  public string? SavedStamp { get; set; }
 }
 
 /// <summary>One class of a staggered start, as stored. See <see cref="WaveSchedule"/>.</summary>
@@ -493,14 +520,72 @@ public class RaceDataService : IDisposable
       .ToDictionary(r => r.PlanEntryId!, r => new PlanRun(r.Id, r.StartTime, r.EndTime, r.IsFinished));
 
   /// <summary>Records that this session is now on the results website.</summary>
-  public void MarkPublished(int raceId, DateTime at, string url)
+  /// <param name="revision">The revision that was sent; null for the one stored now.</param>
+  public void MarkPublished(int raceId, DateTime at, string url, int? revision = null)
   {
     var race = _races.FindById(raceId);
     if (race == null) return;
 
     race.PublishedAt = at;
     race.PublishedUrl = url;
+    race.PublishedRevision = revision ?? race.Revision;
     _races.Update(race);
+  }
+
+  /// <summary>At the finish: counts the first revision, and records what is to happen by itself.</summary>
+  public void MarkFinished(int raceId, bool publish, bool saveSheets, bool pdf, string? folder)
+  {
+    var race = _races.FindById(raceId);
+    if (race == null) return;
+
+    race.Revision++;
+    race.AutoPublish = publish;
+    race.AutoSaveSheets = saveSheets;
+    race.AutoSavePdf = pdf;
+    race.SheetsFolder ??= folder;
+    _races.Update(race);
+  }
+
+  /// <summary>A finished session was changed: whatever was published or saved of it is out of date.</summary>
+  public void MarkChanged(int raceId)
+  {
+    var race = _races.FindById(raceId);
+    if (race is not { IsFinished: true }) return;
+
+    race.Revision++;
+    _races.Update(race);
+  }
+
+  public void MarkSheetsSaved(int raceId, int revision)
+  {
+    var race = _races.FindById(raceId);
+    if (race == null) return;
+
+    race.SheetsRevision = revision;
+    _races.Update(race);
+  }
+
+  /// <summary>
+  /// Finished sessions with something still to do by themselves: to publish,
+  /// or to save. Filtered in memory, as ListSessions is: rows from before
+  /// these fields have none of them.
+  /// </summary>
+  public List<DbRace> RacesWithWorkToDo() =>
+    _races.FindAll()
+      .Where(r => r.IsFinished &&
+                  ((r.AutoPublish == true && (r.PublishedRevision ?? -1) < r.Revision) ||
+                   (r.AutoSaveSheets == true && (r.SheetsRevision ?? -1) < r.Revision)))
+      .OrderBy(r => r.StartTime)
+      .ToList();
+
+  public void SetOverallStamps(int overallId, string? published = null, string? saved = null)
+  {
+    var overall = _overalls.FindById(overallId);
+    if (overall == null) return;
+
+    if (published != null) overall.PublishedStamp = published;
+    if (saved != null) overall.SavedStamp = saved;
+    _overalls.Update(overall);
   }
 
   public DbRace? GetCurrentRace()

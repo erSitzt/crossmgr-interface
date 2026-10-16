@@ -171,6 +171,9 @@ public sealed class DayPlan
 
   public List<PlannedSession> Sessions { get; set; } = new();
 
+  /// <summary>What happens by itself around each session of the day. All on for a new plan.</summary>
+  public AfterSession After { get; set; } = AfterSession.ForNewPlan();
+
   public DateTime ModifiedUtc { get; set; } = DateTime.UtcNow;
 
   public static string NewId() => Guid.NewGuid().ToString("N");
@@ -206,7 +209,8 @@ public sealed class DayPlan
     RiderListPath = RiderListPath,
     ChangeoverMinutes = ChangeoverMinutes,
     TypicalLapSeconds = TypicalLapSeconds,
-    Sessions = Sessions.Select(s => s.Copy()).ToList()
+    Sessions = Sessions.Select(s => s.Copy()).ToList(),
+    After = After.Copy()
   };
 
   /// <summary>Things worth fixing before the day; empty when the plan is fine.</summary>

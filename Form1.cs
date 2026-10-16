@@ -271,6 +271,7 @@ public partial class Form1 : Form
     // RestoreRaceState, so a race started normally was never saved as a whole:
     // its laps went in live, but the race row never learned it had finished.
     StartPeriodicStateSaving();
+    StartOutbox();
 
     // Applies the session type remembered from last time - and rebuilds the tabs
     // as it does, so this stands in for the plain RebuildTabs that was here.
@@ -2168,6 +2169,9 @@ public partial class Form1 : Form
 
         // Refresh displays to show updated rider information
         _refresh.Invalidate(RaceViewKind.Standings);
+
+        // A name corrected on a finished session's sheet goes out again.
+        MarkSessionChanged();
       }
     }
   }
@@ -3605,6 +3609,7 @@ public partial class Form1 : Form
           // The rider row as well as the laps. Deleting only the laps left a
           // zero-lap rider on record, who then turned up last on a reprint.
           _raceDb.DeleteRider(tagID);
+          MarkSessionChanged();
         }
         catch (Exception ex)
         {
@@ -4382,6 +4387,9 @@ public partial class Form1 : Form
 
       AddDiagnostic($"Session {currentRaceId} finalised: {crossed.Count} riders, " +
                     $"{rosterOnly.Count} on the list who never went out.");
+
+      // After the finish record: the outbox saves and publishes what is on disk.
+      MarkFinishedForOutbox(currentRaceId.Value);
     }
     catch (Exception ex)
     {

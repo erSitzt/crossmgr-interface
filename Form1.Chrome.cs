@@ -362,6 +362,8 @@ public partial class Form1
     var summary = Item("Rider summary", Keys.None, buttonShowSummary_Click);
     var planDay = Item("Plan the day...", Keys.Control | Keys.D, (s, e) => ShowPlanDialog());
     planDay.Available = !IsDemo;
+    var afterSession = Item("After each session...", Keys.None, (s, e) => ShowAfterSessionSettings());
+    afterSession.Available = !IsDemo;
     // Only for a session that counts some of the classes: anywhere else there
     // is never anyone to list.
     _menuHeldRiders = Item("Riders from other classes...", Keys.None, (s, e) => ShowHeldRiders());
@@ -391,7 +393,7 @@ public partial class Form1
       newRace, import, new ToolStripSeparator(),
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
       results, _menuGatePick, _menuTransponders, summary, _menuHeldRiders, new ToolStripSeparator(),
-      planDay, new ToolStripSeparator(),
+      planDay, afterSession, new ToolStripSeparator(),
       pastSessions, _menuDeleteSession, new ToolStripSeparator(),
       _menuPublish, _menuLiveTiming, publishSettings, new ToolStripSeparator(),
       exit

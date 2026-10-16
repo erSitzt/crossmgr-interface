@@ -132,6 +132,7 @@ public partial class Form1
 
     AddMessage($"✅ {GetRiderDisplayText(tag)} is counted in this session from now on - " +
                $"{reads.Count} read(s) kept for them were counted.");
+    MarkSessionChanged();
     _refresh.Invalidate(RaceViewKind.All);
   }
 

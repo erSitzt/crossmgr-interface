@@ -20,6 +20,11 @@ public interface IPlanHost
   IReadOnlyDictionary<string, PlanRun> RunsOf(DayPlan plan);
 
   void Save(DayPlan plan);
+
+  /// <summary>A results website / live timing is set up, so those switches mean something.</summary>
+  bool PublishingConfigured { get; }
+  bool LiveConfigured { get; }
+
   void Activate(DayPlan plan);
   void Deactivate();
 }
@@ -48,6 +53,7 @@ public sealed class PlanDialog : Form
   private readonly ComboBox _track = new();
   private readonly NumericUpDown _changeover = new();
   private readonly NumericUpDown _lap = new();
+  private readonly Label _afterSummary = new();
   private readonly DataGridView _grid = new();
   private readonly Label _problems = new();
   private readonly Label _empty = new();
@@ -220,6 +226,16 @@ public sealed class PlanDialog : Form
     _lap.Width = 70;
     _lap.ValueChanged += (_, _) => Change(p => p.TypicalLapSeconds = (int)_lap.Value);
     Add(2, "Typical lap", WithUnit(_lap, "seconds - for guessing when a race ends"));
+
+    var afterRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+    _afterSummary.AutoSize = true;
+    _afterSummary.Margin = new Padding(0, 6, 8, 0);
+    var afterButton = new Button { Text = "Change...", AutoSize = true };
+    afterButton.Click += (_, _) => ChangeAfterSession();
+    afterRow.Controls.Add(_afterSummary);
+    afterRow.Controls.Add(afterButton);
+    Add(0, "After each session", afterRow);
+    header.SetColumnSpan(afterRow, 3);
     return header;
 
     void Add(int column, string caption, Control control)
@@ -364,6 +380,7 @@ public sealed class PlanDialog : Form
     _track.SelectedIndex = Math.Max(0, _host.Tracks.ToList().FindIndex(t => t.Id == plan.TrackId) + 1);
     _changeover.Value = Math.Clamp(plan.ChangeoverMinutes, 0, 60);
     _lap.Value = Math.Clamp(plan.TypicalLapSeconds, 20, 3600);
+    _afterSummary.Text = AfterSummary(plan.After);
     _loading = false;
 
     ShowSessions();
@@ -574,6 +591,25 @@ public sealed class PlanDialog : Form
     _plan.Sessions.Remove(session);
     _host.Save(_plan);
     ShowSessions();
+  }
+
+  /// <summary>"publish · save sheets (PDF) · live timing", or "nothing by itself".</summary>
+  private string AfterSummary(AfterSession after)
+  {
+    var parts = new List<string>();
+    if (after.Publish && _host.PublishingConfigured) parts.Add("publish");
+    if (after.SaveSheets) parts.Add(after.Pdf ? "save sheets and PDF" : "save sheets");
+    if (after.LiveTiming && _host.LiveConfigured) parts.Add("live timing");
+    return parts.Count == 0 ? "nothing by itself" : string.Join(" · ", parts);
+  }
+
+  private void ChangeAfterSession()
+  {
+    if (_plan == null) return;
+    using var dialog = new AfterSessionDialog(_plan.After, _host.PublishingConfigured, _host.LiveConfigured, _plan.Name);
+    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+    _host.Save(_plan);
+    _afterSummary.Text = AfterSummary(_plan.After);
   }
 
   private void ChooseRiderList()

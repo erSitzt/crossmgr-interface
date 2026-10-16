@@ -154,6 +154,20 @@ public static class HelpTopics
            "and Count in this session counts a rider after all, with every lap they have ridden. A rider " +
            "already counted is never turned away, and a rider with no class on the list is always counted."),
 
+      Heading("After each session, by itself"),
+      Para("A new plan does three things by itself, for every session of the day. Change them with After each " +
+           "session: Change... at the top of the plan window."),
+      Bullets(
+        "Publish: two minutes after the finish the results go up on the club's website - and again after a " +
+        "correction. Without internet they wait, and go up as soon as the connection is back. An overall goes " +
+        "up once every moto of it has finished and is up.",
+        "Save the sheets: into Documents\\CrossMgr Results, one folder for the day and one per session in it, " +
+        "numbered in the order they ran - the results sheet and one per class, as Excel and as PDF. Saved again " +
+        "after a correction; a file open in Excel is left alone and the new one saved beside it.",
+        "Live timing: switched on when a session's clock starts. It switches itself off at the finish, as always."),
+      Para("The same switches exist for sessions set up by hand: Race > After each session.... They are off " +
+           "until you turn them on."),
+
       Heading("Something different"),
       Bullets(
         "Race > New race... still sets up a session by hand. The plan waits while it is on screen, and Set " +
@@ -809,6 +823,10 @@ public static class HelpTopics
            "where riders can read it on their phones. The sheet and the website are worked out from the same " +
            "figures, so they cannot disagree."),
 
+      Heading("Saved by themselves"),
+      Para("With Race > After each session... (or a day plan) the sheets of every session are saved without asking, " +
+           "into a folder for the day - see Planning the day. Results... still works as before."),
+
       Heading("Later"),
       Para("Race > Past sessions... (Ctrl+O) prints the sheet of any stored session, with the rules it was " +
            "run under - and publishes it, if that was not done on the day."),
@@ -902,7 +920,8 @@ public static class HelpTopics
       Para("Race > Live timing - or Switch on in the LIVE tile on the Race Day screen - sends the running " +
            "order and the last crossings to the live timing website every few seconds, for spectators to " +
            "follow on their phones. It is off for every new session; switch it on once the clock is " +
-           "running, or before."),
+           "running, or before - or let Race > After each session... (or a day plan) switch it on when the " +
+           "clock starts."),
       Bullets(
         "What goes: number, name, class, team, laps, last and best lap, and the gap - plus the last " +
         "twenty crossings. Never transponder IDs, never your notes about corrections.",
@@ -920,6 +939,13 @@ public static class HelpTopics
       Tip("A demo can go out live too - handy for showing someone what the page looks like on a phone. " +
           "It is marked DEMO on the website, is never listed among the real races, and is cleared away " +
           "within a day. A demo never publishes results."),
+
+      Heading("Publishing by itself"),
+      Para("Race > After each session... has Publish the results to the website when a session finishes (a day " +
+           "plan switches it on for its day). The session then goes up two minutes after its finish without " +
+           "this window, and again after every correction; without internet it waits and goes up when the " +
+           "connection is back. If the website refuses it - the key, for example - a banner says so and it is " +
+           "left for you to publish here. The Published column in Past sessions shows what is up."),
 
       Heading("Publishing a session"),
       Picture("publish-results", "Publish results, before anything is sent."),

@@ -540,6 +540,8 @@ internal static class HelpScreenshotScenes
     public IReadOnlyList<string> ClassesOf(string? riderList) => new[] { "MX1", "MX2", "Youth" };
     public IReadOnlyDictionary<string, PlanRun> RunsOf(DayPlan plan) => new Dictionary<string, PlanRun>();
     public void Save(DayPlan plan) { }
+    public bool PublishingConfigured => true;
+    public bool LiveConfigured => true;
     public void Activate(DayPlan plan) { }
     public void Deactivate() { }
   }

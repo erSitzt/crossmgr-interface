@@ -201,10 +201,7 @@ public partial class Form1
           if (!PublishSession(race)) return;
       }
 
-      var result = ScoreOverall(overall);
-      var payload = PublishPayloadBuilder.BuildOverall(result, overall.PublicId,
-        motos.Select(r => _raceDb.EnsurePublicId(r.Id) ?? "").ToList(),
-        _settings.PublishNamesByDefault, _settings.HiddenNameStyle);
+      var payload = BuildOverallPayload(overall, motos);
 
       var request = new PublishRequest
       {
@@ -228,6 +225,7 @@ public partial class Form1
       if (!dialog.Published) return;
 
       _raceDb.MarkOverallPublished(overall.Id, DateTime.Now, dialog.PublishedUrl ?? "");
+      _raceDb.SetOverallStamps(overall.Id, published: OutboxPolicy.StampOf(overall, motos));
       overall.PublishedAt = DateTime.Now;
       AddMessage($"🌐 Overall '{overall.Name}' published to {PublishSiteName}");
     }
@@ -237,6 +235,12 @@ public partial class Form1
         "Nothing has been changed here, and the motos are unaffected.", ex);
     }
   }
+
+  /// <summary>The overall as the website is told it. Shared by Publish... and the outbox.</summary>
+  private PublishedOverall BuildOverallPayload(DbOverall overall, IReadOnlyList<DbRace> motos) =>
+    PublishPayloadBuilder.BuildOverall(ScoreOverall(overall), overall.PublicId,
+      motos.Select(r => _raceDb.EnsurePublicId(r.Id) ?? "").ToList(),
+      _settings.PublishNamesByDefault, _settings.HiddenNameStyle);
 
   private bool DeleteOverall(IWin32Window owner, DbOverall overall)
   {

@@ -198,6 +198,9 @@ public partial class Form1
   {
     _raceDb.RenameRace(race.Id, name);
 
+    // The name is on the published page and the saved sheets: both again.
+    _raceDb.MarkChanged(race.Id);
+
     if (currentRaceId == race.Id)
     {
       raceName = name;
