@@ -18,7 +18,10 @@ public enum PublishStatus
   ServerError,
   TimedOut,
   TooLarge,
-  Cancelled
+  Cancelled,
+
+  /// <summary>The website has no such address - an older one, from before what is being sent existed.</summary>
+  NotSupported
 }
 
 /// <summary>What happened, and where the results landed if they did.</summary>
@@ -46,6 +49,9 @@ public interface IResultsPublisher
   /// <summary>Sends an overall. Its motos must be on the website already: it links to them.</summary>
   Task<PublishOutcome> PublishOverallAsync(PublishedOverall overall, IProgress<PublishProgress>? progress,
                                            CancellationToken cancellationToken);
+
+  /// <summary>Sends the day's programme. Replaces the one sent before.</summary>
+  Task<PublishOutcome> PublishPlanAsync(PublishedPlan plan, CancellationToken cancellationToken);
 
   Task<PublishOutcome> TestAsync(CancellationToken cancellationToken);
 }
@@ -151,6 +157,10 @@ public sealed class HttpResultsPublisher : IResultsPublisher
     PutAsync($"overalls/{Uri.EscapeDataString(overall.Overall.PublicId)}",
       () => PublishPayloadBuilder.Serialise(overall), progress, cancellationToken);
 
+  public Task<PublishOutcome> PublishPlanAsync(PublishedPlan plan, CancellationToken cancellationToken) =>
+    PutAsync($"plans/{Uri.EscapeDataString(plan.Plan.PublicId)}",
+      () => PublishPayloadBuilder.Serialise(plan), null, cancellationToken);
+
   /// <summary>One upload, retried, whatever is being sent. <paramref name="path"/> is under /api/v1/.</summary>
   private async Task<PublishOutcome> PutAsync(string path, Func<string> serialise,
     IProgress<PublishProgress>? progress, CancellationToken cancellationToken)
@@ -236,6 +246,7 @@ public sealed class HttpResultsPublisher : IResultsPublisher
       var status = code switch
       {
         401 or 403 => PublishStatus.Unauthorized,
+        404 or 405 => PublishStatus.NotSupported,
         413 => PublishStatus.TooLarge,
         >= 400 and < 500 and not 408 and not 429 => PublishStatus.Rejected,
         _ => PublishStatus.ServerError
@@ -307,6 +318,7 @@ public sealed class HttpResultsPublisher : IResultsPublisher
     PublishStatus.Rejected => "The website would not accept these results. Please report this.",
     PublishStatus.TimedOut => "The website is taking too long to answer.",
     PublishStatus.TooLarge => "These results are too big to publish. Please report this.",
+    PublishStatus.NotSupported => "The website does not take this yet. It needs updating.",
     _ => "The website is not answering. Nothing has been changed. Try again in a few minutes."
   };
 

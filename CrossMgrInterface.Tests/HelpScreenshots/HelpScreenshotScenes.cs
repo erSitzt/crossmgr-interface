@@ -559,6 +559,9 @@ internal static class HelpScreenshotScenes
       CancellationToken cancellationToken) =>
       Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published."));
 
+    public Task<PublishOutcome> PublishPlanAsync(PublishedPlan plan, CancellationToken cancellationToken) =>
+      Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published."));
+
     public Task<PublishOutcome> TestAsync(CancellationToken cancellationToken) =>
       Task.FromResult(new PublishOutcome(PublishStatus.Published, "The website answered."));
   }
