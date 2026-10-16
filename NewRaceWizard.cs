@@ -26,6 +26,12 @@ public sealed class NewRaceSetup
   /// </summary>
   public bool TeamEvent { get; init; }
 
+  /// <summary>
+  /// The classes this session counts, when the day's rider list holds more
+  /// than ride in it. Null or empty counts everyone. See SessionClassGate.
+  /// </summary>
+  public IReadOnlyList<string>? Classes { get; init; }
+
   public bool StartReader { get; init; } = true;
 
   /// <summary>The file that was imported during the wizard, if any.</summary>

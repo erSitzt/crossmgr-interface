@@ -98,16 +98,19 @@ public partial class Form1
 
     // Only now, after Finish: Cancel on the wizard changes nothing, and that
     // has to include not throwing the finished session off the screen.
-    if (putAway)
+    using (HoldReadsWhileSettingUp())
     {
-      var previous = raceName;
-      ResetForNextSession();
-      AddMessage(string.IsNullOrEmpty(previous)
-        ? "📁 Previous session put away. Its results stay under Race > Past sessions..."
-        : $"📁 '{previous}' put away. Its results stay under Race > Past sessions...");
-    }
+      if (putAway)
+      {
+        var previous = raceName;
+        ResetForNextSession();
+        AddMessage(string.IsNullOrEmpty(previous)
+          ? "📁 Previous session put away. Its results stay under Race > Past sessions..."
+          : $"📁 '{previous}' put away. Its results stay under Race > Past sessions...");
+      }
 
-    ApplyNewRaceSetup(setup);
+      ApplyNewRaceSetup(setup);
+    }
   }
 
   /// <summary>
@@ -124,6 +127,8 @@ public partial class Form1
     // Before the start-mode radios, which are locked to manual for a wave start.
     waves = WaveSchedule.From(setup.Waves);
     raceName = setup.RaceName;
+    lock (ridersLock)
+      sessionClasses = !setup.TeamEvent && setup.Classes is { Count: > 0 } classes ? classes.ToList() : null;
     _overallChoice = setup.SessionType == SessionType.Race && (setup.NewOverall || setup.OverallId.HasValue)
       ? (setup.OverallId, setup.NewOverall, setup.OverallName)
       : null;
@@ -245,8 +250,9 @@ public partial class Form1
 
     _raceDayView.SetChecklist(
       raceName,
-      // Entries, not rows: a team of three is one entry on the start list.
-      teamEvent ? _teams.EntryCount : _riderDataImporter.Count,
+      // Entries, not rows: a team of three is one entry on the start list. And
+      // only the classes this session counts.
+      SessionRosterCount(),
       raceDuration,
       isListening && ConnectedClientCount() > 0);
   }

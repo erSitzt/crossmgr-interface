@@ -82,7 +82,8 @@ public partial class Form1
     MinimumLapSeconds = shortLapDetectionEnabled ? minimumLapTime.TotalSeconds : 0,
     ManualStart = manualStartMode,
     Waves = waves,
-    TeamEvent = teamEvent
+    TeamEvent = teamEvent,
+    Classes = sessionClasses
   };
 
   /// <summary>

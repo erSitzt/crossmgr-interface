@@ -339,11 +339,14 @@ public partial class Form1
     if (IsDisposed) return;
 
     _demoReaderStop?.Cancel();
-    ResetForNextSession();
 
     _demoMoto = next;
     _demoMotoOver = false;
-    ApplyNewRaceSetup(next.ToSetup(_demoRiderList!, overallId));
+    using (HoldReadsWhileSettingUp())
+    {
+      ResetForNextSession();
+      ApplyNewRaceSetup(next.ToSetup(_demoRiderList!, overallId));
+    }
     AddMessage($"🎬 {next.SessionName} set up as the next moto of the same overall.");
 
     StartDemoReader();

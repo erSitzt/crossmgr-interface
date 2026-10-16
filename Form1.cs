@@ -950,9 +950,16 @@ public partial class Form1 : Form
     var messagesToAdd = new List<(string message, bool isRaceEvent)>();
     RiderLap resultLap;
     string? dnfNotice = null;
+    string? classNotice = null;
 
     lock (ridersLock)
     {
+      if (_settingUpSession)
+      {
+        messagesToAdd.Add(($"⏳ Read not counted: {tagID} crossed while the next session was being set up", false));
+        return new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+      }
+
       // A transponder the operator has merged onto a rider counts as that rider
       // from here on, rather than spawning a fresh unknown entry every lap - and
       // in a team event a member's transponder counts for their team. The
@@ -1029,6 +1036,12 @@ public partial class Form1 : Form
       {
         resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
       }
+      // Before waves and before the clock can start: a rider of a class this
+      // session does not count must neither score nor set the clock going.
+      else if (NotCountedForClass(tagID, crossedBy, crossingTime, messagesToAdd, ref classNotice))
+      {
+        resultLap = new RiderLap { TagID = tagID, CrossingTime = crossingTime, LapNumber = 0 };
+      }
       // A class that has not left the gate cannot be lapping. A read from one
       // of its riders is a bike being wheeled over the loop on the way to the
       // line, and counting it would hand them a lap they never rode.
@@ -1055,6 +1068,7 @@ public partial class Form1 : Form
     }
 
     if (dnfNotice != null) RaiseNotice(NoticeLevel.Warning, dnfNotice);
+    if (classNotice != null) RaiseNotice(NoticeLevel.Warning, classNotice);
 
     return resultLap;
   }
@@ -1516,7 +1530,15 @@ public partial class Form1 : Form
 
       // Reset filter counter
       filteredTagCount = 0;
+
+      // Who a session counts is the session's own, like its name.
+      sessionClasses = null;
+      _heldReads.Clear();
+      _countedOtherClass.Clear();
     }
+
+    // The next session may finish in its own right.
+    Interlocked.Exchange(ref _finishedOnce, 0);
 
     // Undo must not reach back into a session that is over.
     _corrections.History.Clear();
@@ -4216,8 +4238,17 @@ public partial class Form1 : Form
     }
   }
 
+  /// <summary>
+  /// 1 once the session has been finished. The last lap can be checked from
+  /// the reader's thread and from the clock tick at the same moment, and both
+  /// used to run the finish - two final live pushes, two finish records.
+  /// </summary>
+  private int _finishedOnce;
+
   private void CompletelyFinishRace()
   {
+    if (Interlocked.Exchange(ref _finishedOnce, 1) == 1) return;
+
     raceFinished = true;
     waitingForFinalLaps = false;
 
@@ -4999,7 +5030,18 @@ public partial class Form1 : Form
       // A team event comes back as one, or the next member's read would start a
       // solo entry beside the team's laps.
       teamEvent = raceToRestore.TeamEvent == true;
+
+      // The classes come back too, or a recovered Moto 1 for MX1 and MX2 would
+      // start counting the Youth riders warming up for theirs.
+      lock (ridersLock)
+      {
+        sessionClasses = RaceRules.FromRace(raceToRestore).Classes;
+        _heldReads.Clear();
+        _countedOtherClass.Clear();
+      }
+
       raceFinished = raceToRestore.IsFinished;
+      Interlocked.Exchange(ref _finishedOnce, raceFinished ? 1 : 0);
       raceTimeExpired = raceToRestore.IsTimeExpired;
       waitingForLeaderFinish = raceToRestore.WaitingForLeaderFinish;
       waitingForFinalLaps = raceToRestore.WaitingForFinalLaps;

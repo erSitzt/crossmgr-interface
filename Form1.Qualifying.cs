@@ -43,9 +43,15 @@ public partial class Form1
 
     var seen = field.Select(r => r.TagID).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+    // Only the classes this session counts: an MX2 qualifying must not list
+    // every MX1 rider as never having gone out.
+    IReadOnlyList<string>? classes;
+    lock (ridersLock) classes = sessionClasses;
+
     // In a team event the entered field is the teams and the solo riders, not
     // every row: a team that never went out is one entry, not one per member.
-    IEnumerable<RiderDataImporter.RiderImportData> listed = _riderDataImporter.GetAllRiderData().Values;
+    IEnumerable<RiderDataImporter.RiderImportData> listed = _riderDataImporter.GetAllRiderData().Values
+      .Where(r => SessionClassGate.InSession(classes, r.Category));
     if (teamEvent)
     {
       var teams = _teams;
