@@ -85,6 +85,12 @@ public sealed class DemoScenario
   /// <summary>Set on a moto that starts an overall: the overall's name. See <see cref="NextMoto"/>.</summary>
   public string? OverallName { get; init; }
 
+  /// <summary>
+  /// A whole day run by a day plan rather than one session: the plan sets each
+  /// session up, and the demo gives each its own reader. See <see cref="DemoDay"/>.
+  /// </summary>
+  public DemoDay? Day { get; init; }
+
   /// <summary>The problems planted for the operator to put right, in the order they happen. Empty for most demos.</summary>
   public IReadOnlyList<DemoProblem> Problems { get; init; } = Array.Empty<DemoProblem>();
 
@@ -209,4 +215,56 @@ public sealed record DemoProblem(DemoProblemKind Kind, TimeSpan At, string Title
 
   /// <summary>Something to see rather than to put right, so not counted among the fixes.</summary>
   public bool JustWatch => Kind is DemoProblemKind.ReadTwice or DemoProblemKind.ReaderOutage or DemoProblemKind.Retires;
+}
+
+/// <summary>
+/// One session of a demo day: the planned session, how long after the demo
+/// starts it is planned for, its reads, and - unattended, with nobody to press
+/// START RACE - how late the demo presses it, so the day runs late on purpose.
+/// </summary>
+public sealed record DemoDaySession(PlannedSession Session, TimeSpan StartsAfter,
+  IReadOnlyList<DemoCrossing> Crossings, TimeSpan UnattendedLate);
+
+/// <summary>
+/// A short race day for the demo: the same day plan and the same rules a club
+/// day runs on, with the waiting shortened so the whole day fits in twenty
+/// minutes.
+/// </summary>
+public sealed class DemoDay
+{
+  public required string Name { get; init; }
+  public int ChangeoverMinutes { get; init; } = 1;
+  public int TypicalLapSeconds { get; init; } = 45;
+  public required PlanRunnerTimings Timings { get; init; }
+  public required IReadOnlyList<DemoDaySession> Sessions { get; init; }
+
+  /// <summary>
+  /// The plan, timed from <paramref name="start"/>: each session at the next
+  /// whole minute after its offset, as a club's timetable would have it.
+  /// </summary>
+  public DayPlan ToPlan(DateTime start, string riderList, string sheetsFolder)
+  {
+    var plan = new DayPlan
+    {
+      Name = Name,
+      Date = start.Date,
+      RiderListPath = riderList,
+      ChangeoverMinutes = ChangeoverMinutes,
+      TypicalLapSeconds = TypicalLapSeconds,
+      After = new AfterSession { Publish = true, SaveSheets = true, Pdf = true, LiveTiming = false, Folder = sheetsFolder }
+    };
+
+    foreach (var day in Sessions)
+    {
+      var session = day.Session.Copy();
+      session.Id = day.Session.Id;
+      var at = start + day.StartsAfter;
+      session.Time = new TimeSpan(at.Hour, at.Minute, 0) + (at.Second > 0 ? TimeSpan.FromMinutes(1) : TimeSpan.Zero);
+      plan.Sessions.Add(session);
+    }
+
+    return plan;
+  }
+
+  public DemoDaySession? For(string entryId) => Sessions.FirstOrDefault(s => s.Session.Id == entryId);
 }

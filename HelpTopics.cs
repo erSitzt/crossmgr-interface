@@ -100,6 +100,9 @@ public static class HelpTopics
     {
       Picture("day-plan", "Race > Plan the day..., with a club day planned."),
 
+      Tip("Help > Try a demo race... has a demo of it: A race day, run by its plan - three short sessions in " +
+          "about 25 minutes."),
+
       Heading("Before the day"),
       Steps(
         "Race > Plan the day... (Ctrl+D). The first time press New; after that press Copy... on the last " +
@@ -202,6 +205,9 @@ public static class HelpTopics
         "Moto 2 is set up by itself as the next moto of the same overall, and when it has finished the " +
         "Overall results window opens: two riders level on points, a rider who retires and still scores, " +
         "and one who misses Moto 2. About 20 minutes.",
+        "A race day, run by its plan - practice, Moto 1 and Moto 2 planned in advance. Each session sets " +
+        "itself up, a reminder comes when one is due, Moto 1 starts late and the rest of the day moves with " +
+        "it, and the sheets are saved as each one finishes. About 25 minutes.",
         "Qualifying to gate pick - ten riders, 6 minutes of timed qualifying, a lap that ends after the flag " +
         "and still counts, and two riders with the same best lap. About 7 minutes.",
         "Enduro in waves - 24 riders in three classes a minute apart. You press START RACE. About 13 minutes.",

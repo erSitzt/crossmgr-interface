@@ -142,7 +142,7 @@ public class PlanStripTests
     plan.Sessions[0].Classes = new List<string> { "MX1", "MX2" };
     var next = PlanForecast.Forecast(plan, new Dictionary<string, PlanRun>(), null, null, At(9, 55))[0];
 
-    Assert.Equal("Moto 1 - MX1/MX2 is due in 5 minutes (10:00) - MX1, MX2 to the gate.",
+    Assert.Equal("Moto 1 - MX1/MX2 is due at 10:00 - MX1, MX2 to the gate.",
       PlanStripText.ReminderText(next, PlanReminder.Soon));
     Assert.Contains("was due at 10:00", PlanStripText.ReminderText(next, PlanReminder.Overdue));
   }

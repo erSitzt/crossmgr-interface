@@ -24,6 +24,7 @@ public static class DemoScenarios
   public const string Lauf1Id = "lauf1";
   public const string Lauf2Id = "lauf2";
   public const string MotosId = "motos";
+  public const string RaceDayId = "raceday";
 
   /// <summary>The spare transponder the race demo's forgetful rider borrows. Not on the rider list.</summary>
   public const string SpareTransponder = "20269999";
@@ -36,7 +37,7 @@ public static class DemoScenarios
 
   public static IReadOnlyList<DemoScenario> All { get; } = new[]
   {
-    Race(), Motos(), Qualifying(), Enduro(), Teams(), WaitingForTheLeader(), ProblemsToFix(), Lauf1(), Lauf2()
+    Race(), Motos(), RaceDay(), Qualifying(), Enduro(), Teams(), WaitingForTheLeader(), ProblemsToFix(), Lauf1(), Lauf2()
   };
 
   public static DemoScenario? Find(string? id) =>
@@ -54,6 +55,7 @@ public static class DemoScenarios
     Lauf1Id => Lauf1(),
     Lauf2Id => Lauf2(),
     MotosId => Motos(),
+    RaceDayId => RaceDay(),
     _ => throw new ArgumentException($"There is no demo called {id}.", nameof(id))
   };
 
@@ -268,6 +270,132 @@ public static class DemoScenarios
     }
 
     return Ordered(reads);
+  }
+
+  // ---- A race day run by its plan -------------------------------------------
+
+  /// <summary>
+  /// A whole club day in twenty minutes: practice, Moto 1 and Moto 2, run by a
+  /// day plan. Each session sets itself up, a reminder comes when one is due,
+  /// Moto 1 starts late and the rest of the day moves with it, and the sheets
+  /// are saved as each one finishes. Youth riders are on the rider list but in
+  /// none of these sessions: one rolls over the loop on the way to the gate,
+  /// and one goes round in Moto 1 and is reported, not counted.
+  /// </summary>
+  private static DemoScenario RaceDay()
+  {
+    var rng = new Random(2028);
+    var field = new (string Number, string Name, string Club, string Class)[]
+    {
+      ("7", "Lukas Brandt", "MSC Adler", "MX1"),
+      ("12", "Mia Hoffmann", "RC Falke", "MX1"),
+      ("23", "Jan Keller", "MX Team Nord", "MX1"),
+      ("31", "Sophie Wagner", "MSC Adler", "MX1"),
+      ("88", "Max Schröder", "RSV Blitz", "MX2"),
+      ("91", "Emma Koch", "RC Falke", "MX2"),
+      ("101", "Felix Bauer", "RSV Blitz", "MX2"),
+      ("111", "Hanna Klein", "", "MX2"),
+      ("301", "Ada Kurz", "MSC Adler", "Youth"),
+      ("302", "Ben Lutz", "RC Falke", "Youth"),
+      ("303", "Cleo Marx", "", "Youth")
+    };
+    var mx = new List<string> { "MX1", "MX2" };
+    const int minutes = 3;
+
+    List<DemoCrossing> Session(string[] order, double from, int extraLaps, bool timed)
+    {
+      var reads = new List<DemoCrossing>();
+      for (var i = 0; i < order.Length; i++)
+      {
+        var pace = 40.0 + i * 1.6;
+        var first = from + i * 0.8;
+        var flag = from + minutes * 60;
+        var times = GoRound(rng, first, pace, 0.4, flag + (timed ? 2.2 : extraLaps + 2.5) * pace);
+        reads.AddRange(times.Select(t => new DemoCrossing(Seconds(t), Tag(order[i]))));
+      }
+      return reads;
+    }
+
+    var practice = new PlannedSession
+    {
+      Name = "Practice - MX1 / MX2", SessionType = SessionType.FreePractice, Classes = mx.ToList(),
+      DurationMinutes = minutes, AdditionalLaps = 0, Start = PlannedStartMode.FirstRider
+    };
+    var moto1 = new PlannedSession
+    {
+      Name = "Moto 1 - MX1 / MX2", Classes = mx.ToList(), DurationMinutes = minutes, AdditionalLaps = 1,
+      Start = PlannedStartMode.Gate, OverallGroup = "MX1 / MX2"
+    };
+    var moto2 = moto1.NextMoto();
+
+    var practiceReads = Session(new[] { "7", "88", "12", "91", "23", "101", "31", "111" }, 8, 0, timed: true);
+    // On the way to the gate for later: read once, kept aside, nothing to say.
+    practiceReads.Add(new DemoCrossing(Seconds(70), Tag("301")));
+    practiceReads.Add(new DemoCrossing(Seconds(95), Tag("302")));
+
+    var moto1Reads = Session(new[] { "12", "7", "88", "23", "91", "31", "101", "111" }, 5, 1, timed: false);
+    // A Youth rider going round in the MX moto: reported, not counted.
+    moto1Reads.Add(new DemoCrossing(Seconds(40), Tag("303")));
+    moto1Reads.Add(new DemoCrossing(Seconds(115), Tag("303")));
+
+    var moto2Reads = Session(new[] { "7", "88", "12", "101", "23", "91", "111", "31" }, 5, 1, timed: false);
+
+    var day = new DemoDay
+    {
+      Name = "Demo race day",
+      ChangeoverMinutes = 1,
+      TypicalLapSeconds = 45,
+      Timings = new PlanRunnerTimings
+      {
+        GateLead = TimeSpan.FromMinutes(1),
+        FirstRiderLead = TimeSpan.FromSeconds(30),
+        AfterFinishGate = TimeSpan.FromSeconds(30),
+        AfterFinishFirstRider = TimeSpan.FromSeconds(30),
+        CorrectionQuiet = TimeSpan.FromSeconds(30),
+        Countdown = TimeSpan.FromSeconds(10),
+        Snooze = TimeSpan.FromMinutes(1),
+        RemindBefore = TimeSpan.FromMinutes(1),
+        OverdueAfter = TimeSpan.FromMinutes(3)
+      },
+      Sessions = new[]
+      {
+        new DemoDaySession(practice, TimeSpan.FromMinutes(1), Ordered(practiceReads), TimeSpan.Zero),
+        new DemoDaySession(moto1, TimeSpan.FromMinutes(7), Ordered(moto1Reads), TimeSpan.FromSeconds(90)),
+        new DemoDaySession(moto2, TimeSpan.FromMinutes(14), Ordered(moto2Reads), TimeSpan.FromSeconds(5))
+      }
+    };
+
+    return new DemoScenario
+    {
+      Id = RaceDayId,
+      Title = "A race day, run by its plan",
+      Length = "About 25 minutes",
+      Summary = "Practice, Moto 1 and Moto 2 for MX1 and MX2, planned in advance. The plan sets each session " +
+                "up by itself, reminds you when one is due, and moves the times when the day runs late.",
+      WhatHappens = new[]
+      {
+        "The plan strip on the Race Day screen shows the day: what has run, what is on, and what is next.",
+        "Practice sets itself up and starts on the first rider. Each moto sets itself up a minute before it is " +
+        "due (on a club day: a quarter of an hour), and you press START RACE when the gate drops.",
+        "After each session the sheets are saved into the demo's own folder, and the results would go to the " +
+        "website - in a demo nothing is sent; the log says what would have been.",
+        "The waiting is shortened so the day fits in twenty minutes."
+      },
+      WhatToTry = new[]
+      {
+        "Press START RACE a minute or two late for Moto 1, and watch Moto 2's time move on the plan strip.",
+        "Not yet on the strip puts off setting up the next session; Set up now does it straight away.",
+        "Change times... opens the plan. A time typed there stays put, and the sessions after it move with it.",
+        "#303 Cleo Marx is a Youth rider: she goes round in Moto 1 but is not counted. Race > Riders from other " +
+        "classes... lists her, and Count in this session would count her after all.",
+        "After Moto 2, Race > Past sessions... shows the overall of the two motos."
+      },
+      SessionType = SessionType.FreePractice,
+      DurationMinutes = minutes,
+      Roster = field.Select(r => new DemoRider(Tag(r.Number), r.Number, r.Name, r.Club, r.Class)).ToList(),
+      Crossings = Array.Empty<DemoCrossing>(),
+      Day = day
+    };
   }
 
   // ---- Waiting for the leader ----------------------------------------------

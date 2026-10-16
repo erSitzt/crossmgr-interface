@@ -122,13 +122,21 @@ public partial class Form1
 
     // Not 53135: that may be the real reader's, in the window behind this one.
     readerPort = DemoLaunch.FreeLoopbackPort();
-    ApplyNewRaceSetup(scenario.ToSetup(riderList));
+
+    // A demo day is set up by its plan, session by session, once it is under way.
+    if (scenario.Day == null) ApplyNewRaceSetup(scenario.ToSetup(riderList));
 
     AddMessage($"🎬 Demo: {scenario.Title}. The riders are simulated; nothing here touches your real races.");
 
     if (!demo.Unattended && !ShowDemoIntro(canStart: true))
     {
       BeginInvoke(new Action(Close));
+      return;
+    }
+
+    if (scenario.Day is { } day)
+    {
+      StartDemoDay(day, riderList);
       return;
     }
 
@@ -150,16 +158,18 @@ public partial class Form1
     return intro.ShowDialog(this) == DialogResult.OK;
   }
 
-  private void StartDemoReader()
+  /// <param name="crossings">Reads of a planned session of a demo day; otherwise the demo's own.</param>
+  /// <param name="afterTheStart">Whether they count from START RACE; otherwise as the demo says.</param>
+  private void StartDemoReader(IReadOnlyList<DemoCrossing>? crossings = null, bool? afterTheStart = null)
   {
     var demo = _demo!;
     var moto = _demoMoto ?? demo.Scenario;
     _demoReaderStop = new CancellationTokenSource();
     var stop = _demoReaderStop.Token;
 
-    var reader = new DemoReader(readerPort, moto.Crossings, DemoStartedAt, () => raceFinished)
+    var reader = new DemoReader(readerPort, crossings ?? moto.Crossings, DemoStartedAt, () => raceFinished)
     {
-      AfterTheStart = moto.ManualStart
+      AfterTheStart = afterTheStart ?? moto.ManualStart
     };
     _demoReader = reader;
     reader.Connected += () =>
@@ -283,6 +293,62 @@ public partial class Form1
     _demoReaderStop?.Cancel();
     _demoChecklistTimer?.Stop();
     _demoMotoTimer?.Stop();
+    _demoPressTimer?.Stop();
+  }
+
+  // ---- A demo day ------------------------------------------------------------
+
+  private System.Windows.Forms.Timer? _demoPressTimer;
+
+  /// <summary>
+  /// A demo day: the plan made from it, timed from now, and put to work with
+  /// the demo's shorter waits. From here the plan runs the day exactly as on a
+  /// club day; the demo only supplies each session's riders as it is set up.
+  /// Nothing is published: the outbox is given a pretend website that says
+  /// what it would have sent.
+  /// </summary>
+  private void StartDemoDay(DemoDay day, string riderList)
+  {
+    PlanTimings = day.Timings;
+    _outboxPublisher = new DemoPublisher(message => AddMessage(message));
+
+    var sheets = Path.Combine(Path.GetDirectoryName(AppPaths.SettingsFile)!, "Saved sheets");
+    var plan = day.ToPlan(DateTime.Now, riderList, sheets);
+    SavePlan(plan);
+    ActivatePlan(plan);
+
+    AddMessage($"🎬 Today's demo plan: {string.Join(", ", plan.Sessions.Select(s => $"{s.Name} {s.Time:hh\\:mm}"))}. " +
+               $"Sheets are saved to {sheets}.");
+  }
+
+  /// <summary>
+  /// The plan has set a session up: the demo starts that session's riders.
+  /// Unattended, nobody is there to press START RACE, so the demo presses it
+  /// itself - late for Moto 1, on purpose, to show the day moving.
+  /// </summary>
+  private void DemoPlannedSessionSetUp(ForecastEntry next)
+  {
+    if (_demo?.Scenario.Day is not { } day || day.For(next.Session.Id) is not { } session) return;
+
+    _demoReaderStop?.Cancel();
+    var gate = next.Session.Start != PlannedStartMode.FirstRider;
+    StartDemoReader(session.Crossings, afterTheStart: gate);
+
+    if (!_demo.Unattended || !gate) return;
+
+    var pressAt = next.DueAt + session.UnattendedLate;
+    _demoPressTimer?.Stop();
+    _demoPressTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+    _demoPressTimer.Tick += (_, _) =>
+    {
+      if (DateTime.Now < pressAt || raceStarted) return;
+      _demoPressTimer?.Stop();
+      AddMessage(session.UnattendedLate >= TimeSpan.FromMinutes(1)
+        ? $"🎬 The gate drops {session.UnattendedLate.TotalSeconds:0} s late - START RACE pressed."
+        : "🎬 The gate drops - START RACE pressed.");
+      buttonStartRace_Click(this, EventArgs.Empty);
+    };
+    _demoPressTimer.Start();
   }
 
   /// <summary>

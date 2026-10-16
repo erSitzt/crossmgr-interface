@@ -108,3 +108,50 @@ public class MotosDemoTests
     Assert.Equal(new[] { 47, 45, 40, 36, 34, 15 }, mx2.Select(e => e.Points));
   }
 }
+
+/// <summary>The race-day demo: a plan of three short sessions, each with its own riders.</summary>
+public class RaceDayDemoTests
+{
+  private static readonly DemoScenario Demo = DemoScenarios.Build(DemoScenarios.RaceDayId);
+
+  [Fact]
+  public void ItIsADayOfPracticeAndTwoMotosForMxTimedFromTheStart()
+  {
+    var day = Demo.Day!;
+    var start = new DateTime(2026, 10, 18, 9, 0, 20);
+    var plan = day.ToPlan(start, @"C:\demo\riders.csv", @"C:\demo\Saved sheets");
+
+    Assert.Equal(new[] { "Practice - MX1 / MX2", "Moto 1 - MX1 / MX2", "Moto 2 - MX1 / MX2" }, plan.Sessions.Select(s => s.Name));
+    Assert.Equal(new[] { new TimeSpan(9, 2, 0), new TimeSpan(9, 8, 0), new TimeSpan(9, 15, 0) }, plan.Sessions.Select(s => s.Time));
+    Assert.All(plan.Sessions, s => Assert.Equal(new[] { "MX1", "MX2" }, s.Classes));
+    Assert.Equal(PlannedStartMode.FirstRider, plan.Sessions[0].Start);
+    Assert.Equal("MX1 / MX2", plan.Sessions[1].OverallGroup);
+    Assert.Equal("MX1 / MX2", plan.Sessions[2].OverallGroup);
+    Assert.True(plan.After.Publish && plan.After.SaveSheets);
+    Assert.False(plan.After.LiveTiming);
+    Assert.Empty(plan.Problems(Demo.Classes));
+    Assert.Equal(plan.Sessions.Select(s => s.Id), day.Sessions.Select(s => s.Session.Id));
+  }
+
+  [Fact]
+  public void EverySessionHasItsOwnRidersAndTheYouthAreOnlyPassingThrough()
+  {
+    var day = Demo.Day!;
+    var tags = Demo.Roster.ToDictionary(r => r.Tag, r => r.Class);
+
+    foreach (var session in day.Sessions)
+      Assert.All(session.Crossings, c => Assert.True(tags.ContainsKey(c.Tag)));
+
+    var youthInMoto1 = day.Sessions[1].Crossings.Where(c => tags[c.Tag] == "Youth").ToList();
+    Assert.Equal(2, youthInMoto1.Select(c => c.At).Distinct().Count());
+    Assert.True(youthInMoto1[1].At - youthInMoto1[0].At >= HeldReads.LappingGap);
+    Assert.Empty(day.Sessions[2].Crossings.Where(c => tags[c.Tag] == "Youth"));
+  }
+
+  [Fact]
+  public void UnattendedMoto1StartsLateSoTheDayMoves()
+  {
+    Assert.True(Demo.Day!.Sessions[1].UnattendedLate >= TimeSpan.FromMinutes(1));
+    Assert.True(Demo.Day.Sessions[2].UnattendedLate < TimeSpan.FromMinutes(1));
+  }
+}
