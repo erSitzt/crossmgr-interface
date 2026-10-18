@@ -104,6 +104,69 @@ public static class PublishPayloadBuilder
   /// rider who asked for a short name gets it here too, and a transponder code
   /// never goes out.
   /// </summary>
+  public static string Serialise(PublishedPlan plan) =>
+    JsonSerializer.Serialize(plan, PublishSchema.Json);
+
+  /// <summary>
+  /// The day's programme as the websites are told it: every session in order,
+  /// when it was planned and when it is now expected, and where it stands.
+  /// </summary>
+  /// <param name="sessionPublicId">The website identity of the race that ran an entry, by race id.</param>
+  public static PublishedPlan BuildPlan(DayPlan plan, IReadOnlyList<ForecastEntry> forecast,
+    Func<int, string?> sessionPublicId, DateTime sentAt, string? clientVersion = null)
+  {
+    var next = PlanForecast.Next(forecast);
+    return new PublishedPlan
+    {
+      Plan = new PublishedPlanHeader
+      {
+        PublicId = plan.PublicId,
+        Date = plan.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        Title = string.IsNullOrWhiteSpace(plan.Name) ? "Race day" : plan.Name,
+        TrackId = Text(plan.TrackId),
+        RunningLateMinutes = next == null ? 0 : Math.Max(0, (int)Math.Round(next.Late.TotalMinutes)),
+        SentAt = Moment(sentAt) ?? DateTimeOffset.Now
+      },
+      Items = forecast.Select((e, i) => new PublishedPlanItem
+      {
+        EntryId = e.Session.Id,
+        Order = i + 1,
+        Title = e.Session.Name,
+        Type = e.Session.SessionType switch
+        {
+          SessionType.TimedQualifying => "timedQualifying",
+          SessionType.FreePractice => "freePractice",
+          _ => "race"
+        },
+        Classes = e.Session.TeamEvent ? Array.Empty<string>() : e.Session.Classes.ToList(),
+        PlannedStart = Moment(e.Planned) ?? default,
+        ExpectedStart = Moment(e.ExpectedStart) ?? default,
+        DurationMs = Ms(TimeSpan.FromMinutes(e.Session.DurationMinutes)),
+        State = e.Status switch
+        {
+          PlanEntryStatus.Ready => "ready",
+          PlanEntryStatus.Running => "running",
+          PlanEntryStatus.Finished => "finished",
+          PlanEntryStatus.Skipped => "skipped",
+          PlanEntryStatus.Interrupted => "interrupted",
+          _ => "planned"
+        },
+        SessionPublicId = e.RaceId is { } raceId ? sessionPublicId(raceId) : null,
+        OverallGroup = e.Session.IsTimed ? null : Text(e.Session.OverallGroup)
+      }).ToList(),
+      Client = new PublishedClient("CrossMgrInterface", clientVersion ?? CrossMgrInterface.AppVersion.Display)
+    };
+  }
+
+  /// <summary>
+  /// What makes the programme worth sending again: a session starting or
+  /// finishing, or an expected time moving by a minute. Not the moment it was
+  /// sent, or it would go out every tick.
+  /// </summary>
+  public static string Fingerprint(PublishedPlan plan) =>
+    plan.Plan.Title + "|" + plan.Plan.RunningLateMinutes + "|" + string.Join(";", plan.Items.Select(i =>
+      $"{i.EntryId},{i.Title},{i.State},{i.ExpectedStart:yyyyMMddHHmm},{i.PlannedStart:HHmm},{i.SessionPublicId}"));
+
   public static PublishedOverall BuildOverall(OverallResult result, string publicId, IReadOnlyList<string> motoPublicIds,
     bool publishNamesByDefault = true, NameStyle hiddenNameStyle = NameStyle.FirstNameInitial,
     string? clientVersion = null) => new()

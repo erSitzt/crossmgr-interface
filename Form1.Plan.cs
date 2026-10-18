@@ -331,6 +331,25 @@ public partial class Form1
     RaiseNotice(reminder == PlanReminder.Overdue ? NoticeLevel.Critical : NoticeLevel.Warning, text);
   }
 
+  /// <summary>
+  /// The plan's next session after the one on screen, for the spectator
+  /// screen: "Moto 1 - Youth  ~14:06". Null without a plan or at the end of it.
+  /// </summary>
+  private string? PlanNextUpText()
+  {
+    if (_activePlan == null) return null;
+    try
+    {
+      var forecast = PlanForecastNow(DateTime.Now);
+      var next = forecast.FirstOrDefault(e => e.IsPending && e.Session.Id != _planEntryOnScreen);
+      return next == null ? null : $"{next.Session.Name}   ~{next.ExpectedStart:HH:mm}";
+    }
+    catch (Exception)
+    {
+      return null;
+    }
+  }
+
   // ---- Setting up ---------------------------------------------------------
 
   /// <summary>

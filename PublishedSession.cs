@@ -317,3 +317,55 @@ public sealed record PublishedOverallMoto
   public string Result { get; init; } = "";
   public int Points { get; init; }
 }
+
+/// <summary>
+/// A day's programme, as the websites show it to spectators: what has run,
+/// what is on, what is next and when. Sent whenever it changes, latest wins.
+/// Deliberately nothing about riders - a timetable is public the day before.
+/// </summary>
+public sealed record PublishedPlan
+{
+  public int SchemaVersion { get; init; } = PublishSchema.Version;
+  public required PublishedPlanHeader Plan { get; init; }
+  public required IReadOnlyList<PublishedPlanItem> Items { get; init; }
+  public required PublishedClient Client { get; init; }
+}
+
+public sealed record PublishedPlanHeader
+{
+  /// <summary>See <see cref="DayPlan.PublicId"/>.</summary>
+  public required string PublicId { get; init; }
+
+  /// <summary>The day, as yyyy-MM-dd.</summary>
+  public required string Date { get; init; }
+  public required string Title { get; init; }
+  public string? TrackId { get; init; }
+  public int RunningLateMinutes { get; init; }
+
+  /// <summary>When the laptop sent it; an older one arriving late is ignored.</summary>
+  public DateTimeOffset SentAt { get; init; }
+}
+
+public sealed record PublishedPlanItem
+{
+  public required string EntryId { get; init; }
+  public int Order { get; init; }
+  public required string Title { get; init; }
+
+  /// <summary>"race", "timedQualifying" or "freePractice", as a session's header says.</summary>
+  public required string Type { get; init; }
+
+  /// <summary>The classes that ride in it; empty for all of them.</summary>
+  public IReadOnlyList<string> Classes { get; init; } = Array.Empty<string>();
+
+  public DateTimeOffset PlannedStart { get; init; }
+  public DateTimeOffset ExpectedStart { get; init; }
+  public long DurationMs { get; init; }
+
+  /// <summary>"planned", "ready", "running", "finished", "skipped" or "interrupted".</summary>
+  public required string State { get; init; }
+
+  /// <summary>The session's own public id once its clock has started, so the page can link to it live and later to its results.</summary>
+  public string? SessionPublicId { get; init; }
+  public string? OverallGroup { get; init; }
+}

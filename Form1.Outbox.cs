@@ -30,6 +30,15 @@ public partial class Form1
   /// <summary>What the outbox last did or is waiting on, for the plan strip.</summary>
   private string _outboxStatus = "";
 
+  // The day's programme on the websites: what was last sent, when, and
+  // whether the website takes programmes at all.
+  private string? _programmeSent;
+  private DateTime _programmeSentAt = DateTime.MinValue;
+  private bool _programmeUnsupported;
+
+  /// <summary>At most this often: a day running late moves every expected time a little each minute.</summary>
+  private static readonly TimeSpan ProgrammeEvery = TimeSpan.FromSeconds(30);
+
   /// <summary>What happens by itself now: today's plan's switches while one is in use, the settings' otherwise.</summary>
   private AfterSession AfterSessionNow => _activePlan?.After ?? _settings.AfterSession;
 
@@ -98,6 +107,7 @@ public partial class Form1
       var item = OutboxPolicy.Next(races, overalls, DateTime.Now, _outboxParked, canPublish);
 
       var waiting = races.Count(OutboxPolicy.WaitingToPublish);
+      if (item == null && SendProgrammeIfChanged()) return;
       if (item == null)
       {
         _outboxStatus = waiting > 0 && OutboxCanPublish && DateTime.Now < _outboxRetryAt
@@ -353,6 +363,53 @@ public partial class Form1
     _settings.Save();
     if (_activePlan != null)
       AddMessage("📋 Saved. While today's plan is in use its own switches apply - change them in Race > Plan the day....");
+  }
+
+  // ---- The programme -----------------------------------------------------------
+
+  /// <summary>
+  /// Sends today's programme when it has changed - a session started or
+  /// finished, a time moved - so the websites can say what is next. Only
+  /// while the plan publishes; an older website without programmes is told
+  /// nothing more after the first try, and nobody is bothered about it.
+  /// </summary>
+  private bool SendProgrammeIfChanged()
+  {
+    if (_activePlan is not { } plan || !plan.After.Publish || !OutboxCanPublish || _programmeUnsupported) return false;
+    var now = DateTime.Now;
+    if (now < _outboxRetryAt || now - _programmeSentAt < ProgrammeEvery) return false;
+
+    var payload = PublishPayloadBuilder.BuildPlan(plan, PlanForecastNow(now), id => _raceDb.GetRace(id)?.PublicId, now);
+    var fingerprint = PublishPayloadBuilder.Fingerprint(payload);
+    if (fingerprint == _programmeSent) return false;
+
+    _outboxBusy = true;
+    _programmeSentAt = now;
+    var publisher = OutboxPublisher;
+    Task.Run(() => publisher.PublishPlanAsync(payload, CancellationToken.None))
+      .ContinueWith(task => BeginInvoke(() =>
+      {
+        _outboxBusy = false;
+        var outcome = task.IsCompletedSuccessfully
+          ? task.Result
+          : new PublishOutcome(PublishStatus.ServerError, task.Exception?.GetBaseException().Message ?? "failed");
+
+        if (outcome.Ok)
+        {
+          _programmeSent = fingerprint;
+          return;
+        }
+
+        if (outcome.Status == PublishStatus.NotSupported)
+        {
+          _programmeUnsupported = true;
+          AddDiagnostic("The results website does not take the day's programme yet; it is not sent again until the app restarts.");
+          return;
+        }
+
+        AddDiagnostic($"The programme was not sent ({outcome.Status}); trying again shortly.");
+      }));
+    return true;
   }
 
   // ---- Live timing -----------------------------------------------------------

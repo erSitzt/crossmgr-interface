@@ -128,7 +128,8 @@ public partial class Form1
         ? raceEndTime.Value - raceStartTime.Value
         : null,
       Duration = raceDuration,
-      RowLimit = window.RowLimit
+      RowLimit = window.RowLimit,
+      NextUp = PlanNextUpText()
     });
 
     window.ShowBoard(board);

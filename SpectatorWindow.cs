@@ -454,6 +454,16 @@ public sealed class SpectatorWindow : Form
       StringAlignment.Near);
 
     var recentBox = RectangleF.FromLTRB(fastestBox.Right + r.Height * 0.4f, inner.Top, inner.Right, inner.Bottom);
+    if (board.NextUp is { } nextUp)
+    {
+      DrawText(g, "NEXT ON TRACK", labelFont, Dim,
+        new RectangleF(recentBox.Left, recentBox.Top, recentBox.Width, recentBox.Height * 0.4f), StringAlignment.Near);
+      DrawText(g, nextUp, valueFont, Color.White,
+        new RectangleF(recentBox.Left, recentBox.Top + recentBox.Height * 0.4f, recentBox.Width, recentBox.Height * 0.6f),
+        StringAlignment.Near);
+      return;
+    }
+
     DrawText(g, "LAST ACROSS THE LINE", labelFont, Dim,
       new RectangleF(recentBox.Left, recentBox.Top, recentBox.Width, recentBox.Height * 0.4f), StringAlignment.Near);
 

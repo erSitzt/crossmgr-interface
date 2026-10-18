@@ -24,6 +24,9 @@ public sealed record SpectatorInputs
 
   /// <summary>How many riders to list; null for all of them.</summary>
   public int? RowLimit { get; init; }
+
+  /// <summary>The day plan's next session after this one, "Moto 1 - Youth  ~14:06"; null without a plan.</summary>
+  public string? NextUp { get; init; }
 }
 
 public sealed record SpectatorRow
@@ -91,6 +94,13 @@ public sealed record SpectatorBoard
   public string? FastestLap { get; init; }
 
   public IReadOnlyList<SpectatorCrossing> Recent { get; init; } = Array.Empty<SpectatorCrossing>();
+
+  /// <summary>
+  /// What is on track next, shown in the footer in place of the last
+  /// crossings while nothing is being timed: before the start and after the
+  /// finish. The crowd's question between sessions is "what's next?".
+  /// </summary>
+  public string? NextUp { get; init; }
 }
 
 /// <summary>
@@ -144,7 +154,8 @@ public static class SpectatorBoardBuilder
       FastestLap = fastest == null
         ? null
         : $"{Label(fastest.Value.Rider)}   {BoardText.LapTime(fastest.Value.Lap.LapTime)}   lap {fastest.Value.Lap.LapNumber}",
-      Recent = started ? Recent(inputs.Field) : Array.Empty<SpectatorCrossing>()
+      Recent = started ? Recent(inputs.Field) : Array.Empty<SpectatorCrossing>(),
+      NextUp = started && inputs.State != RaceDayState.Finished ? null : inputs.NextUp
     };
   }
 

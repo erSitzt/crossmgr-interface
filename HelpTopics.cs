@@ -167,6 +167,10 @@ public static class HelpTopics
         "Live timing: switched on when a session's clock starts. It switches itself off at the finish, as always."),
       Para("The same switches exist for sessions set up by hand: Race > After each session.... They are off " +
            "until you turn them on."),
+      Para("With publishing on, the day's programme goes to the websites as well, and again whenever a session " +
+           "starts or finishes or the times move: the live timing website shows what is next and the whole " +
+           "programme between sessions, and the race day on the results website lists it, with each session " +
+           "linked once it is live or published. Nothing about riders is in the programme."),
 
       Heading("Something different"),
       Bullets(
@@ -584,6 +588,7 @@ public static class HelpTopics
         "The fastest lap is shown in purple, and along the bottom with the last riders across the line. A " +
         "chequered flag marks riders who have finished.",
         "Before the start it lists who is entered.",
+        "With a day plan, before the start and after the finish the bottom line says what is next on track and when.",
         "It shows full names - it is a screen at the track, not the website."),
       Keys(
         ("Right-click", "The menu: Top 10, Top 20, All riders, full screen, next screen, close"),
@@ -958,6 +963,11 @@ public static class HelpTopics
         "into the club's group chat.",
         "Publishing the same session again replaces what is on the website. Do that after correcting a lap - " +
         "the website will not end up with the race twice."),
+
+      Heading("The day's programme"),
+      Para("With a day plan that publishes, the plan's timetable goes up too, and is kept up to date as the day " +
+           "runs: spectators see on the live timing website what is next and when, and the whole programme. It " +
+           "holds the sessions' names, classes and times only. See Planning the day."),
 
       Heading("What is sent"),
       Para("Exactly what is on the printed sheet: numbers, names, classes, teams, machines, every lap time, " +
