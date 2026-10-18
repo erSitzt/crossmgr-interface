@@ -87,6 +87,27 @@ public sealed class OverallReportGenerator : IDisposable
     }
   }
 
+  /// <summary>The overall saved without a question: one workbook, and when asked a PDF of every class sheet.</summary>
+  public List<string> SaveSheets(OverallResult result, string title, string folder, bool pdf)
+  {
+    Directory.CreateDirectory(folder);
+    var files = new List<string>();
+    var name = ReportHelpers.SanitizeFileName(title);
+
+    var xlsx = SheetSaver.WritablePath(folder, name + ".xlsx");
+    using (var workbook = BuildWorkbook(result, title)) workbook.SaveAs(xlsx);
+    files.Add(xlsx);
+
+    if (pdf)
+    {
+      Prepare(result, title);
+      var path = SheetSaver.WritablePath(folder, name + ".pdf");
+      if (SheetSaver.PrintToPdf(_printDocument, path)) files.Add(path);
+    }
+
+    return files;
+  }
+
   // ---- Shared layout -------------------------------------------------------
 
   /// <summary>Header row: Pos, #, Rider, then place and points per moto, then Total.</summary>

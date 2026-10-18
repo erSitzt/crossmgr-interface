@@ -619,6 +619,47 @@ public sealed class QualifyingReportGenerator : IDisposable
     workbook.SaveAs(path);
   }
 
+  /// <summary>
+  /// The gate pick order saved into a folder without a question, overall and
+  /// per class, as Excel and, when asked, as PDF. See RaceReportGenerator.SaveSheets.
+  /// </summary>
+  public List<string> SaveSheets(Dictionary<string, RiderInfo> riders, string title,
+    DateTime? sessionStart, DateTime? sessionEnd, TimeSpan sessionDuration, bool sessionFinished, RaceRules? rules,
+    string folder, bool pdf)
+  {
+    Directory.CreateDirectory(folder);
+    var files = new List<string>();
+    var classes = ReportHelpers.GetUniqueClasses(riders);
+
+    var sheets = new List<(string File, Dictionary<string, RiderInfo> Field, string Title)>
+    {
+      ("Gate pick order", riders, classes.Count > 1 ? $"{title} - Overall" : title)
+    };
+    if (classes.Count > 1)
+      foreach (var className in classes)
+        sheets.Add(($"Gate pick order {ReportHelpers.SanitizeFileName(className)}",
+          ReportHelpers.FilterRidersByClass(riders, className), $"{title} - Class: {className}"));
+
+    foreach (var (file, field, sheetTitle) in sheets)
+    {
+      if (field.Count == 0) continue;
+
+      Prepare(field, sheetTitle, sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
+      var xlsx = SheetSaver.WritablePath(folder, file + ".xlsx");
+      ExportToExcel(xlsx);
+      files.Add(xlsx);
+
+      if (pdf)
+      {
+        Prepare(field, sheetTitle, sessionStart, sessionEnd, sessionDuration, sessionFinished, rules);
+        var path = SheetSaver.WritablePath(folder, file + ".pdf");
+        if (SheetSaver.PrintToPdf(_printDocument, path)) files.Add(path);
+      }
+    }
+
+    return files;
+  }
+
   public void Dispose()
   {
     _printDocument.PrintPage -= PrintDocument_PrintPage;

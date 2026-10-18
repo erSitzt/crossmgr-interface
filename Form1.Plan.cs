@@ -274,7 +274,10 @@ public partial class Form1
       var reminder = PlanRunnerPolicy.ReminderFor(decision.Next, now, PlanTimings);
       GiveReminder(decision.Next, reminder);
 
-      _raceDayView.SetPlan(PlanStripText.Build(plan, forecast, decision, reminder, countdown, now));
+      var strip = PlanStripText.Build(plan, forecast, decision, reminder, countdown, now);
+      if (_outboxStatus.Length > 0)
+        strip = strip with { Timing = strip.Timing.Length > 0 ? $"{strip.Timing}  ·  {_outboxStatus}" : _outboxStatus };
+      _raceDayView.SetPlan(strip);
     }
     catch (Exception ex)
     {
@@ -502,6 +505,8 @@ public partial class Form1
     public IReadOnlyDictionary<string, PlanRun> RunsOf(DayPlan plan) =>
       plan == _form._activePlan ? _form.PlanRuns() : _form._raceDb.RunsForPlan(plan.Id);
     public void Save(DayPlan plan) => _form.SavePlan(plan);
+    public bool PublishingConfigured => _form.PublishingAvailable;
+    public bool LiveConfigured => _form.LiveTimingConfigured;
     public void Activate(DayPlan plan) => _form.ActivatePlan(plan);
     public void Deactivate() => _form.DeactivatePlan();
   }

@@ -122,11 +122,11 @@ public partial class Form1
   }
 
   /// <summary>
-  /// Gathers everything the dialog needs, or says why the session cannot be
-  /// published. Returns null only when there is nothing worth showing a dialog
-  /// about.
+  /// The session as the website is told it, built without a window - the
+  /// publish dialog and the outbox send exactly the same thing. Null when
+  /// nothing was recorded in it.
   /// </summary>
-  private PublishRequest? BuildPublishRequest(DbRace race)
+  private (PublishedSession Session, TrackDefinition? Track)? BuildSessionPayload(DbRace race)
   {
     var gatePick = race.SessionType == SessionType.TimedQualifying;
 
@@ -136,13 +136,7 @@ public partial class Form1
     foreach (var tag in _raceDb.GetIgnoredTags(race.Id))
       field.Remove(tag);
 
-    if (field.Count == 0)
-    {
-      MessageBox.Show(this,
-        "Nothing was recorded in that session, so there is nothing to publish.",
-        "Nothing to publish", MessageBoxButtons.OK, MessageBoxIcon.Information);
-      return null;
-    }
+    if (field.Count == 0) return null;
 
     var rules = RaceRules.FromRace(race);
 
@@ -175,6 +169,26 @@ public partial class Form1
       PublishNamesByDefault = _settings.PublishNamesByDefault,
       HiddenNameStyle = _settings.HiddenNameStyle
     });
+
+    return (session, track);
+  }
+
+  /// <summary>
+  /// Gathers everything the dialog needs, or says why the session cannot be
+  /// published. Returns null only when there is nothing worth showing a dialog
+  /// about.
+  /// </summary>
+  private PublishRequest? BuildPublishRequest(DbRace race)
+  {
+    if (BuildSessionPayload(race) is not { } built)
+    {
+      MessageBox.Show(this,
+        "Nothing was recorded in that session, so there is nothing to publish.",
+        "Nothing to publish", MessageBoxButtons.OK, MessageBoxIcon.Information);
+      return null;
+    }
+
+    var (session, track) = built;
 
     return new PublishRequest
     {

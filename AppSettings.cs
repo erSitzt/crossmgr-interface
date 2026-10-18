@@ -137,6 +137,9 @@ public sealed class AppSettings
   /// </summary>
   public string? ActivePlanId { get; set; }
 
+  /// <summary>What happens by itself around a session set up by hand. A day plan has its own. See AfterSession.</summary>
+  public AfterSession AfterSession { get; set; } = new();
+
   /// <summary>
   /// The results website this club publishes to, or null when it has never
   /// been set up - which is the case for every club that does not use one, and
