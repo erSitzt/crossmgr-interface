@@ -35,6 +35,9 @@ public sealed record PublishInputs
 
   public bool PublishNamesByDefault { get; init; } = true;
   public NameStyle HiddenNameStyle { get; init; } = NameStyle.FirstNameInitial;
+
+  /// <summary>A demo race: marked so on the websites. See PublishedSessionHeader.Demo.</summary>
+  public bool Demo { get; init; }
 }
 
 /// <summary>
@@ -113,7 +116,7 @@ public static class PublishPayloadBuilder
   /// </summary>
   /// <param name="sessionPublicId">The website identity of the race that ran an entry, by race id.</param>
   public static PublishedPlan BuildPlan(DayPlan plan, IReadOnlyList<ForecastEntry> forecast,
-    Func<int, string?> sessionPublicId, DateTime sentAt, string? clientVersion = null)
+    Func<int, string?> sessionPublicId, DateTime sentAt, string? clientVersion = null, bool demo = false)
   {
     var next = PlanForecast.Next(forecast);
     return new PublishedPlan
@@ -125,6 +128,7 @@ public static class PublishPayloadBuilder
         Title = string.IsNullOrWhiteSpace(plan.Name) ? "Race day" : plan.Name,
         TrackId = Text(plan.TrackId),
         RunningLateMinutes = next == null ? 0 : Math.Max(0, (int)Math.Round(next.Late.TotalMinutes)),
+        Demo = demo ? true : null,
         SentAt = Moment(sentAt) ?? DateTimeOffset.Now
       },
       Items = forecast.Select((e, i) => new PublishedPlanItem
@@ -169,7 +173,7 @@ public static class PublishPayloadBuilder
 
   public static PublishedOverall BuildOverall(OverallResult result, string publicId, IReadOnlyList<string> motoPublicIds,
     bool publishNamesByDefault = true, NameStyle hiddenNameStyle = NameStyle.FirstNameInitial,
-    string? clientVersion = null) => new()
+    string? clientVersion = null, bool demo = false) => new()
   {
     Overall = new PublishedOverallHeader
     {
@@ -178,6 +182,7 @@ public static class PublishPayloadBuilder
       PointsTable = result.Rules.Points.ToList(),
       Final = result.UnfinishedMotos.Count == 0,
       TeamEvent = result.TeamEvent,
+      Demo = demo ? true : null,
       GeneratedAt = Moment(result.GeneratedAt) ?? DateTimeOffset.Now,
       Conditions = result.Rules.Describe().Select(l => new PublishedCondition(l.Caption, l.Value)).ToList()
     },
@@ -231,6 +236,7 @@ public static class PublishPayloadBuilder
       ScheduledDurationMs = Ms(report.RaceDuration),
       Finished = report.RaceFinished,
       TeamEvent = report.TeamEvent,
+      Demo = inputs.Demo ? true : null,
       GeneratedAt = Moment(report.GeneratedAt) ?? DateTimeOffset.Now,
       Conditions = report.Rules?.Describe()
         .Select(line => new PublishedCondition(line.Caption, line.Value))

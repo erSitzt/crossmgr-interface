@@ -369,11 +369,11 @@ public partial class Form1
     _menuHeldRiders = Item("Riders from other classes...", Keys.None, (s, e) => ShowHeldRiders());
     var pastSessions = Item("Past sessions...", Keys.Control | Keys.O, (s, e) => ShowSessionManager());
     // Deliberately without a shortcut: this one leaves the building, and does
-    // not belong a keystroke away from Results... Hidden inside a demo, like
-    // Try a demo race... - publishing fictional riders to the club's real site
-    // must not be reachable.
+    // not belong a keystroke away from Results...
     _menuPublish = Item("Publish results...", Keys.None, (s, e) => PublishCurrentSession());
-    _menuPublish.Available = !IsDemo;
+    // In a demo only when the club's website is set up: the demo publishes
+    // marked DEMO, and has no settings of its own to set one up from.
+    _menuPublish.Available = !IsDemo || PublishingAvailable;
     // Checkable: it is a state, not an action. Allowed in a demo only when
     // the address points at this computer - see LiveTimingAllowed.
     _menuLiveTiming = new ToolStripMenuItem("Live timing") { CheckOnClick = true };

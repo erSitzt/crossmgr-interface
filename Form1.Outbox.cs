@@ -56,6 +56,11 @@ public partial class Form1
   private IResultsPublisher OutboxPublisher =>
     _outboxPublisher ?? HttpResultsPublisher.FromSettings(_settings, AddDiagnostic);
 
+  /// <summary>Where the outbox says it published to - and that a demo went up as one.</summary>
+  private string OutboxWhere => _outboxPublisher is DemoPublisher
+    ? "the demo's pretend website"
+    : IsDemo ? $"{PublishSiteName} as a DEMO" : PublishSiteName;
+
   /// <summary>A finished session was corrected, renamed or re-listed: publish and save it again.</summary>
   private void MarkSessionChanged()
   {
@@ -289,7 +294,7 @@ public partial class Form1
           _raceDb.MarkPublished(race.Id, DateTime.Now, outcome.Url ?? "", item.Revision);
           _outboxFailures = 0;
           _outboxStatus = "";
-          AddMessage($"🌐 {race.Name} published to {PublishSiteName} by itself" +
+          AddMessage($"🌐 {race.Name} published to {OutboxWhere} by itself" +
                      (race.PublishedAt != null ? " again, with the changes." : "."));
           return;
         }
@@ -319,7 +324,7 @@ public partial class Form1
           _raceDb.MarkOverallPublished(overall.Id, DateTime.Now, outcome.Url ?? "");
           _raceDb.SetOverallStamps(overall.Id, published: item.Stamp);
           _outboxFailures = 0;
-          AddMessage($"🌐 Overall '{overall.Name}' published to {PublishSiteName} by itself.");
+          AddMessage($"🌐 Overall '{overall.Name}' published to {OutboxWhere} by itself.");
           return;
         }
 
@@ -379,7 +384,8 @@ public partial class Form1
     var now = DateTime.Now;
     if (now < _outboxRetryAt || now - _programmeSentAt < ProgrammeEvery) return false;
 
-    var payload = PublishPayloadBuilder.BuildPlan(plan, PlanForecastNow(now), id => _raceDb.GetRace(id)?.PublicId, now);
+    var payload = PublishPayloadBuilder.BuildPlan(plan, PlanForecastNow(now), id => _raceDb.GetRace(id)?.PublicId, now,
+      demo: IsDemo);
     var fingerprint = PublishPayloadBuilder.Fingerprint(payload);
     if (fingerprint == _programmeSent) return false;
 

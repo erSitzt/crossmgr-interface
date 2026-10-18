@@ -13,6 +13,13 @@ public partial class Form1
 
   private bool IsDemo => _demo != null;
 
+  /// <summary>
+  /// Whether this copy may send anything to the real websites. Always outside a
+  /// demo, and in a demo somebody is watching. An unattended demo is the test
+  /// rig: only with --live.
+  /// </summary>
+  private bool MayReachWebsites => _demo is not { Unattended: true, Live: false };
+
   private Panel? _demoBanner;
   private CancellationTokenSource? _demoReaderStop;
   private DemoReader? _demoReader;
@@ -304,13 +311,17 @@ public partial class Form1
   /// A demo day: the plan made from it, timed from now, and put to work with
   /// the demo's shorter waits. From here the plan runs the day exactly as on a
   /// club day; the demo only supplies each session's riders as it is set up.
-  /// Nothing is published: the outbox is given a pretend website that says
-  /// what it would have sent.
+  /// With the club's website set up the results go up on it, marked DEMO;
+  /// without, the outbox is given a pretend website that says what it would
+  /// have sent.
   /// </summary>
   private void StartDemoDay(DemoDay day, string riderList)
   {
     PlanTimings = day.Timings;
-    _outboxPublisher = new DemoPublisher(message => AddMessage(message));
+
+    // The club's own website when it is set up, marked DEMO; otherwise one that
+    // only says what would have gone up, so the day still shows every step.
+    if (!PublishingAvailable) _outboxPublisher = new DemoPublisher(message => AddMessage(message));
 
     var sheets = Path.Combine(Path.GetDirectoryName(AppPaths.SettingsFile)!, "Saved sheets");
     var plan = day.ToPlan(DateTime.Now, riderList, sheets);

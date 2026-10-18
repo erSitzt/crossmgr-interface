@@ -236,7 +236,19 @@ public static class HelpTopics
         "and the gate pick order.",
         "Close the demo's window to end it. Start it again from the Help menu to see it again."),
       Tip("A demo keeps everything in a folder of its own. Your real races, rider lists and reader settings are " +
-          "never touched, and a session being timed in the main window carries on undisturbed.")
+          "never touched, and a session being timed in the main window carries on undisturbed."),
+
+      Heading("Demos on the websites"),
+      Para("With the club's websites set up (Race > Results website... in the main window), a demo can be checked " +
+           "all the way to the websites, like a real race day: Switch on sends it to live timing, and Publish " +
+           "results... - or Past sessions, or the overall's window - puts its results up. A race day run by its " +
+           "plan does all of that by itself."),
+      Bullets(
+        "Everything a demo sends is marked DEMO. The websites keep it apart from the real races - in a Demo " +
+        "races section at the bottom of the results website, never in a race day, the rider search or a " +
+        "rider's results - and remove it after a day.",
+        "Without the websites set up, the Publish buttons are not there in a demo, and a race day run by its " +
+        "plan only says in its messages what would have gone up.")
     },
     HelpTopicIds.QuickStart, HelpTopicIds.Race, HelpTopicIds.Overall, HelpTopicIds.Qualifying, HelpTopicIds.Waves,
     HelpTopicIds.Teams);
@@ -949,7 +961,7 @@ public static class HelpTopics
         ("Amber or red", "Nothing to do during the race. Check the hotspot when there is a moment")),
       Tip("A demo can go out live too - handy for showing someone what the page looks like on a phone. " +
           "It is marked DEMO on the website, is never listed among the real races, and is cleared away " +
-          "within a day. A demo never publishes results."),
+          "within a day. Its results can be published the same way - see Try a demo race."),
 
       Heading("Publishing by itself"),
       Para("Race > After each session... has Publish the results to the website when a session finishes (a day " +
@@ -1008,7 +1020,8 @@ public static class HelpTopics
         ("The website did not accept the key", "Check it under Race > Results website... and press Test connection"),
         ("This computer cannot reach the internet", "Publish later from Past sessions"),
         ("The website is not answering", "Nothing was changed. Try again in a few minutes")),
-      Tip("A demo race is never published. The menu item is not there inside a demo.")
+      Tip("A demo race can be published too, to check the whole way through: it goes up marked DEMO, apart " +
+          "from the real races, and is removed after a day. See Try a demo race.")
     },
     HelpTopicIds.Results, HelpTopicIds.Overall, HelpTopicIds.PastSessions);
 

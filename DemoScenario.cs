@@ -251,7 +251,7 @@ public sealed class DemoDay
       RiderListPath = riderList,
       ChangeoverMinutes = ChangeoverMinutes,
       TypicalLapSeconds = TypicalLapSeconds,
-      After = new AfterSession { Publish = true, SaveSheets = true, Pdf = true, LiveTiming = false, Folder = sheetsFolder }
+      After = new AfterSession { Publish = true, SaveSheets = true, Pdf = true, LiveTiming = true, Folder = sheetsFolder }
     };
 
     foreach (var day in Sessions)

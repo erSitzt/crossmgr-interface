@@ -17,7 +17,7 @@ public partial class Form1
   /// second. Cleared when the settings window closes.
   /// </summary>
   private bool PublishingAvailable =>
-    _publishingAvailableCache ??= !IsDemo && HttpResultsPublisher.FromSettings(_settings).IsConfigured;
+    _publishingAvailableCache ??= MayReachWebsites && HttpResultsPublisher.FromSettings(_settings).IsConfigured;
 
   private string PublishSiteName
   {
@@ -167,7 +167,8 @@ public partial class Form1
       TimedRanking = race.SessionType != SessionType.Race ? QualifyingRanking.Rank(field.Values) : null,
       Field = field,
       PublishNamesByDefault = _settings.PublishNamesByDefault,
-      HiddenNameStyle = _settings.HiddenNameStyle
+      HiddenNameStyle = _settings.HiddenNameStyle,
+      Demo = IsDemo
     });
 
     return (session, track);
@@ -198,6 +199,7 @@ public partial class Form1
       Laps = session.Entries.Sum(e => e.LapTimes.Count),
       CircuitName = track?.Name,
       PublishedBefore = race.PublishedAt,
+      Demo = IsDemo,
       Refusal = race.IsFinished
         ? null
         : "This session is still running. Publish it once the flag is out."

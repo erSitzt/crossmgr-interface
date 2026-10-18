@@ -208,7 +208,8 @@ public partial class Form1
         Overall = payload,
         SiteName = PublishSiteName,
         Riders = payload.Classes.Sum(c => c.Entries.Count),
-        PublishedBefore = overall.PublishedAt
+        PublishedBefore = overall.PublishedAt,
+        Demo = IsDemo
       };
 
       var publisher = HttpResultsPublisher.FromSettings(_settings, AddDiagnostic);
@@ -240,7 +241,7 @@ public partial class Form1
   private PublishedOverall BuildOverallPayload(DbOverall overall, IReadOnlyList<DbRace> motos) =>
     PublishPayloadBuilder.BuildOverall(ScoreOverall(overall), overall.PublicId,
       motos.Select(r => _raceDb.EnsurePublicId(r.Id) ?? "").ToList(),
-      _settings.PublishNamesByDefault, _settings.HiddenNameStyle);
+      _settings.PublishNamesByDefault, _settings.HiddenNameStyle, demo: IsDemo);
 
   private bool DeleteOverall(IWin32Window owner, DbOverall overall)
   {
