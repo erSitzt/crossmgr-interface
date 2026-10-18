@@ -75,11 +75,16 @@ public partial class Form1
 
         var held = _heldReads.Add(entryKey, listed.RiderNumber, listed.FullName, listed.Category, at, crossedBy);
         if (held != null)
+        {
           notice = held.ManyRiders
             ? $"Riders of other classes keep crossing - is this the right session? It counts " +
               $"{SessionClassGate.Describe(sessionClasses!)}. Race > Riders from other classes... lists them."
             : $"{label} ({listed.Category}) is going round but is not in this session - not counted. " +
               "Race > Riders from other classes... counts them.";
+
+          // In the messages as well: the banner is gone in twenty seconds.
+          messages.Add(($"⚠️ {notice}", true));
+        }
         return true;
 
       default:

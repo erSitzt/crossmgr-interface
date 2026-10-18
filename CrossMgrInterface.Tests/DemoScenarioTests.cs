@@ -13,7 +13,7 @@ public class DemoScenarioTests
 
   public static TheoryData<string> Ids => new()
   {
-    DemoScenarios.RaceId, DemoScenarios.MotosId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId,
+    DemoScenarios.RaceId, DemoScenarios.MotosId, DemoScenarios.RaceDayId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId,
     DemoScenarios.WaitingId, DemoScenarios.ProblemsId, DemoScenarios.Lauf1Id, DemoScenarios.Lauf2Id
   };
 
@@ -30,7 +30,7 @@ public class DemoScenarioTests
     Assert.Equal(
       new[]
       {
-        DemoScenarios.RaceId, DemoScenarios.MotosId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId,
+        DemoScenarios.RaceId, DemoScenarios.MotosId, DemoScenarios.RaceDayId, DemoScenarios.QualifyingId, DemoScenarios.EnduroId, DemoScenarios.TeamsId,
         DemoScenarios.WaitingId, DemoScenarios.ProblemsId, DemoScenarios.Lauf1Id, DemoScenarios.Lauf2Id
       },
       DemoScenarios.All.Select(s => s.Id));

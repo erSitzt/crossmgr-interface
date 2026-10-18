@@ -223,7 +223,10 @@ public sealed class OverallReportGenerator : IDisposable
     }
 
     var rowHeight = rowFont.GetHeight(g) + 7;
-    var rulesHeight = (infoFont.GetHeight(g) + 2) * (_data.Rules.Describe().Count + 2) + 16;
+    // Measured, not counted: the line about places runs to two lines on A4.
+    var rulesWidth = bounds.Width - 90;
+    var rulesHeight = _data.Rules.Describe()
+      .Sum(line => g.MeasureString(line.Value, infoFont, (int)rulesWidth).Height + 2) + 16;
 
     DrawRow(headers, headerFont, ink);
     y += headerFont.GetHeight(g) + 3;
@@ -265,9 +268,12 @@ public sealed class OverallReportGenerator : IDisposable
     y += 12;
     foreach (var (caption, value) in _data.Rules.Describe())
     {
+      // As tall as it wraps to. One line's height here printed the next line on
+      // top of the second half of a long one.
+      var height = g.MeasureString(value, infoFont, (int)rulesWidth).Height;
       g.DrawString(caption, infoFont, quiet, bounds.Left, y);
-      g.DrawString(value, infoFont, ink, new RectangleF(bounds.Left + 90, y, bounds.Width - 90, infoFont.GetHeight(g) * 2 + 2));
-      y += infoFont.GetHeight(g) + 2;
+      g.DrawString(value, infoFont, ink, new RectangleF(bounds.Left + 90, y, rulesWidth, height + 2));
+      y += height + 2;
     }
 
     DrawFooter(continued: false);

@@ -386,6 +386,8 @@ public partial class Form1
       AddMessage($"📋 {session.Name} set up from the plan{(byHand ? "" : " by itself")} - due ~{next.ExpectedStart:HH:mm}.");
       RaiseNotice(NoticeLevel.Info, $"{session.Name} is set up - due ~{next.ExpectedStart:HH:mm}.");
 
+      if (IsDemo) DemoPlannedSessionSetUp(next);
+
       PlanTick();
     }
     catch (Exception ex)

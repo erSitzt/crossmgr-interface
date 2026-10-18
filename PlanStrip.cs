@@ -149,7 +149,9 @@ public static class PlanStripText
   /// <summary>What the banner says when a reminder comes due. Once each, so it can be blunt.</summary>
   public static string? ReminderText(ForecastEntry next, PlanReminder reminder) => reminder switch
   {
-    PlanReminder.Soon => $"{next.Session.Name} is due in 5 minutes ({next.DueAt:HH:mm}) - " +
+    // The time, not "in 5 minutes": how far ahead the reminder comes is a
+    // setting (the demo's is one minute), and the clock is what riders go by.
+    PlanReminder.Soon => $"{next.Session.Name} is due at {next.DueAt:HH:mm} - " +
                          $"{next.Session.ClassesText} to the gate.",
     PlanReminder.Due => $"{next.Session.Name} is due now.",
     PlanReminder.Overdue => $"{next.Session.Name} was due at {next.DueAt:HH:mm}. Start it, or change the plan's times.",
