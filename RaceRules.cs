@@ -35,6 +35,12 @@ public sealed class RaceRules
   /// <summary>Riders sharing a team name were scored as one entry. See TeamRoster.</summary>
   public bool TeamEvent { get; init; }
 
+  /// <summary>
+  /// The classes the session counted, when one rider list served several
+  /// sessions; null when it counted everyone. See SessionClassGate.
+  /// </summary>
+  public IReadOnlyList<string>? Classes { get; init; }
+
   public bool IsTimedSession => SessionType != SessionType.Race;
 
   public static RaceRules FromRace(DbRace race) => new()
@@ -46,7 +52,8 @@ public sealed class RaceRules
     MinimumLapSeconds = race.MinimumLapSeconds,
     ManualStart = race.ManualStart,
     Waves = WaveSchedule.FromRecords(race.Waves),
-    TeamEvent = race.TeamEvent == true
+    TeamEvent = race.TeamEvent == true,
+    Classes = race.Classes is { Count: > 0 } classes ? classes : null
   };
 
   /// <summary>
@@ -65,6 +72,11 @@ public sealed class RaceRules
         _ => "Race - ranked by laps completed, then by time"
       })
     };
+
+    // Only when it applies, like the teams line below: a sheet that lists half
+    // the rider list has to say why the other half is not on it.
+    if (Classes is { Count: > 0 } classes)
+      lines.Add(("Classes", $"{SessionClassGate.Describe(classes)} - riders of other classes were not counted"));
 
     // Only when it applies: on an ordinary sheet a "Teams: no" line would be
     // noise, and a team sheet has to say why one row carries several names.

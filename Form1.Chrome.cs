@@ -17,6 +17,7 @@ public partial class Form1
   private ToolStripMenuItem _menuEndRace = null!;
   private ToolStripMenuItem _menuGatePick = null!;
   private ToolStripMenuItem _menuTransponders = null!;
+  private ToolStripMenuItem _menuHeldRiders = null!;
   private ToolStripMenuItem _menuStartReader = null!;
   private ToolStripMenuItem _menuStopReader = null!;
   private ToolStripMenuItem _menuUndo = null!;
@@ -350,6 +351,9 @@ public partial class Form1
     _menuGatePick = Item("Gate pick order...", Keys.None, (s, e) => ShowQualifyingReport());
     _menuTransponders = Item("Transponder check...", Keys.None, (s, e) => ShowTransponderReport());
     var summary = Item("Rider summary", Keys.None, buttonShowSummary_Click);
+    // Only for a session that counts some of the classes: anywhere else there
+    // is never anyone to list.
+    _menuHeldRiders = Item("Riders from other classes...", Keys.None, (s, e) => ShowHeldRiders());
     var pastSessions = Item("Past sessions...", Keys.Control | Keys.O, (s, e) => ShowSessionManager());
     // Deliberately without a shortcut: this one leaves the building, and does
     // not belong a keystroke away from Results... Hidden inside a demo, like
@@ -375,7 +379,7 @@ public partial class Form1
     {
       newRace, import, new ToolStripSeparator(),
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
-      results, _menuGatePick, _menuTransponders, summary, new ToolStripSeparator(),
+      results, _menuGatePick, _menuTransponders, summary, _menuHeldRiders, new ToolStripSeparator(),
       pastSessions, _menuDeleteSession, new ToolStripSeparator(),
       _menuPublish, _menuLiveTiming, publishSettings, new ToolStripSeparator(),
       exit
@@ -550,6 +554,7 @@ public partial class Form1
 
     // Practice and qualifying both: a tag can still be re-fitted before the race.
     _menuTransponders.Visible = IsTimedSession;
+    lock (ridersLock) _menuHeldRiders.Visible = SessionClassGate.Restricts(sessionClasses);
     _menuStartReader.Enabled = !isListening;
     _menuStopReader.Enabled = isListening;
 

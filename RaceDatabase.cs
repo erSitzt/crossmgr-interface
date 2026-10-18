@@ -80,6 +80,13 @@ public class DbRace
   public bool? TeamEvent { get; set; }
 
   /// <summary>
+  /// The classes the session counted, when one rider list serves the whole
+  /// day; null for a session that counted everyone - which is what every
+  /// race stored before this existed did.
+  /// </summary>
+  public List<string>? Classes { get; set; }
+
+  /// <summary>
   /// When this session was last sent to the results website, and the page it
   /// landed on. Null means it has never been published, which is what Past
   /// sessions shows in its Published column and what makes the publish dialog
@@ -421,6 +428,7 @@ public class RaceDataService : IDisposable
     race.ManualStart = rules.ManualStart;
     race.Waves = rules.Waves?.ToRecords();
     race.TeamEvent = rules.TeamEvent;
+    race.Classes = rules.Classes is { Count: > 0 } classes ? classes.ToList() : null;
   }
 
   public void UpdateRace(Action<DbRace> updateAction)
