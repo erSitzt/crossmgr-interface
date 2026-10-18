@@ -17,7 +17,7 @@ internal static class HelpScreenshotScenes
   {
     "race-day", "new-race-wizard", "fix-laps", "unknown-transponder",
     "track-map", "circuit-editor", "past-sessions", "reader-settings", "demo-picker",
-    "publish-results", "rider-list", "spectator-screen", "overall-results"
+    "publish-results", "rider-list", "spectator-screen", "overall-results", "day-plan"
   };
 
   public static HelpScene Build(string name) => name switch
@@ -35,6 +35,7 @@ internal static class HelpScreenshotScenes
     "rider-list" => RiderList(),
     "spectator-screen" => SpectatorScreen(),
     "overall-results" => OverallResults(),
+    "day-plan" => DayPlanScene(),
     _ => throw new ArgumentException($"There is no help screenshot scene called {name}.", nameof(name))
   };
 
@@ -133,7 +134,7 @@ internal static class HelpScreenshotScenes
   private static HelpScene RaceDay()
   {
     var view = new RaceDayView();
-    var form = Host("Race Day", view.CreateRaceDayTab(), new Size(980, 660));
+    var form = Host("Race Day", view.CreateRaceDayTab(), new Size(980, 760));
     var sorted = PositionCalculator.GetSortedRidersFromSnapshot(RaceField());
 
     view.SetClock(TimeSpan.FromMinutes(14) + TimeSpan.FromSeconds(38), null, TimeSpan.FromMinutes(20));
@@ -143,6 +144,16 @@ internal static class HelpScreenshotScenes
     view.SetLiveStatus(LiveTileState.Sending, "Sending", "sent 3 s ago", canToggle: true, isOn: true);
     view.SetLeaderboard(sorted);
     view.SetChecklist("Moto 1 - MX1 / MX2", sorted.Count, TimeSpan.FromMinutes(20), true);
+
+    // The day's plan above the board: practice and qualifying done, the moto
+    // running a few minutes late, and the rest of the day moved with it.
+    var plan = SamplePlan();
+    var runs = SampleRuns(plan, finishedUpTo: 2, runningIndex: 3);
+    var now = plan.Date + new TimeSpan(13, 44, 38);
+    var forecast = PlanForecast.Forecast(plan, runs, null, plan.Sessions[3].Id, now);
+    var screen = new PlanScreen(plan.Sessions[3].Id, true, false, true, false, null);
+    var decision = PlanRunnerPolicy.Decide(forecast, screen, now, false, null, null);
+    view.SetPlan(PlanStripText.Build(plan, forecast, decision, PlanReminder.None, null, now));
 
     return new HelpScene { Form = form };
   }
@@ -442,6 +453,95 @@ internal static class HelpScreenshotScenes
     public bool PublishingAvailable => true;
     public void Publish(IWin32Window owner, DbOverall overall) { }
     public bool Delete(IWin32Window owner, DbOverall overall) => false;
+  }
+
+  /// <summary>
+  /// A club's Saturday as the plan window shows it: practice and qualifying
+  /// for both groups, then Moto 1 and Moto 2 of each, with overalls.
+  /// </summary>
+  private static DayPlan SamplePlan()
+  {
+    var day = new DateTime(2026, 9, 12);
+    PlannedSession S(int h, int m, string name, SessionType type, PlannedStartMode start, int length, int laps,
+      string? group, params string[] classes) => new()
+    {
+      Time = new TimeSpan(h, m, 0),
+      Name = name,
+      SessionType = type,
+      Start = start,
+      DurationMinutes = length,
+      AdditionalLaps = laps,
+      OverallGroup = group,
+      Classes = classes.ToList()
+    };
+
+    return new DayPlan
+    {
+      Name = "Clubrennen Saisonfinale",
+      Date = day,
+      ChangeoverMinutes = 5,
+      TypicalLapSeconds = 50,
+      TrackId = "gsc",
+      RiderListPath = @"C:\Club\riders-2026.xlsx",
+      Sessions =
+      {
+        S(9, 30, "Free practice - MX1 / MX2", SessionType.FreePractice, PlannedStartMode.FirstRider, 15, 0, null, "MX1", "MX2"),
+        S(10, 0, "Free practice - Youth", SessionType.FreePractice, PlannedStartMode.FirstRider, 10, 0, null, "Youth"),
+        S(11, 0, "Timed qualifying - MX1 / MX2", SessionType.TimedQualifying, PlannedStartMode.FirstRider, 15, 0, null, "MX1", "MX2"),
+        S(13, 30, "Moto 1 - MX1 / MX2", SessionType.Race, PlannedStartMode.Gate, 20, 1, "MX1 / MX2", "MX1", "MX2"),
+        S(14, 0, "Moto 1 - Youth", SessionType.Race, PlannedStartMode.Gate, 12, 1, "Youth", "Youth"),
+        S(14, 30, "Moto 2 - MX1 / MX2", SessionType.Race, PlannedStartMode.Gate, 20, 1, "MX1 / MX2", "MX1", "MX2"),
+        S(15, 0, "Moto 2 - Youth", SessionType.Race, PlannedStartMode.Gate, 12, 1, "Youth", "Youth")
+      }
+    };
+  }
+
+  /// <summary>The sessions up to <paramref name="finishedUpTo"/> run, one running, as the database would say.</summary>
+  private static Dictionary<string, PlanRun> SampleRuns(DayPlan plan, int finishedUpTo, int? runningIndex)
+  {
+    var runs = new Dictionary<string, PlanRun>();
+    for (var i = 0; i <= finishedUpTo; i++)
+    {
+      var start = plan.PlannedStart(plan.Sessions[i]).AddMinutes(i);
+      runs[plan.Sessions[i].Id] = new PlanRun(10 + i, start, start + plan.PlannedLength(plan.Sessions[i]), true);
+    }
+    if (runningIndex is { } r)
+      runs[plan.Sessions[r].Id] = new PlanRun(10 + r, plan.PlannedStart(plan.Sessions[r]).AddMinutes(6), null, false);
+    return runs;
+  }
+
+  private static HelpScene DayPlanScene()
+  {
+    var plan = SamplePlan();
+    var folder = Path.Combine(Path.GetTempPath(), "crossmgr-help-plans-" + Guid.NewGuid().ToString("N"));
+    var store = PlanStore.Load(folder);
+    store.Save(plan);
+
+    var host = new SamplePlanHost(store, plan, Gsc());
+    return new HelpScene { Form = new PlanDialog(host, plan, focusNext: false) { ClientSize = new Size(1180, 680) } };
+  }
+
+  private sealed class SamplePlanHost : IPlanHost
+  {
+    private readonly TrackDefinition _track;
+    public SamplePlanHost(PlanStore store, DayPlan plan, TrackDefinition track)
+    {
+      Store = store;
+      Plan = plan;
+      _track = track;
+      _track.Id = "gsc";
+    }
+
+    private DayPlan Plan { get; }
+    public PlanStore Store { get; }
+    public DayPlan? ActivePlan => null;
+    public IReadOnlyList<TrackDefinition> Tracks => new[] { _track };
+    public string? LoadedRiderList => Plan.RiderListPath;
+    public IReadOnlyList<string> ClassesOf(string? riderList) => new[] { "MX1", "MX2", "Youth" };
+    public IReadOnlyDictionary<string, PlanRun> RunsOf(DayPlan plan) => new Dictionary<string, PlanRun>();
+    public void Save(DayPlan plan) { }
+    public void Activate(DayPlan plan) { }
+    public void Deactivate() { }
   }
 
   /// <summary>Configured, so the picture shows the summary rather than the set-up message. Never sends.</summary>

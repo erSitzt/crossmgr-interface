@@ -88,6 +88,17 @@ public sealed class RaceDayView
   private FlowLayoutPanel _waveStrip = null!;
   private string? _nextWaveClass;
 
+  private TableLayoutPanel _planStrip = null!;
+  private Label _planTitle = null!;
+  private Label _planNext = null!;
+  private FlowLayoutPanel _planChips = null!;
+  private Button _planSetUp = null!;
+  private Button _planNotYet = null!;
+  private Button _planChange = null!;
+  private Button _planSkip = null!;
+  private Font? _planChipFont;
+  private string? _plannedSetUpText;
+
   /// <summary>One font for every chip. A font per label leaked a GDI handle each time the strip shrank.</summary>
   private Font? _chipFont;
 
@@ -108,6 +119,10 @@ public sealed class RaceDayView
   public event EventHandler? RiderListClicked;
   public event EventHandler? DemoClicked;
   public event EventHandler? BannerDismissed;
+  public event EventHandler? PlanSetUpClicked;
+  public event EventHandler? PlanNotYetClicked;
+  public event EventHandler? PlanChangeTimesClicked;
+  public event EventHandler? PlanSkipClicked;
 
   public TabPage CreateRaceDayTab()
   {
@@ -117,19 +132,21 @@ public sealed class RaceDayView
     {
       Dock = DockStyle.Fill,
       ColumnCount = 1,
-      RowCount = 4,
+      RowCount = 5,
       Padding = new Padding(16),
       BackColor = Color.White
     };
     root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
     root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190));
     root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+    root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
     root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
     root.Controls.Add(BuildBanner(), 0, 0);
     root.Controls.Add(BuildTiles(), 0, 1);
-    root.Controls.Add(BuildWaveStrip(), 0, 2);
-    root.Controls.Add(BuildBody(), 0, 3);
+    root.Controls.Add(BuildPlanStrip(), 0, 2);
+    root.Controls.Add(BuildWaveStrip(), 0, 3);
+    root.Controls.Add(BuildBody(), 0, 4);
 
     page.Controls.Add(root);
     return page;
@@ -387,6 +404,150 @@ public sealed class RaceDayView
     }
 
     _waveStrip.Visible = true;
+  }
+
+  /// <summary>
+  /// The day's plan: what has run, what is on, what comes next and when, and
+  /// why the next one is not set up yet when it is not. Hidden without a plan.
+  /// </summary>
+  private Control BuildPlanStrip()
+  {
+    _planStrip = new TableLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      AutoSize = true,
+      ColumnCount = 2,
+      RowCount = 3,
+      Visible = false,
+      Padding = new Padding(10, 8, 10, 6),
+      Margin = new Padding(4, 8, 4, 0),
+      BackColor = Color.FromArgb(242, 246, 252)
+    };
+    _planStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+    _planStrip.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+    _planTitle = new Label
+    {
+      AutoSize = true,
+      Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+      ForeColor = Color.FromArgb(20, 60, 140),
+      Margin = new Padding(0, 0, 0, 2)
+    };
+    _planNext = new Label
+    {
+      AutoSize = true,
+      Font = new Font("Segoe UI", 11.5F, FontStyle.Bold),
+      Margin = new Padding(0, 2, 0, 4)
+    };
+    // One line: the strip only ever shows a few sessions either side of now
+    // (see PlanStripText.ChipWindow), and a wrapping panel measured itself a
+    // line taller than it drew, leaving a blank band over the board.
+    _planChips = new FlowLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      AutoSize = true,
+      WrapContents = false,
+      Margin = new Padding(0),
+      BackColor = Color.Transparent
+    };
+
+    var buttons = new FlowLayoutPanel
+    {
+      AutoSize = true,
+      WrapContents = false,
+      FlowDirection = FlowDirection.LeftToRight,
+      Anchor = AnchorStyles.Top | AnchorStyles.Right,
+      Margin = new Padding(8, 0, 0, 0)
+    };
+    _planSetUp = PlanButton("Set up now", (s, e) => PlanSetUpClicked?.Invoke(s, e), bold: true);
+    _planNotYet = PlanButton("Not yet", (s, e) => PlanNotYetClicked?.Invoke(s, e));
+    _planChange = PlanButton("Change times...", (s, e) => PlanChangeTimesClicked?.Invoke(s, e));
+    _planSkip = PlanButton("Skip...", (s, e) => PlanSkipClicked?.Invoke(s, e));
+    buttons.Controls.AddRange(new Control[] { _planSetUp, _planNotYet, _planChange, _planSkip });
+
+    _planStrip.Controls.Add(_planTitle, 0, 0);
+    _planStrip.Controls.Add(buttons, 1, 0);
+    _planStrip.SetRowSpan(buttons, 2);
+    _planStrip.Controls.Add(_planNext, 0, 1);
+    _planStrip.Controls.Add(_planChips, 0, 2);
+    _planStrip.SetColumnSpan(_planChips, 2);
+    return _planStrip;
+
+    static Button PlanButton(string text, EventHandler click, bool bold = false)
+    {
+      var button = new Button
+      {
+        Text = text,
+        AutoSize = true,
+        MinimumSize = new Size(0, 32),
+        Padding = new Padding(6, 0, 6, 0),
+        Margin = new Padding(6, 0, 0, 0),
+        Font = new Font("Segoe UI", 9.5F, bold ? FontStyle.Bold : FontStyle.Regular)
+      };
+      button.Click += click;
+      return button;
+    }
+  }
+
+  public void SetPlan(PlanStripModel? model)
+  {
+    _plannedSetUpText = model?.SetUpButtonText;
+    ApplySetupWording();
+
+    if (model == null)
+    {
+      _planStrip.Visible = false;
+      return;
+    }
+
+    _planTitle.Text = model.Timing.Length > 0 ? $"{model.Title}  ·  {model.Timing}" : model.Title;
+    _planNext.Text = model.NextLine;
+    (_planStrip.BackColor, _planNext.ForeColor) = model.Tone switch
+    {
+      PlanStripTone.Soon => (Color.FromArgb(255, 244, 214), Color.FromArgb(140, 75, 0)),
+      PlanStripTone.Overdue => (Color.FromArgb(253, 226, 222), Color.FromArgb(160, 30, 20)),
+      PlanStripTone.Attention => (Color.FromArgb(255, 244, 214), Color.FromArgb(140, 75, 0)),
+      _ => (Color.FromArgb(242, 246, 252), Color.FromArgb(25, 25, 25))
+    };
+
+    _planSetUp.Visible = model.CanSetUpNow;
+    _planNotYet.Visible = model.ShowNotYet;
+    _planSkip.Visible = model.CanSkip;
+
+    // Rebuilt in place, like the wave strip: this runs every second.
+    while (_planChips.Controls.Count > model.Chips.Count)
+    {
+      var spare = _planChips.Controls[_planChips.Controls.Count - 1];
+      _planChips.Controls.Remove(spare);
+      spare.Dispose();
+    }
+    while (_planChips.Controls.Count < model.Chips.Count)
+      _planChips.Controls.Add(new Label
+      {
+        AutoSize = true,
+        Padding = new Padding(6, 3, 6, 3),
+        Margin = new Padding(0, 0, 6, 4),
+        Font = _planChipFont ??= new Font("Segoe UI", 9F),
+        BorderStyle = BorderStyle.FixedSingle
+      });
+
+    for (var i = 0; i < model.Chips.Count; i++)
+    {
+      var chip = model.Chips[i];
+      var label = (Label)_planChips.Controls[i];
+      label.Text = chip.Text;
+      (label.BackColor, label.ForeColor) = chip.Status switch
+      {
+        PlanEntryStatus.Finished => (Color.FromArgb(225, 245, 230), Color.FromArgb(0, 110, 45)),
+        PlanEntryStatus.Running => (Color.FromArgb(0, 130, 55), Color.White),
+        PlanEntryStatus.Interrupted => (Color.FromArgb(253, 226, 222), Color.FromArgb(160, 30, 20)),
+        PlanEntryStatus.Skipped => (Color.WhiteSmoke, Color.Silver),
+        _ when chip.Next => (Color.FromArgb(255, 236, 200), Color.FromArgb(150, 80, 0)),
+        _ => (Color.White, Color.DimGray)
+      };
+    }
+
+    _planStrip.Visible = true;
   }
 
   private Control BuildBody()
@@ -694,7 +855,18 @@ public sealed class RaceDayView
     _startRace.Text = _timedSession ? "START SESSION" : "START RACE";
     _endRace.Text = _timedSession ? "End session now" : "End race now";
     _results.Text = _gatePickOrder ? "Gate pick order..." : "Results...";
-    _setup.Text = _timedSession ? "Set up session..." : "Set up race...";
+    ApplySetupWording();
+  }
+
+  /// <summary>
+  /// With a plan, the button that sets up the next session names it: the
+  /// volunteer presses SET UP MOTO 1 YOUTH, not a wizard they would then have
+  /// to fill in with what the plan already says.
+  /// </summary>
+  private void ApplySetupWording()
+  {
+    _setup.Text = _plannedSetUpText ?? (_timedSession ? "Set up session..." : "Set up race...");
+    _newSession.Text = _plannedSetUpText ?? "NEW SESSION...";
   }
 
   public void SetState(RaceDayState state, string detail)

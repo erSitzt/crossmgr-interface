@@ -87,6 +87,14 @@ public class DbRace
   public List<string>? Classes { get; set; }
 
   /// <summary>
+  /// The day plan, and the session of it, this race ran. Null for a race set
+  /// up by hand. The plan reads what has happened from here rather than
+  /// storing it itself - see DayPlan.
+  /// </summary>
+  public string? PlanId { get; set; }
+  public string? PlanEntryId { get; set; }
+
+  /// <summary>
   /// When this session was last sent to the results website, and the page it
   /// landed on. Null means it has never been published, which is what Past
   /// sessions shows in its Published column and what makes the publish dialog
@@ -460,6 +468,29 @@ public class RaceDataService : IDisposable
 
     return race.PublicId;
   }
+
+  /// <summary>Records which planned session a race ran. Called once, when its clock starts.</summary>
+  public void StampPlanEntry(int raceId, string planId, string entryId)
+  {
+    var race = _races.FindById(raceId);
+    if (race == null) return;
+
+    race.PlanId = planId;
+    race.PlanEntryId = entryId;
+    _races.Update(race);
+  }
+
+  /// <summary>
+  /// The race that ran each session of a plan: the latest one, should a
+  /// session have been started twice. Filtered in memory, like ListSessions:
+  /// rows written before plans existed have no such field at all.
+  /// </summary>
+  public Dictionary<string, PlanRun> RunsForPlan(string planId) =>
+    _races.FindAll()
+      .Where(r => r.PlanId == planId && !string.IsNullOrEmpty(r.PlanEntryId))
+      .GroupBy(r => r.PlanEntryId!)
+      .Select(g => g.OrderByDescending(r => r.StartTime).First())
+      .ToDictionary(r => r.PlanEntryId!, r => new PlanRun(r.Id, r.StartTime, r.EndTime, r.IsFinished));
 
   /// <summary>Records that this session is now on the results website.</summary>
   public void MarkPublished(int raceId, DateTime at, string url)

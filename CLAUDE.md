@@ -38,7 +38,7 @@ Then:
 
 | Picture | Screen | Regenerate after changing | Topic |
 |---|---|---|---|
-| `race-day` | Race Day tab during a race, live timing on | `RaceDayView.cs` | race-day |
+| `race-day` | Race Day tab during a race, live timing on, with a day plan | `RaceDayView.cs`, `PlanStrip.cs`, `PlanForecast.cs` | race-day |
 | `new-race-wizard` | New race wizard, Riders step | `NewRaceWizard.cs` | quick-start |
 | `fix-laps` | Fix laps dialog with the suggested fix for a CHECK lap | `LapCorrectionDialog.cs`, `LapFixAdvisor.cs` | fixing |
 | `unknown-transponder` | Identify transponder dialog | `AssignTagDialog.cs` | unknown |
@@ -51,6 +51,7 @@ Then:
 | `rider-list` | Rider list dialog, a number given twice and a missing class marked | `RiderListDialog.cs`, `RiderListCheck.cs` | rider-lists |
 | `spectator-screen` | Spectator screen during a race, top 10 | `SpectatorWindow.cs`, `SpectatorBoard.cs`, `BoardText.cs` | race-day |
 | `overall-results` | Overall results of two motos, per class | `OverallResultsDialog.cs`, `OverallScorer.cs`, `OverallReportGenerator.cs` | overall |
+| `day-plan` | Plan the day window with a club day planned | `PlanDialog.cs`, `DayPlan.cs` | day-plan |
 
 Also:
 

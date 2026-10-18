@@ -172,6 +172,42 @@ public partial class Form1
   }
 
   /// <summary>Records the rider list in use, so a restart can reload it.</summary>
+  /// <summary>
+  /// Loads a rider list file in place of the one loaded, as at start-up and
+  /// when a day plan names its own. True when it held any riders.
+  /// </summary>
+  private bool LoadRiderListFile(string path, bool reloaded = false)
+  {
+    try
+    {
+      if (!File.Exists(path))
+      {
+        AddDiagnostic($"Rider list is no longer at {path}");
+        if (!reloaded)
+          RaiseNotice(NoticeLevel.Warning, $"The rider list {Path.GetFileName(path)} could not be found. Load it with Race > Import riders...");
+        return false;
+      }
+
+      var result = path.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
+        ? _riderDataImporter.ImportFromCsvDetailed(path)
+        : _riderDataImporter.ImportFromExcelDetailed(path);
+
+      if (result.ImportedCount == 0) return false;
+
+      RebuildTeamRoster();
+      ReportTeamRoster();
+      ApplyImportedDataToExistingRiders();
+      PopulateClassFilter();
+      AddMessage($"📋 {(reloaded ? "Reloaded" : "Loaded")} {result.ImportedCount} riders from {Path.GetFileName(path)}");
+      return true;
+    }
+    catch (Exception ex)
+    {
+      AddDiagnostic($"Could not load the rider list {path}: {ex.Message}");
+      return false;
+    }
+  }
+
   private void RememberRiderList(string path)
   {
     _settings.LastRiderListPath = path;
@@ -194,34 +230,7 @@ public partial class Form1
   {
     var path = _settings.LastRiderListPath;
     if (!string.IsNullOrEmpty(path) && _riderDataImporter.Count == 0)
-    {
-      try
-      {
-        if (File.Exists(path))
-        {
-          var result = path.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
-            ? _riderDataImporter.ImportFromCsvDetailed(path)
-            : _riderDataImporter.ImportFromExcelDetailed(path);
-
-          if (result.ImportedCount > 0)
-          {
-            RebuildTeamRoster();
-            ReportTeamRoster();
-            ApplyImportedDataToExistingRiders();
-            PopulateClassFilter();
-            AddMessage($"📋 Reloaded {result.ImportedCount} riders from {Path.GetFileName(path)}");
-          }
-        }
-        else
-        {
-          AddDiagnostic($"Previous rider list is no longer at {path}");
-        }
-      }
-      catch (Exception ex)
-      {
-        AddDiagnostic($"Could not reload the previous rider list: {ex.Message}");
-      }
-    }
+      LoadRiderListFile(path, reloaded: true);
 
     if (_settings.ReaderConnected && !isListening)
     {
@@ -351,6 +360,8 @@ public partial class Form1
     _menuGatePick = Item("Gate pick order...", Keys.None, (s, e) => ShowQualifyingReport());
     _menuTransponders = Item("Transponder check...", Keys.None, (s, e) => ShowTransponderReport());
     var summary = Item("Rider summary", Keys.None, buttonShowSummary_Click);
+    var planDay = Item("Plan the day...", Keys.Control | Keys.D, (s, e) => ShowPlanDialog());
+    planDay.Available = !IsDemo;
     // Only for a session that counts some of the classes: anywhere else there
     // is never anyone to list.
     _menuHeldRiders = Item("Riders from other classes...", Keys.None, (s, e) => ShowHeldRiders());
@@ -380,6 +391,7 @@ public partial class Form1
       newRace, import, new ToolStripSeparator(),
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
       results, _menuGatePick, _menuTransponders, summary, _menuHeldRiders, new ToolStripSeparator(),
+      planDay, new ToolStripSeparator(),
       pastSessions, _menuDeleteSession, new ToolStripSeparator(),
       _menuPublish, _menuLiveTiming, publishSettings, new ToolStripSeparator(),
       exit

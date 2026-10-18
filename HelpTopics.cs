@@ -25,7 +25,7 @@ public static class HelpTopics
 
   public static IReadOnlyList<HelpTopic> All { get; } = new[]
   {
-    QuickStart(), Demo(), Screens(),
+    QuickStart(), DayPlan(), Demo(), Screens(),
     Race(), Qualifying(), Practice(), Waves(), Teams(),
     RaceDay(), Fixing(), Unknown(), TransponderCheck(), Track(),
     Results(), Overall(), Publish(), PastSessions(),
@@ -85,10 +85,85 @@ public static class HelpTopics
       Tip("Each session type has its own topic under Session types: how to set it up, what happens when " +
           "the clock runs out, and what its sheet shows."),
       Tip("No reader to hand? Help > Try a demo race... runs a whole session with simulated riders, in a " +
-          "window of its own.")
+          "window of its own."),
+      Tip("A whole day of sessions can be set up in advance, the evening before: see Planning the day. " +
+          "Each session then sets itself up when it is nearly due.")
     },
-    HelpTopicIds.Race, HelpTopicIds.Qualifying, HelpTopicIds.Practice, HelpTopicIds.RaceDay, HelpTopicIds.Fixing,
-    HelpTopicIds.Demo);
+    HelpTopicIds.DayPlan, HelpTopicIds.Race, HelpTopicIds.Qualifying, HelpTopicIds.Practice, HelpTopicIds.RaceDay,
+    HelpTopicIds.Fixing, HelpTopicIds.Demo);
+
+  private static HelpTopic DayPlan() => Topic(HelpTopicIds.DayPlan, GettingStarted,
+    "Planning the day",
+    "Set up the whole day in advance - practice, qualifying, every moto - and on the day each session " +
+    "puts itself on screen when it is nearly due. When the day runs late, the times follow.",
+    new[]
+    {
+      Picture("day-plan", "Race > Plan the day..., with a club day planned."),
+
+      Heading("Before the day"),
+      Steps(
+        "Race > Plan the day... (Ctrl+D). The first time press New; after that press Copy... on the last " +
+        "club day's plan and change only what is different.",
+        "Choose the day, a name, the day's rider list and the circuit. One rider list serves the whole day.",
+        "Add the sessions in the order they run: Add session... asks what the New race wizard asks - the " +
+        "time, the name, the type, the classes that ride in it, the length, the extra laps, how the clock " +
+        "starts, and the overall it counts towards.",
+        "For each Moto 1, select it and press Add Moto 2: it is copied with the same classes and length, " +
+        "named Moto 2 and put in the same overall, after the last session.",
+        "Check the list under the sessions: anything worth fixing is shown there - a class that is not on " +
+        "the rider list, motos of one overall for different classes, sessions out of time order."),
+      Bullets(
+        "Between sessions is the least time from one finish to the next start; Typical lap is how long a lap " +
+        "takes. Both are only for working out the times when the day runs late.",
+        "Export... saves the plan as a file to email to the timing laptop; Import... reads it there.",
+        "Every change is saved straight away."),
+
+      Heading("On the day"),
+      Para("Open the application on the day and it asks once whether to use today's plan. Yes loads the " +
+           "rider list, the circuit and the reader. From then on the Race Day screen shows the plan above " +
+           "the board: what has run, what is on, and what is next and when."),
+      Bullets(
+        "Each session is set up by itself 15 minutes before it is due - 5 minutes for one whose clock starts " +
+        "on the first rider, so riders rolling over the loop on the way to the gate cannot start it. A " +
+        "finished session stays on screen at least two minutes, for a last look at its laps.",
+        "Before setting one up the plan counts down for 30 seconds. Not yet puts it off for five minutes.",
+        "It never sets up while a window is open over the screen (Fix laps, a message), within two minutes of a " +
+        "lap being fixed, or while a session reopened from Past sessions is on screen. The plan says what it " +
+        "is waiting for.",
+        "Set up now - or the big SET UP button, which names the session - puts the next one on screen straight " +
+        "away. A running session is never put away.",
+        "The clock starts as it always does: on the first rider, or when you press START RACE.",
+        "Five minutes before a session is due, and when it is due, the plan turns amber, a banner names the " +
+        "classes to send to the gate, and the laptop sounds. Ten minutes late, it says so once more.",
+        "If riders of the next session cross the line while it is not set up yet, it is set up at once - or, " +
+        "with a window open, a red banner asks you to close it."),
+
+      Heading("When the day runs late"),
+      Bullets(
+        "Every session moves by as much as the last one started late, so the planned breaks stay as they were. " +
+        "No session starts until the one before has finished and the time between sessions has passed.",
+        "A session is never moved earlier than planned: the riders were told a time.",
+        "Change times... opens the plan on the next session. A time typed on the day is kept as it is, and " +
+        "the sessions after it move with it. Back to the planned time undoes it.",
+        "Skip... marks a session skipped - rained off, or merged into another. It stays on the timetable."),
+
+      Heading("Classes in a session"),
+      Para("A session counts only the classes ticked for it. A rider of another class who crosses the line is " +
+           "not counted, and cannot start the clock - usually that is the next group on its way to the gate. " +
+           "If one of them keeps going round, a banner says so: Race > Riders from other classes... lists them, " +
+           "and Count in this session counts a rider after all, with every lap they have ridden. A rider " +
+           "already counted is never turned away, and a rider with no class on the list is always counted."),
+
+      Heading("Something different"),
+      Bullets(
+        "Race > New race... still sets up a session by hand. The plan waits while it is on screen, and Set " +
+        "up now goes back to the plan.",
+        "If the laptop restarts during a planned session, the recovery question names the session; Yes brings " +
+        "it back and the plan carries on. A session started and never finished shows as interrupted: open " +
+        "it from Past sessions to finish it, or Skip it.",
+        "Stop using this plan, in the plan window, goes back to setting up by hand.")
+    },
+    HelpTopicIds.QuickStart, HelpTopicIds.RaceDay, HelpTopicIds.Overall, HelpTopicIds.PastSessions);
 
   private static HelpTopic Demo() => Topic(HelpTopicIds.Demo, GettingStarted,
     "Try a demo race",
@@ -462,9 +537,16 @@ public static class HelpTopics
         "Fix laps... (F2) - opens the rider who most needs it (TWO OUT before CHECK, the leaders first), or says " +
         "there is nothing to fix.",
         "Results... / Gate pick order... - turns green once the session is over.",
-        "NEW SESSION... - after the session: sets up the next one. The finished one is kept.",
+        "NEW SESSION... - after the session: sets up the next one. The finished one is kept. With a day plan " +
+        "it is SET UP and the next session's name, and sets that one up as planned.",
         "Set up race... / Set up session... - opens the wizard. A session that is still running is ended first, " +
         "after asking."),
+
+      Heading("The day's plan"),
+      Para("With a day plan in use, a strip above the board shows the day: ✓ what has run, ▶ what is on, then " +
+           "what is next, when it is due and when it will be set up - or what the plan is waiting for. It turns " +
+           "amber when a session is due soon and red when it is late. Set up now, Not yet, Change times... and " +
+           "Skip... act on the next session. See Planning the day."),
 
       Heading("The board, the checklist and the banners"),
       Bullets(
@@ -497,7 +579,7 @@ public static class HelpTopics
       Tip("The spectator screen remembers its screen and its number of rows. Keep the laptop's own screen for the " +
           "operator: the spectator screen follows the race by itself and needs nothing pressed.")
     },
-    HelpTopicIds.QuickStart, HelpTopicIds.Fixing, HelpTopicIds.Reader, HelpTopicIds.RiderLists);
+    HelpTopicIds.QuickStart, HelpTopicIds.DayPlan, HelpTopicIds.Fixing, HelpTopicIds.Reader, HelpTopicIds.RiderLists);
 
   private static HelpTopic Fixing() => Topic(HelpTopicIds.Fixing, DuringASession,
     "Fixing laps",
@@ -903,7 +985,8 @@ public static class HelpTopics
         "Publish... - puts it on the club's results website. Only shown once a website has been set up.",
         "Overall results... - adds up two or more motos into the result of the day. Select the motos with " +
         "Ctrl+click first; for motos that already count together, one of them is enough. See Overall results.",
-        "Open - makes it the session on screen, to look at its laps or correct them. Not while another session is running.",
+        "Open - makes it the session on screen, to look at its laps or correct them. Not while another session is running. " +
+        "With a day plan, the plan waits while it is on screen; Set up now goes back to the plan.",
         "Rename... - changes the name printed on its sheet.",
         "Delete... - removes it and all its laps for good."),
       Para("Race > Delete this session... removes the session on screen, once it is over - a running session " +
@@ -1039,6 +1122,7 @@ public static class HelpTopics
       Keys(
         ("F1", "Help"),
         ("Ctrl+N", "New race... - set up a session"),
+        ("Ctrl+D", "Plan the day..."),
         ("Ctrl+I", "Import riders..."),
         ("Ctrl+L", "Rider list... - check and correct the riders"),
         ("F5", "Start race / Start session"),
