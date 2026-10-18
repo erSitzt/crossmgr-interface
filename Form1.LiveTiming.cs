@@ -48,9 +48,10 @@ public partial class Form1
   /// A demo may send live to the real site, so a club can show someone what
   /// live timing looks like on a phone without a reader. It goes out marked as
   /// a demo - a field the website badges and clears away within a day - so
-  /// fictional riders can never be taken for a real race.
+  /// fictional riders can never be taken for a real race. Not from the
+  /// unattended test rig unless it was told --live.
   /// </summary>
-  private bool LiveTimingAllowed => true;
+  private bool LiveTimingAllowed => MayReachWebsites;
 
   private void InvalidateLiveConfiguration()
   {

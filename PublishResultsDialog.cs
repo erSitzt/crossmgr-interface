@@ -20,6 +20,9 @@ public sealed record PublishRequest
   public string? CircuitName { get; init; }
   public DateTime? PublishedBefore { get; init; }
 
+  /// <summary>From a demo: published marked DEMO, and no way into the settings, which are the main window's.</summary>
+  public bool Demo { get; init; }
+
   /// <summary>Set when the session cannot be published, with the reason to show.</summary>
   public string? Refusal { get; init; }
 }
@@ -69,7 +72,9 @@ public sealed class PublishResultsDialog : Form
 
     var heading = new Label
     {
-      Text = $"Publish \u201c{request.Title}\u201d to {request.SiteName}?",
+      Text = request.Demo
+        ? $"Publish \u201c{request.Title}\u201d to {request.SiteName} as a DEMO?"
+        : $"Publish \u201c{request.Title}\u201d to {request.SiteName}?",
       Location = new Point(16, 16),
       Size = new Size(438, 38),
       Font = new Font(Font, FontStyle.Bold)
@@ -131,6 +136,10 @@ public sealed class PublishResultsDialog : Form
       _publish.Enabled = false;
       if (!publisher.IsConfigured) AcceptButton = _settings;
     }
+
+    // A demo's settings are a copy of the main window's, thrown away with it:
+    // changing them here would change nothing that lasts.
+    if (request.Demo) _settings.Visible = false;
   }
 
   private Button CopyButton { get; }
@@ -162,6 +171,12 @@ public sealed class PublishResultsDialog : Form
       lines.Add("Riders' names, numbers, classes, teams and lap times are sent.");
     }
     lines.Add("Transponder IDs are not.");
+
+    if (_request.Demo)
+    {
+      lines.Add("");
+      lines.Add("Shown as DEMO, apart from the real races, and removed after a day.");
+    }
 
     if (_request.PublishedBefore is { } before)
     {
@@ -260,7 +275,7 @@ public sealed class PublishResultsDialog : Form
 
     // Leave Publish alive so trying again is one click, not a hunt for the menu.
     _publish.Text = "Publish";
-    if (outcome.Status == PublishStatus.Unauthorized) AcceptButton = _settings;
+    if (outcome.Status == PublishStatus.Unauthorized && _settings.Visible) AcceptButton = _settings;
   }
 
   private void OpenPublishedPage()

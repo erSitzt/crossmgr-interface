@@ -127,8 +127,7 @@ public class RaceDayDemoTests
     Assert.Equal(PlannedStartMode.FirstRider, plan.Sessions[0].Start);
     Assert.Equal("MX1 / MX2", plan.Sessions[1].OverallGroup);
     Assert.Equal("MX1 / MX2", plan.Sessions[2].OverallGroup);
-    Assert.True(plan.After.Publish && plan.After.SaveSheets);
-    Assert.False(plan.After.LiveTiming);
+    Assert.True(plan.After.Publish && plan.After.SaveSheets && plan.After.LiveTiming);
     Assert.Empty(plan.Problems(Demo.Classes));
     Assert.Equal(plan.Sessions.Select(s => s.Id), day.Sessions.Select(s => s.Session.Id));
   }

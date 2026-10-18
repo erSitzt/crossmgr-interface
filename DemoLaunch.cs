@@ -27,7 +27,11 @@ public static class DemoLaunch
   public const string DemoArgument = "--demo";
   public const string UnattendedArgument = "--unattended";
 
-  /// <summary>With --unattended: switch live timing on by itself. The test rig, not a spectator feature.</summary>
+  /// <summary>
+  /// With --unattended: reach the real websites - live timing on by itself,
+  /// results published by themselves. Without it an unattended demo, which is
+  /// the test rig, never sends anything anywhere.
+  /// </summary>
   public const string LiveArgument = "--live";
 
   /// <summary>Holds every demo's own folder.</summary>
@@ -78,28 +82,35 @@ public static class DemoLaunch
   }
 
   /// <summary>
-  /// Carries the live timing set-up into a demo's sandbox.
+  /// Carries the websites' set-up into a demo's sandbox.
   ///
   /// A demo starts from an empty folder so it can never touch real data, and
-  /// that would also make it useless for showing someone live timing. So the
-  /// live address and the key travel - and nothing else. The results address
-  /// deliberately stays behind: a demo goes out live, marked as a demo and
-  /// cleared away within a day, but it never publishes final results.
+  /// that would also make it useless for trying the websites. So the two
+  /// addresses, the key and the name settings travel - and nothing else. A
+  /// demo goes out live and publishes its results like a real race day, so a
+  /// club can check every step, but marked DEMO: the websites keep it apart
+  /// from real racing and remove it after a day.
   /// </summary>
-  public static void SeedLiveTiming(string realRoot, string sandbox)
+  public static void SeedWebsites(string realRoot, string sandbox)
   {
     try
     {
       var settingsPath = Path.Combine(realRoot, "settings.json");
       if (!File.Exists(settingsPath)) return;
 
-      using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(settingsPath));
-      if (!doc.RootElement.TryGetProperty(nameof(AppSettings.LiveSiteUrl), out var url)) return;
-      var liveUrl = url.GetString();
-      if (string.IsNullOrWhiteSpace(liveUrl)) return;
+      // Read through AppSettings itself, so its defaults apply to what is missing.
+      var real = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(settingsPath));
+      if (real == null || (string.IsNullOrWhiteSpace(real.LiveSiteUrl) && string.IsNullOrWhiteSpace(real.ResultsSiteUrl)))
+        return;
 
       File.WriteAllText(Path.Combine(sandbox, "settings.json"),
-        System.Text.Json.JsonSerializer.Serialize(new AppSettings { LiveSiteUrl = liveUrl },
+        System.Text.Json.JsonSerializer.Serialize(new AppSettings
+          {
+            LiveSiteUrl = real.LiveSiteUrl,
+            ResultsSiteUrl = real.ResultsSiteUrl,
+            PublishNamesByDefault = real.PublishNamesByDefault,
+            HiddenNameStyle = real.HiddenNameStyle
+          },
           new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
 
       var key = Path.Combine(realRoot, "results-key.dat");

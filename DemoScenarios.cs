@@ -377,8 +377,9 @@ public static class DemoScenarios
         "The plan strip on the Race Day screen shows the day: what has run, what is on, and what is next.",
         "Practice sets itself up and starts on the first rider. Each moto sets itself up a minute before it is " +
         "due (on a club day: a quarter of an hour), and you press START RACE when the gate drops.",
-        "After each session the sheets are saved into the demo's own folder, and the results would go to the " +
-        "website - in a demo nothing is sent; the log says what would have been.",
+        "After each session the sheets are saved into the demo's own folder. With the club's website set up, " +
+        "live timing switches on and the results, the overall and the day's programme go up on the websites, " +
+        "marked DEMO and removed after a day; without it, the messages say what would have gone up.",
         "The waiting is shortened so the day fits in twenty minutes."
       },
       WhatToTry = new[]

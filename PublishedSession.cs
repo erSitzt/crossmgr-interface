@@ -80,6 +80,15 @@ public sealed record PublishedSessionHeader
   public bool Finished { get; init; }
 
   public bool TeamEvent { get; init; }
+
+  /// <summary>
+  /// True for a demo race: fictional riders, from one of the application's
+  /// demos. The websites mark it DEMO, keep it out of the real race days and
+  /// remove it after a day. Absent - not false - for real racing, so what a
+  /// real race sends is exactly what it always sent.
+  /// </summary>
+  public bool? Demo { get; init; }
+
   public DateTimeOffset GeneratedAt { get; init; }
 
   /// <summary>
@@ -281,6 +290,10 @@ public sealed record PublishedOverallHeader
   /// <summary>False while any of the motos is still running: the website says "provisional".</summary>
   public bool Final { get; init; }
   public bool TeamEvent { get; init; }
+
+  /// <summary>From a demo: see <see cref="PublishedSessionHeader.Demo"/>.</summary>
+  public bool? Demo { get; init; }
+
   public DateTimeOffset GeneratedAt { get; init; }
 
   /// <summary>How it was scored, as the sheet prints it.</summary>
@@ -341,6 +354,9 @@ public sealed record PublishedPlanHeader
   public required string Title { get; init; }
   public string? TrackId { get; init; }
   public int RunningLateMinutes { get; init; }
+
+  /// <summary>From a demo: see <see cref="PublishedSessionHeader.Demo"/>.</summary>
+  public bool? Demo { get; init; }
 
   /// <summary>When the laptop sent it; an older one arriving late is ignored.</summary>
   public DateTimeOffset SentAt { get; init; }
