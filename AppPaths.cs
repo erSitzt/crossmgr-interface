@@ -68,6 +68,9 @@ public static class AppPaths
   /// </summary>
   public static string PlansFolder => Path.Combine(EnsureRoot(), "plans");
 
+  /// <summary>The club's own day-plan presets, as codes. See PresetStore.</summary>
+  public static string PresetsFile => Path.Combine(EnsureRoot(), "presets.json");
+
   /// <summary>
   /// Downloaded map tiles, laid out as tiles/{host}/{z}/{x}/{y}.png. Kept
   /// indefinitely - a circuit's basemap does not change during a season, and a

@@ -17,7 +17,7 @@ internal static class HelpScreenshotScenes
   {
     "race-day", "new-race-wizard", "fix-laps", "unknown-transponder",
     "track-map", "circuit-editor", "past-sessions", "reader-settings", "demo-picker",
-    "publish-results", "rider-list", "spectator-screen", "overall-results", "day-plan"
+    "publish-results", "rider-list", "spectator-screen", "overall-results", "day-plan", "new-plan"
   };
 
   public static HelpScene Build(string name) => name switch
@@ -36,6 +36,7 @@ internal static class HelpScreenshotScenes
     "spectator-screen" => SpectatorScreen(),
     "overall-results" => OverallResults(),
     "day-plan" => DayPlanScene(),
+    "new-plan" => NewPlanScene(),
     _ => throw new ArgumentException($"There is no help screenshot scene called {name}.", nameof(name))
   };
 
@@ -521,6 +522,16 @@ internal static class HelpScreenshotScenes
     return new HelpScene { Form = new PlanDialog(host, plan, focusNext: false) { ClientSize = new Size(1180, 680) } };
   }
 
+  /// <summary>Plan the day > New..., on the MX club day preset, for a fixed day so the picture does not change daily.</summary>
+  private static HelpScene NewPlanScene()
+  {
+    var store = PresetStore.Load(Path.Combine(Path.GetTempPath(), $"crossmgr-help-presets-{Guid.NewGuid():N}.json"));
+    store.Add("Clubrennen Sommer", "Our usual summer race day", PresetCatalog.All[0].Code);
+    var dialog = new NewPlanDialog(store, @"C:\Club\riders-2026.xlsx") { Day = new DateTime(2026, 9, 12) };
+    dialog.Select("MX club day");
+    return new HelpScene { Form = dialog };
+  }
+
   private sealed class SamplePlanHost : IPlanHost
   {
     private readonly TrackDefinition _track;
@@ -542,6 +553,8 @@ internal static class HelpScreenshotScenes
     public void Save(DayPlan plan) { }
     public bool PublishingConfigured => true;
     public bool LiveConfigured => true;
+    public PresetStore Presets { get; } = PresetStore.Load(Path.Combine(Path.GetTempPath(), $"crossmgr-help-presets-{Guid.NewGuid():N}.json"));
+    public IPresetWebsite? Website => null;
     public void Activate(DayPlan plan) { }
     public void Deactivate() { }
   }

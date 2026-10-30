@@ -52,6 +52,7 @@ Then:
 | `spectator-screen` | Spectator screen during a race, top 10 | `SpectatorWindow.cs`, `SpectatorBoard.cs`, `BoardText.cs` | race-day |
 | `overall-results` | Overall results of two motos, per class | `OverallResultsDialog.cs`, `OverallScorer.cs`, `OverallReportGenerator.cs` | overall |
 | `day-plan` | Plan the day window with a club day planned | `PlanDialog.cs`, `DayPlan.cs` | day-plan |
+| `new-plan` | New day plan window on the MX club day preset | `NewPlanDialog.cs`, `PresetCatalog.cs` | presets |
 
 Also:
 

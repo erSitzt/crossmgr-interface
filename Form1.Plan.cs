@@ -18,6 +18,12 @@ public partial class Form1
 
   private PlanStore _plans = null!;
 
+  /// <summary>The club's own day-plan presets, as codes. See PresetStore.</summary>
+  private PresetStore _presets = null!;
+
+  /// <summary>The results website for short codes, or null where none is set up.</summary>
+  private IPresetWebsite? PresetWebsite => null;
+
   /// <summary>Today's plan, once the operator has said to use it.</summary>
   private DayPlan? _activePlan;
 
@@ -58,6 +64,9 @@ public partial class Form1
   private void InitializePlans()
   {
     _plans = PlanStore.Load();
+    _presets = PresetStore.Load();
+    if (_presets.RecoveredFrom != null)
+      AddDiagnostic($"The preset list could not be read and was set aside as {_presets.RecoveredFrom}");
     foreach (var file in _plans.SetAside)
       AddDiagnostic($"A day plan could not be read and was set aside as {file}");
 
@@ -503,6 +512,13 @@ public partial class Form1
 
   // ---- The editor ---------------------------------------------------------
 
+  /// <summary>Race > Presets...</summary>
+  private void ShowPresets()
+  {
+    using var dialog = new PresetsDialog(_presets, PresetWebsite);
+    dialog.ShowDialog(this);
+  }
+
   /// <summary>Race > Plan the day...</summary>
   private void ShowPlanDialog(bool focusNext = false)
   {
@@ -526,6 +542,8 @@ public partial class Form1
     public IReadOnlyDictionary<string, PlanRun> RunsOf(DayPlan plan) =>
       plan == _form._activePlan ? _form.PlanRuns() : _form._raceDb.RunsForPlan(plan.Id);
     public void Save(DayPlan plan) => _form.SavePlan(plan);
+    public PresetStore Presets => _form._presets;
+    public IPresetWebsite? Website => _form.PresetWebsite;
     public bool PublishingConfigured => _form.PublishingAvailable;
     public bool LiveConfigured => _form.LiveTimingConfigured;
     public void Activate(DayPlan plan) => _form.ActivatePlan(plan);

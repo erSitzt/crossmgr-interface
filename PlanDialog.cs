@@ -21,6 +21,10 @@ public interface IPlanHost
 
   void Save(DayPlan plan);
 
+  /// <summary>The club's presets, and the website for short codes (null when none is set up).</summary>
+  PresetStore Presets { get; }
+  IPresetWebsite? Website { get; }
+
   /// <summary>A results website / live timing is set up, so those switches mean something.</summary>
   bool PublishingConfigured { get; }
   bool LiveConfigured { get; }
@@ -69,6 +73,8 @@ public sealed class PlanDialog : Form
   private readonly Button _copy = new();
   private readonly Button _export = new();
   private readonly Button _delete = new();
+  private readonly Button _savePreset = new();
+  private readonly Button _match = new();
 
   private List<PlannedSession> _rows = new();
   private IReadOnlyDictionary<string, PlanRun> _runs = new Dictionary<string, PlanRun>();
@@ -132,12 +138,13 @@ public sealed class PlanDialog : Form
     };
     row.Controls.Add(_picker);
 
-    var create = SmallButton("New", (_, _) => NewPlan());
+    var create = SmallButton("New...", (_, _) => NewPlan());
     Configure(_copy, "Copy...", (_, _) => CopyPlan());
     var import = SmallButton("Import...", (_, _) => ImportPlan());
     Configure(_export, "Export...", (_, _) => ExportPlan());
     Configure(_delete, "Delete...", (_, _) => DeletePlan());
-    row.Controls.AddRange(new Control[] { create, _copy, import, _export, _delete });
+    Configure(_savePreset, "Save as preset...", (_, _) => SaveAsPreset());
+    row.Controls.AddRange(new Control[] { create, _copy, import, _export, _delete, _savePreset });
     return row;
 
     Button SmallButton(string text, EventHandler click)
@@ -321,7 +328,9 @@ public sealed class PlanDialog : Form
     _use.Click += (_, _) => UseOrStop();
 
     var close = new Button { Text = "Close", Width = 160, Height = 34, DialogResult = DialogResult.Cancel };
-    column.Controls.AddRange(new Control[] { _add, _moto2, _edit, _up, _down, _skip, _remove, _use, close });
+    Configure(_match, "Match classes...", MatchClasses);
+    _match.Visible = false;
+    column.Controls.AddRange(new Control[] { _add, _moto2, _edit, _up, _down, _skip, _remove, _match, _use, close });
     CancelButton = close;
     return column;
 
@@ -367,7 +376,7 @@ public sealed class PlanDialog : Form
     _plan = plan;
     _editor.Visible = plan != null;
     _empty.Visible = plan == null;
-    _copy.Enabled = _export.Enabled = _delete.Enabled = plan != null;
+    _copy.Enabled = _export.Enabled = _delete.Enabled = _savePreset.Enabled = plan != null;
     if (plan == null) return;
 
     _loading = true;
@@ -436,7 +445,9 @@ public sealed class PlanDialog : Form
       _grid.CurrentCell = _grid.Rows[at].Cells[1];
     }
 
-    var problems = _plan.Problems(_host.ClassesOf(_plan.RiderListPath));
+    var listClasses = _host.ClassesOf(_plan.RiderListPath);
+    var problems = _plan.Problems(listClasses);
+    _match.Visible = listClasses.Count > 0 && ClassMapping.Unmatched(PendingPart(_plan), listClasses).Count > 0;
     _problems.Text = problems.Count == 0 ? "" : "⚠ " + string.Join("\n⚠ ", problems);
 
     var today = _plan.Date.Date == DateTime.Today;
@@ -635,20 +646,91 @@ public sealed class PlanDialog : Form
 
   // ---- Plans as a whole ---------------------------------------------------------
 
+  /// <summary>Empty, from a preset, or from a code - then the classes matched to the rider list.</summary>
   private void NewPlan()
   {
-    var plan = new DayPlan
+    using var dialog = new NewPlanDialog(_host.Presets, _host.LoadedRiderList,
+      _host.Website == null ? null : _host.Website.FetchAsync);
+    dialog.ManagePresets += (_, _) =>
     {
-      Name = "Race day",
-      Date = DateTime.Today,
-      RiderListPath = _host.LoadedRiderList,
-      TrackId = _host.Tracks.Count == 1 ? _host.Tracks[0].Id : null
+      using var presets = new PresetsDialog(_host.Presets, _host.Website);
+      presets.ShowDialog(dialog);
     };
+    if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Result is not { } plan) return;
+
+    plan.TrackId ??= _host.Tracks.Count == 1 ? _host.Tracks[0].Id : null;
     _host.Save(plan);
     ReloadPicker(plan);
-    _name.Focus();
-    _name.SelectAll();
+    if (ClassMapping.Unmatched(plan, _host.ClassesOf(plan.RiderListPath)).Count > 0) MatchClasses();
   }
+
+  /// <summary>The sessions still to run: those that have run keep the classes they ran with.</summary>
+  private DayPlan PendingPart(DayPlan plan)
+  {
+    var runs = _host.RunsOf(plan);
+    var pending = new DayPlan { Name = plan.Name };
+    pending.Sessions.AddRange(plan.Sessions.Where(s => !runs.ContainsKey(s.Id)));
+    return pending;
+  }
+
+  private void MatchClasses()
+  {
+    if (_plan == null) return;
+    var listClasses = _host.ClassesOf(_plan.RiderListPath);
+    if (listClasses.Count == 0)
+    {
+      MessageBox.Show(this, "Choose the plan's rider list first: its classes are what the plan's are matched to.",
+        Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+      return;
+    }
+
+    var pending = PendingPart(_plan);
+    using var dialog = new MatchClassesDialog(pending, listClasses);
+    if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Result is not { } result) return;
+
+    // The matched sessions back in their places; any taken out go.
+    var matched = result.Plan.Sessions.ToDictionary(s => s.Id);
+    var pendingIds = pending.Sessions.Select(s => s.Id).ToHashSet();
+    _plan.Sessions = _plan.Sessions
+      .Where(s => !pendingIds.Contains(s.Id) || matched.ContainsKey(s.Id))
+      .Select(s => matched.GetValueOrDefault(s.Id) ?? s)
+      .ToList();
+    _host.Save(_plan);
+    ShowSessions();
+  }
+
+  /// <summary>The plan into the club's presets, and its code to send.</summary>
+  private void SaveAsPreset()
+  {
+    if (_plan == null) return;
+    var name = TextPrompt.Ask(this, "Save as preset", _plan.Name, "The name the club's preset list shows for it.");
+    if (name == null) return;
+    var description = TextPrompt.Ask(this, "Save as preset", "", "A line to say what it is for. May be empty.") ?? "";
+
+    var (preset, added) = _host.Presets.Add(name, description, DayPlanCode.Encode(_plan));
+    if (added)
+    {
+      try
+      {
+        _host.Presets.Save();
+      }
+      catch (Exception ex)
+      {
+        ErrorDialog.Show(this, "The preset could not be saved.", "Check the disk is not full, then try again.", ex);
+        return;
+      }
+    }
+    else
+    {
+      MessageBox.Show(this, $"This plan is already in the preset list as '{preset.Name}'.", Text,
+        MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    using var dialog = new PresetCodeDialog(preset.Name, DayPlanCode.Decode(preset.Code).Plan ?? _plan, preset.Code,
+      preset, _host.Presets, _host.Website);
+    dialog.ShowDialog(this);
+  }
+
 
   private void CopyPlan()
   {

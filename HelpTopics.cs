@@ -25,7 +25,7 @@ public static class HelpTopics
 
   public static IReadOnlyList<HelpTopic> All { get; } = new[]
   {
-    QuickStart(), DayPlan(), Demo(), Screens(),
+    QuickStart(), DayPlan(), Presets(), Demo(), Screens(),
     Race(), Qualifying(), Practice(), Waves(), Teams(),
     RaceDay(), Fixing(), Unknown(), TransponderCheck(), Track(),
     Results(), Overall(), Publish(), PastSessions(),
@@ -105,9 +105,13 @@ public static class HelpTopics
 
       Heading("Before the day"),
       Steps(
-        "Race > Plan the day... (Ctrl+D). The first time press New; after that press Copy... on the last " +
-        "club day's plan and change only what is different.",
-        "Choose the day, a name, the day's rider list and the circuit. One rider list serves the whole day.",
+        "Race > Plan the day... (Ctrl+D) and press New.... Start from one of the presets - MX club day, " +
+        "Training day, Enduro, Team race - from one of the club's own, or from a code someone sent; see " +
+        "Presets and codes. Or press Copy... on the last club day's plan and change only what is different.",
+        "Choose the day, a name, the time of the first session - every time moves with it - and the day's " +
+        "rider list. One rider list serves the whole day. Then say which of its classes the plan's classes are " +
+        "(Match classes).",
+        "Choose the circuit in the plan window.",
         "Add the sessions in the order they run: Add session... asks what the New race wizard asks - the " +
         "time, the name, the type, the classes that ride in it, the length, the extra laps, how the clock " +
         "starts, and the overall it counts towards.",
@@ -185,6 +189,52 @@ public static class HelpTopics
         "Stop using this plan, in the plan window, goes back to setting up by hand.")
     },
     HelpTopicIds.QuickStart, HelpTopicIds.RaceDay, HelpTopicIds.Overall, HelpTopicIds.PastSessions);
+
+  private static HelpTopic Presets() => Topic(HelpTopicIds.Presets, GettingStarted,
+    "Presets and codes",
+    "A club day usually looks like the last one. Start a plan from a preset, keep the club's own days as " +
+    "presets, and send a whole day to another laptop as a code.",
+    new[]
+    {
+      Picture("new-plan", "Plan the day > New..., starting from the MX club day preset."),
+
+      Heading("The presets"),
+      Para("Plan the day > New... lists them on the left, with each one's sessions on the right:"),
+      Bullets(
+        "MX club day - practice and timed qualifying for two groups of classes, then Moto 1 and Moto 2 for each, " +
+        "added up into an overall per group.",
+        "Training day - free practice for two groups, taking turns every half hour.",
+        "Enduro - two 2-hour races with no extra laps: one group in the morning, all starting together; the other " +
+        "in the afternoon, its classes leaving a minute apart.",
+        "Team race - a practice for everyone, then a one-hour team race."),
+      Para("Choose the day, a name and the time of the first session; every other time moves with it. The " +
+           "presets use Group A and Group B for the classes. Match classes then asks which of the rider list's " +
+           "classes each group is - tick them; in a session started in waves they leave in the order ticked, and " +
+           "Move up and Move down change it. The names follow: Moto 1 - Group A becomes Moto 1 - MX1 / MX2."),
+
+      Heading("The club's own presets"),
+      Bullets(
+        "In the plan window, Save as preset... puts the plan into the club's list, with a name and a line to " +
+        "say what it is for. The date, the rider list, the circuit and anything typed on the day are not kept.",
+        "Race > Presets... shows the list: Show code... (or double-click), Copy code, Rename..., Delete....",
+        "Export list... saves the club's presets as a text file to email, or a CSV file for Excel. Print list... " +
+        "prints them to pin up in the timing hut."),
+
+      Heading("Codes"),
+      Para("A code is the whole plan written out - CMP1- and a paragraph of letters and digits. Copy it into a " +
+           "message, an email or the club's list. On any laptop, Plan the day > New... makes the plan from it " +
+           "again: paste it into the box under the presets. No internet is needed."),
+      Bullets(
+        "Paste it however it arrives: in small letters, without the dashes, broken over several lines, with " +
+        "the club's name for it on the same line.",
+        "A code that was mistyped or cut short is refused, with what is wrong - never read as a different day.",
+        "Race > Presets... > Add codes... takes a whole message or list at once and adds every code in it; the " +
+        "other words on a code's line become its name.",
+        "A code made by a newer version of the application says so. Update the laptop to read it."),
+      Tip("Matching classes later: the plan window shows Match classes... whenever the plan has classes its " +
+          "rider list does not, for example after choosing a different rider list.")
+    },
+    HelpTopicIds.DayPlan, HelpTopicIds.QuickStart);
 
   private static HelpTopic Demo() => Topic(HelpTopicIds.Demo, GettingStarted,
     "Try a demo race",
