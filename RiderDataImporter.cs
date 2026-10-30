@@ -90,7 +90,8 @@ public class RiderDataImporter
       _rows.Clear();
       int importedCount = 0;
 
-      using (var workbook = new XLWorkbook(filePath))
+      using (var data = ReadShared(filePath))
+      using (var workbook = new XLWorkbook(data))
       {
         var worksheet = workbook.Worksheets.First();
         var rows = worksheet.RowsUsed().ToList();
@@ -167,7 +168,14 @@ public class RiderDataImporter
       _rows.Clear();
       int importedCount = 0;
 
-      var lines = File.ReadAllLines(filePath);
+      string[] lines;
+      using (var data = ReadShared(filePath))
+      using (var reader = new StreamReader(data)) // UTF-8 unless a byte order mark says otherwise, as File.ReadAllLines
+      {
+        var read = new List<string>();
+        while (reader.ReadLine() is { } line) read.Add(line);
+        lines = read.ToArray();
+      }
       if (lines.Length <= 1) return result; // No data rows
 
       // Parse header to determine column indices
@@ -210,6 +218,22 @@ public class RiderDataImporter
     {
       throw new Exception($"Error importing CSV file: {ex.Message}", ex);
     }
+  }
+
+  /// <summary>
+  /// The file's bytes, read even while the list is open in Excel. Excel keeps
+  /// an open file for writing, and a plain read asks that nobody else writes -
+  /// so every import failed with "used by another process" until Excel was
+  /// closed. Allowing the writer reads what Excel last saved; changes not yet
+  /// saved there are not seen. Copied into memory so the file is let go at once.
+  /// </summary>
+  private static MemoryStream ReadShared(string filePath)
+  {
+    using var file = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+    var data = new MemoryStream();
+    file.CopyTo(data);
+    data.Position = 0;
+    return data;
   }
 
   /// <summary>
