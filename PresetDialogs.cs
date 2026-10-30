@@ -153,6 +153,7 @@ public sealed class AddCodesDialog : Form
   private readonly ListBox _found = new();
   private readonly Button _add = new();
   private List<FoundPlanCode> _codes = new();
+  private readonly HashSet<string> _fromShortCodes = new(StringComparer.OrdinalIgnoreCase);
   private int _version;
 
   public AddCodesDialog(PresetStore store, IPresetWebsite? website)
@@ -224,11 +225,13 @@ public sealed class AddCodesDialog : Form
         found = await _website.FetchAsync(shortCode);
         if (version != _version) return;
       }
+      if (found is { Plan: not null }) _fromShortCodes.Add(shortCode);
       codes.Add(found is { Plan: not null }
         ? found with { LineText = line.Length > 0 ? line : found.LineText }
         : new FoundPlanCode(null, _website == null
           ? $"{shortCode}: a short code is looked up on the results website, which is not set up here."
-          : $"{shortCode}: no preset with this short code.", shortCode, line));
+          : found?.Error is { } error ? $"{shortCode}: {error}" : $"{shortCode}: no preset with this short code.",
+          shortCode, line));
     }
 
     if (version != _version) return;
@@ -253,7 +256,14 @@ public sealed class AddCodesDialog : Form
   {
     var added = 0;
     foreach (var code in _codes.Where(c => c.Plan != null))
-      if (_store.Add(NameFor(code), "", code.Code).Added) added++;
+    {
+      var (preset, isNew) = _store.Add(NameFor(code), "", code.Code);
+      if (!isNew) continue;
+      added++;
+      // Fetched by its short code: it is on the website already.
+      var shortCode = DayPlanCode.ShortCodeOf(preset.Code);
+      if (_fromShortCodes.Contains(shortCode)) preset.ShortCode = shortCode;
+    }
 
     try
     {

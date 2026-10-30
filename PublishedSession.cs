@@ -385,3 +385,16 @@ public sealed record PublishedPlanItem
   public string? SessionPublicId { get; init; }
   public string? OverallGroup { get; init; }
 }
+
+/// <summary>
+/// A plan code put on the results website under its short code, so it can be
+/// typed in as eight characters. The website keeps the code as text and never
+/// reads it; there is nothing about riders in a plan code.
+/// </summary>
+public sealed record PublishedPreset
+{
+  public int SchemaVersion { get; init; } = PublishSchema.Version;
+  public required string Code { get; init; }
+  public string? Name { get; init; }
+  public required PublishedClient Client { get; init; }
+}

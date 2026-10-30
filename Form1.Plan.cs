@@ -21,8 +21,49 @@ public partial class Form1
   /// <summary>The club's own day-plan presets, as codes. See PresetStore.</summary>
   private PresetStore _presets = null!;
 
-  /// <summary>The results website for short codes, or null where none is set up.</summary>
-  private IPresetWebsite? PresetWebsite => null;
+  /// <summary>
+  /// The results website for short codes. Fetching one needs only the
+  /// address - the club's own, or the usual one - so it is always offered;
+  /// putting a code there needs the club's key, and says so without it.
+  /// </summary>
+  private IPresetWebsite PresetWebsite => _presetWebsite ??= new PresetWebsiteAdapter(this);
+  private PresetWebsiteAdapter? _presetWebsite;
+
+  private sealed class PresetWebsiteAdapter : IPresetWebsite
+  {
+    private readonly Form1 _form;
+    public PresetWebsiteAdapter(Form1 form) => _form = form;
+
+    public async Task<(string? ShortCode, string? Error)> PublishAsync(string name, string code)
+    {
+      if (!_form.PublishingAvailable)
+        return (null, "A short code needs the club's results website and its key: Race > Results website....");
+
+      var publisher = HttpResultsPublisher.FromSettings(_form._settings, _form.AddDiagnostic);
+      var outcome = await publisher.PublishPresetAsync(name, code, CancellationToken.None);
+      return outcome.Ok
+        ? (DayPlanCode.ShortCodeOf(code), null)
+        : (null, outcome.Status == PublishStatus.NotSupported
+          ? "The results website does not take short codes yet. The full code works everywhere."
+          : outcome.Message);
+    }
+
+    public async Task<FoundPlanCode?> FetchAsync(string shortCode)
+    {
+      var url = _form._settings.ResultsSiteUrl ?? HttpResultsPublisher.DefaultUrl;
+      var publisher = new HttpResultsPublisher(url, null, _form.AddDiagnostic);
+      var (code, name, status) = await publisher.FetchPresetAsync(shortCode, CancellationToken.None);
+
+      if (code != null) return DayPlanCode.Decode(code) with { LineText = name ?? "" };
+      return status switch
+      {
+        PublishStatus.Rejected => null,
+        PublishStatus.NoInternet => new FoundPlanCode(null,
+          "This computer cannot reach the internet to look the short code up. Paste the full code instead.", shortCode, ""),
+        _ => new FoundPlanCode(null, "The website did not answer. Try again, or paste the full code.", shortCode, "")
+      };
+    }
+  }
 
   /// <summary>Today's plan, once the operator has said to use it.</summary>
   private DayPlan? _activePlan;

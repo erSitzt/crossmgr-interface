@@ -231,6 +231,19 @@ public static class HelpTopics
         "Race > Presets... > Add codes... takes a whole message or list at once and adds every code in it; the " +
         "other words on a code's line become its name.",
         "A code made by a newer version of the application says so. Update the laptop to read it."),
+
+      Heading("Short codes"),
+      Para("A code is long to type. Show code... > Get short code puts it on the club's results website and " +
+           "gives it a short code of eight characters, like 354N-RQVY, that stands for that plan forever. Type it " +
+           "into the same box as a code; the laptop fetches the plan from the website once."),
+      Bullets(
+        "Getting a short code needs the club's results website and its key (Race > Results website...). " +
+        "Fetching one needs only the internet.",
+        "The same plan always has the same short code. Change the plan and save it as a preset again, and it " +
+        "gets a new one; the old one still means the old plan.",
+        "A club's own presets read their short codes without the internet, on the laptop that saved them.",
+        "Short codes are kept on the website for good. Nothing about riders is in a plan, only sessions, " +
+        "classes and times."),
       Tip("Matching classes later: the plan window shows Match classes... whenever the plan has classes its " +
           "rider list does not, for example after choosing a different rider list.")
     },
