@@ -1151,6 +1151,8 @@ public static class HelpTopics
         "An import replaces the whole list. Riders already on track keep their laps and are given their names.",
         "A row without a transponder is skipped, and the application says which rows. A file without a " +
         "transponder column is refused, naming the columns it did find.",
+        "The file can stay open in Excel. What is read is what Excel last saved, so save there (Ctrl+S) " +
+        "before importing a change.",
         "The list is loaded again by itself when the application starts."),
 
       Heading("Checking and correcting the list"),

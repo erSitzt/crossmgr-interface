@@ -147,6 +147,42 @@ public class RiderListCheckTests
     }
   }
 
+  // Excel holds an open workbook for writing and lets others only read. Opening
+  // the file the same way here stands in for Excel having it open.
+  [Theory]
+  [InlineData(".xlsx")]
+  [InlineData(".csv")]
+  public void A_list_still_open_in_Excel_is_imported(string extension)
+  {
+    var folder = Path.Combine(Path.GetTempPath(), "crossmgr-riderlist-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(folder);
+    try
+    {
+      var path = Path.Combine(folder, "riders" + extension);
+      if (extension == ".csv")
+        File.WriteAllText(path, "tagid,number,firstname,lastname,class\nE2003412,12,Ben,Groß,MX2\n");
+      else
+        RiderDataImporter.SaveToExcel(new[]
+        {
+          new RiderDataImporter.RiderImportData
+            { TagID = "E2003412", RiderNumber = "12", FirstName = "Ben", LastName = "Groß", Category = "MX2" }
+        }, path);
+
+      using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+      {
+        var importer = new RiderDataImporter();
+        var result = extension == ".csv" ? importer.ImportFromCsvDetailed(path) : importer.ImportFromExcelDetailed(path);
+
+        Assert.Equal(1, result.ImportedCount);
+        Assert.Equal(("12", "Groß", "MX2"), (importer.Rows[0].RiderNumber, importer.Rows[0].LastName, importer.Rows[0].Category));
+      }
+    }
+    finally
+    {
+      Directory.Delete(folder, recursive: true);
+    }
+  }
+
   [Fact]
   public void Replacing_the_rows_rebuilds_the_lookup_and_forgets_skipped_rows()
   {
