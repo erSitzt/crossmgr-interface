@@ -18,6 +18,53 @@ public partial class Form1
 
   private PlanStore _plans = null!;
 
+  /// <summary>The club's own day-plan presets, as codes. See PresetStore.</summary>
+  private PresetStore _presets = null!;
+
+  /// <summary>
+  /// The results website for short codes. Fetching one needs only the
+  /// address - the club's own, or the usual one - so it is always offered;
+  /// putting a code there needs the club's key, and says so without it.
+  /// </summary>
+  private IPresetWebsite PresetWebsite => _presetWebsite ??= new PresetWebsiteAdapter(this);
+  private PresetWebsiteAdapter? _presetWebsite;
+
+  private sealed class PresetWebsiteAdapter : IPresetWebsite
+  {
+    private readonly Form1 _form;
+    public PresetWebsiteAdapter(Form1 form) => _form = form;
+
+    public async Task<(string? ShortCode, string? Error)> PublishAsync(string name, string code)
+    {
+      if (!_form.PublishingAvailable)
+        return (null, "A short code needs the club's results website and its key: Race > Results website....");
+
+      var publisher = HttpResultsPublisher.FromSettings(_form._settings, _form.AddDiagnostic);
+      var outcome = await publisher.PublishPresetAsync(name, code, CancellationToken.None);
+      return outcome.Ok
+        ? (DayPlanCode.ShortCodeOf(code), null)
+        : (null, outcome.Status == PublishStatus.NotSupported
+          ? "The results website does not take short codes yet. The full code works everywhere."
+          : outcome.Message);
+    }
+
+    public async Task<FoundPlanCode?> FetchAsync(string shortCode)
+    {
+      var url = _form._settings.ResultsSiteUrl ?? HttpResultsPublisher.DefaultUrl;
+      var publisher = new HttpResultsPublisher(url, null, _form.AddDiagnostic);
+      var (code, name, status) = await publisher.FetchPresetAsync(shortCode, CancellationToken.None);
+
+      if (code != null) return DayPlanCode.Decode(code) with { LineText = name ?? "" };
+      return status switch
+      {
+        PublishStatus.Rejected => null,
+        PublishStatus.NoInternet => new FoundPlanCode(null,
+          "This computer cannot reach the internet to look the short code up. Paste the full code instead.", shortCode, ""),
+        _ => new FoundPlanCode(null, "The website did not answer. Try again, or paste the full code.", shortCode, "")
+      };
+    }
+  }
+
   /// <summary>Today's plan, once the operator has said to use it.</summary>
   private DayPlan? _activePlan;
 
@@ -58,6 +105,9 @@ public partial class Form1
   private void InitializePlans()
   {
     _plans = PlanStore.Load();
+    _presets = PresetStore.Load();
+    if (_presets.RecoveredFrom != null)
+      AddDiagnostic($"The preset list could not be read and was set aside as {_presets.RecoveredFrom}");
     foreach (var file in _plans.SetAside)
       AddDiagnostic($"A day plan could not be read and was set aside as {file}");
 
@@ -503,6 +553,13 @@ public partial class Form1
 
   // ---- The editor ---------------------------------------------------------
 
+  /// <summary>Race > Presets...</summary>
+  private void ShowPresets()
+  {
+    using var dialog = new PresetsDialog(_presets, PresetWebsite);
+    dialog.ShowDialog(this);
+  }
+
   /// <summary>Race > Plan the day...</summary>
   private void ShowPlanDialog(bool focusNext = false)
   {
@@ -526,6 +583,8 @@ public partial class Form1
     public IReadOnlyDictionary<string, PlanRun> RunsOf(DayPlan plan) =>
       plan == _form._activePlan ? _form.PlanRuns() : _form._raceDb.RunsForPlan(plan.Id);
     public void Save(DayPlan plan) => _form.SavePlan(plan);
+    public PresetStore Presets => _form._presets;
+    public IPresetWebsite? Website => _form.PresetWebsite;
     public bool PublishingConfigured => _form.PublishingAvailable;
     public bool LiveConfigured => _form.LiveTimingConfigured;
     public void Activate(DayPlan plan) => _form.ActivatePlan(plan);

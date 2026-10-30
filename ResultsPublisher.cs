@@ -161,6 +161,63 @@ public sealed class HttpResultsPublisher : IResultsPublisher
     PutAsync($"plans/{Uri.EscapeDataString(plan.Plan.PublicId)}",
       () => PublishPayloadBuilder.Serialise(plan), null, cancellationToken);
 
+  /// <summary>Puts a plan code on the website under its short code (DayPlanCode.ShortCodeOf).</summary>
+  public Task<PublishOutcome> PublishPresetAsync(string name, string code, CancellationToken cancellationToken) =>
+    PutAsync($"presets/{Uri.EscapeDataString(DayPlanCode.ShortCodeOf(code))}",
+      () => System.Text.Json.JsonSerializer.Serialize(new PublishedPreset
+      {
+        Code = code,
+        Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim(),
+        Client = new PublishedClient("CrossMgrInterface", AppVersion.Display)
+      }, PublishSchema.Json),
+      null, cancellationToken);
+
+  /// <summary>
+  /// The plan code behind a short code. Needs no key - a short code is meant
+  /// to be passed round - only the website's address. Status Published when
+  /// found, Rejected when the website has no such short code.
+  /// </summary>
+  public async Task<(string? Code, string? Name, PublishStatus Status)> FetchPresetAsync(string shortCode,
+    CancellationToken cancellationToken)
+  {
+    if (_baseUrl == null) return (null, null, PublishStatus.NotConfigured);
+
+    using var request = new HttpRequestMessage(HttpMethod.Get,
+      $"{_baseUrl}/api/v1/presets/{Uri.EscapeDataString(shortCode)}");
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    timeout.CancelAfter(TimeSpan.FromSeconds(15));
+
+    try
+    {
+      using var response = await SendAsync(request, timeout.Token).ConfigureAwait(false);
+      Log($"get preset {Host()} -> {(int)response.StatusCode}");
+      if (response.StatusCode == HttpStatusCode.NotFound) return (null, null, PublishStatus.Rejected);
+      if (!response.IsSuccessStatusCode) return (null, null, PublishStatus.ServerError);
+
+      using var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+      using var document = await System.Text.Json.JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token)
+        .ConfigureAwait(false);
+      var root = document.RootElement;
+      var code = root.TryGetProperty("code", out var c) ? c.GetString() : null;
+      var name = root.TryGetProperty("name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String
+        ? n.GetString()
+        : null;
+      return code == null ? (null, null, PublishStatus.ServerError) : (code, name, PublishStatus.Published);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+      return (null, null, PublishStatus.Cancelled);
+    }
+    catch (OperationCanceledException)
+    {
+      return (null, null, PublishStatus.TimedOut);
+    }
+    catch (Exception ex)
+    {
+      return (null, null, Classify(ex));
+    }
+  }
+
   /// <summary>One upload, retried, whatever is being sent. <paramref name="path"/> is under /api/v1/.</summary>
   private async Task<PublishOutcome> PutAsync(string path, Func<string> serialise,
     IProgress<PublishProgress>? progress, CancellationToken cancellationToken)

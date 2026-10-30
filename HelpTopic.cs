@@ -52,6 +52,7 @@ public static class HelpTopicIds
 {
   public const string QuickStart = "quick-start";
   public const string DayPlan = "day-plan";
+  public const string Presets = "presets";
   public const string Screens = "screens";
   public const string Demo = "demo";
 

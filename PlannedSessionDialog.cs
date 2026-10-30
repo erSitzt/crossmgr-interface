@@ -19,6 +19,7 @@ public sealed class PlannedSessionDialog : Form
   private readonly TextBox _name = new();
   private readonly ComboBox _type = new();
   private readonly CheckedListBox _classes = new();
+  private readonly FlowLayoutPanel _classOrder = new();
   private readonly NumericUpDown _length = new();
   private readonly NumericUpDown _extraLaps = new();
   private readonly ComboBox _start = new();
@@ -109,15 +110,37 @@ public sealed class PlannedSessionDialog : Form
     _classes.CheckOnClick = true;
     _classes.Height = 130;
     _classes.Width = 340;
-    var known = listClasses.ToList();
-    foreach (var c in session.Classes.Where(c => !known.Contains(c, StringComparer.OrdinalIgnoreCase))) known.Add(c);
+    // The session's own classes first, in their order, then the rest of the
+    // list. The ticked classes are saved in the order they stand here, which
+    // for a start in waves is the order they leave the gate - listing them in
+    // the rider list's order instead put the waves in that order on every OK.
+    var known = session.Classes.ToList();
+    known.AddRange(listClasses.Where(c => !known.Contains(c, StringComparer.OrdinalIgnoreCase)));
     foreach (var c in known)
     {
       var onList = listClasses.Contains(c, StringComparer.OrdinalIgnoreCase);
       _classes.Items.Add(onList ? c : $"{c} (not on the rider list)",
         session.Classes.Contains(c, StringComparer.OrdinalIgnoreCase));
     }
-    Row("Classes", _classes);
+
+    var classesRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+    _classOrder.FlowDirection = FlowDirection.TopDown;
+    _classOrder.AutoSize = true;
+    _classOrder.WrapContents = false;
+    var up = new Button { Text = "Move up", AutoSize = true };
+    var down = new Button { Text = "Move down", AutoSize = true };
+    up.Click += (_, _) => MoveClass(-1);
+    down.Click += (_, _) => MoveClass(+1);
+    _classOrder.Controls.AddRange(new Control[] { up, down, new Label
+    {
+      Text = "Ticked classes leave in this order, top first.",
+      AutoSize = true,
+      MaximumSize = new Size(140, 0),
+      ForeColor = Color.DimGray
+    } });
+    classesRow.Controls.Add(_classes);
+    classesRow.Controls.Add(_classOrder);
+    Row("Classes", classesRow);
     Hint(listClasses.Count == 0
       ? "Choose the plan's rider list first, then tick the classes that ride in this session."
       : "Tick the classes that ride in this session. None ticked: every rider on the list counts.");
@@ -234,7 +257,22 @@ public sealed class PlannedSessionDialog : Form
     var waves = _start.SelectedIndex == (int)PlannedStartMode.Waves && !IsTimed && !_teamEvent.Checked;
     _waveGap.Visible = waves;
     _waveGapLabel.Visible = waves;
+    _classOrder.Visible = waves;
     _overall.Enabled = !IsTimed;
+  }
+
+  private void MoveClass(int by)
+  {
+    var index = _classes.SelectedIndex;
+    var to = index + by;
+    if (index < 0 || to < 0 || to >= _classes.Items.Count) return;
+
+    var item = _classes.Items[index];
+    var ticked = _classes.GetItemChecked(index);
+    _classes.Items.RemoveAt(index);
+    _classes.Items.Insert(to, item);
+    _classes.SetItemChecked(to, ticked);
+    _classes.SelectedIndex = to;
   }
 
   private void Accept()
