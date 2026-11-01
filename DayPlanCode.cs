@@ -38,6 +38,13 @@ public static class DayPlanCode
   public const string Prefix = "CMP1";
   public const int CurrentVersion = 1;
 
+  /// <summary>
+  /// Extension tag 1: keep the Master of all classes (AfterSession.AllClassesList),
+  /// followed by what it is ranked on, 0 best lap or 1 average lap. Odd, so a
+  /// version from before it reads the rest of the plan and passes it over.
+  /// </summary>
+  private const uint TagAllClasses = 1;
+
   private const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
   // Bounds a decoder holds a code to, so a corrupt one is refused rather than
@@ -81,7 +88,12 @@ public static class DayPlanCode
         Publish = plan.After?.Publish ?? false,
         SaveSheets = plan.After?.SaveSheets ?? false,
         Pdf = plan.After?.Pdf ?? false,
-        LiveTiming = plan.After?.LiveTiming ?? false
+        LiveTiming = plan.After?.LiveTiming ?? false,
+        AllClassesList = plan.After?.AllClassesList ?? false,
+        // Only meaningful with the list on; one setting, one code.
+        AllClassesMeasure = plan.After is { AllClassesList: true, AllClassesMeasure: DayRankingMeasure.AverageLap }
+          ? DayRankingMeasure.AverageLap
+          : DayRankingMeasure.BestLap
       }
     };
 
@@ -187,7 +199,16 @@ public static class DayPlanCode
       body.AddRange(bytes);
     }
     body.AddRange(sessions);
-    WriteVarint(body, 0); // the extension block: nothing in version 1
+
+    // The extension block. Written only for what is switched on, so a plan
+    // without it keeps the code it always had.
+    if (plan.After.AllClassesList)
+    {
+      WriteVarint(body, TagAllClasses);
+      WriteVarint(body, 1);
+      WriteVarint(body, plan.After.AllClassesMeasure == DayRankingMeasure.AverageLap ? 1u : 0u);
+    }
+    WriteVarint(body, 0);
 
     var payload = new List<byte>();
     WriteVarint(payload, CurrentVersion);
@@ -477,14 +498,26 @@ public static class DayPlanCode
     // The extension block: tagged additions from later versions. An odd tag
     // may be passed over by a version that does not know it; an even one
     // changes what the plan means, and only a newer version can read it.
+    var seen = new HashSet<uint>();
     while (true)
     {
       var tag = Varint(payload, ref position);
       if (tag == 0) break;
       if (tag % 2 == 0) throw new NewerVersionException();
+      if (!seen.Add(tag)) throw new FormatException();
       var size = Varint(payload, ref position);
       if (position + size > payload.Length) throw new FormatException();
-      position += (int)size;
+      var end = position + (int)size;
+
+      if (tag == TagAllClasses)
+      {
+        // A later version may add to it; what is read here is the first number.
+        var measure = size > 0 ? Varint(payload, ref position) : 0;
+        if (position > end) throw new FormatException();
+        plan.After.AllClassesList = true;
+        plan.After.AllClassesMeasure = measure == 1 ? DayRankingMeasure.AverageLap : DayRankingMeasure.BestLap;
+      }
+      position = end;
     }
 
     if (position != payload.Length) throw new FormatException();

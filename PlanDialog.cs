@@ -611,6 +611,7 @@ public sealed class PlanDialog : Form
     if (after.Publish && _host.PublishingConfigured) parts.Add("publish");
     if (after.SaveSheets) parts.Add(after.Pdf ? "save sheets and PDF" : "save sheets");
     if (after.LiveTiming && _host.LiveConfigured) parts.Add("live timing");
+    if (after.AllClassesList) parts.Add("Master of all classes");
     return parts.Count == 0 ? "nothing by itself" : string.Join(" · ", parts);
   }
 
