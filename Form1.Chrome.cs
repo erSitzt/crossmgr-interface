@@ -360,6 +360,7 @@ public partial class Form1
     _menuGatePick = Item("Gate pick order...", Keys.None, (s, e) => ShowQualifyingReport());
     _menuTransponders = Item("Transponder check...", Keys.None, (s, e) => ShowTransponderReport());
     var summary = Item("Rider summary", Keys.None, buttonShowSummary_Click);
+    var allClasses = Item("Master of all classes...", Keys.None, (s, e) => ShowDayRanking(this, null));
     var planDay = Item("Plan the day...", Keys.Control | Keys.D, (s, e) => ShowPlanDialog());
     planDay.Available = !IsDemo;
     var presets = Item("Presets...", Keys.None, (s, e) => ShowPresets());
@@ -394,7 +395,7 @@ public partial class Form1
     {
       newRace, import, new ToolStripSeparator(),
       _menuStartRace, _menuEndRace, new ToolStripSeparator(),
-      results, _menuGatePick, _menuTransponders, summary, _menuHeldRiders, new ToolStripSeparator(),
+      results, _menuGatePick, _menuTransponders, summary, _menuHeldRiders, allClasses, new ToolStripSeparator(),
       planDay, presets, afterSession, new ToolStripSeparator(),
       pastSessions, _menuDeleteSession, new ToolStripSeparator(),
       _menuPublish, _menuLiveTiming, publishSettings, new ToolStripSeparator(),

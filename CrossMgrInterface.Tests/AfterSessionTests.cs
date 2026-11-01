@@ -108,6 +108,45 @@ public sealed class AfterSessionTests : IDisposable
   }
 
   [Fact]
+  public void TheListOfAllClassesComesAfterTheOverallsOnceEveryRaceIsUp()
+  {
+    var moto1 = Race(1, 10, published: 1, saved: 1);
+    var moto2 = Race(2, 11, published: 1, saved: 1);
+    var overall = new OverallCandidate(7, new[] { moto1, moto2 }, Complete: true, "o", null, "o");
+    var day = new OverallCandidate(3, new[] { moto1, moto2 }, Complete: true, "d", null, null);
+    var now = Day.AddHours(13);
+
+    // Saving first, as ever.
+    Assert.Equal(new OutboxItem(OutboxWork.SaveDayRanking, 3, 0, "d"),
+      OutboxPolicy.Next(new[] { moto1, moto2 }, new[] { overall }, now, NothingParked, true, new[] { day }));
+
+    var saved = day with { SavedStamp = "d" };
+    Assert.Equal(OutboxWork.PublishOverall,
+      OutboxPolicy.Next(new[] { moto1, moto2 }, new[] { overall }, now, NothingParked, true, new[] { saved })!.Work);
+    Assert.Equal(new OutboxItem(OutboxWork.PublishDayRanking, 3, 0, "d"),
+      OutboxPolicy.Next(new[] { moto1, moto2 }, new[] { overall with { PublishedStamp = "o" } }, now, NothingParked,
+        true, new[] { saved }));
+
+    // A race of the day not on the website holds it back: the list links to it.
+    var notUp = Race(4, 12, publish: false, saved: 1);
+    var waiting = saved with { Motos = new[] { moto1, moto2, notUp } };
+    Assert.Null(OutboxPolicy.Next(new[] { moto1, moto2 }, Array.Empty<OverallCandidate>(), now, NothingParked, true,
+      new[] { waiting }));
+  }
+
+  [Fact]
+  public void TheListOfAllClassesIsStampedByItsRacesMeasureAndName()
+  {
+    var ranking = new DbDayRanking { Name = "Master of all classes", Measure = DayRankingMeasure.BestLap };
+    var races = new[] { Race(1, 10, revision: 2), Race(2, 11) };
+    var stamp = OutboxPolicy.StampOf(ranking, races);
+
+    Assert.Equal("1:2,2:1|BestLap|Master of all classes", stamp);
+    ranking.Measure = DayRankingMeasure.AverageLap;
+    Assert.NotEqual(stamp, OutboxPolicy.StampOf(ranking, races));
+  }
+
+  [Fact]
   public void SomethingTheWebsiteRefusedIsParkedUntilTheSessionChanges()
   {
     var race = Race(1, 10, saved: 1);

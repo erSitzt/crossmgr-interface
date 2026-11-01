@@ -70,6 +70,9 @@ public sealed class DayRankingResult
   /// <summary>Every rider, in best-lap order. See <see cref="Ordered"/> for the other.</summary>
   public List<DayRankingEntry> Entries { get; init; } = new();
 
+  /// <summary>Something about the whole list worth knowing, such as races on different circuits.</summary>
+  public List<string> Notes { get; } = new();
+
   /// <summary>False while races of the day are still to be run: the list says provisional.</summary>
   public bool Final { get; init; } = true;
 
@@ -91,7 +94,6 @@ public sealed class DayRankingResult
   /// <summary>Caption/value pairs printed under the list and sent to the website.</summary>
   public List<(string Caption, string Value)> Describe() => new()
   {
-    ("Ranked on", Measure == DayRankingMeasure.AverageLap ? "average lap" : "best lap"),
     ("Riders", "every rider of every race of the day, all classes; practice, qualifying and team races are not counted"),
     ("Laps", "lap 1 of each race is left out - it runs from the start, not once round the circuit"),
     ("Average lap", $"the mean of those laps over all races; ranked with at least {DayRankingScorer.MinimumLapsForAverage} of them"),

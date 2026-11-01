@@ -690,5 +690,6 @@ internal static class HelpScreenshotScenes
     public void RenameSession(SessionSummary session, string name) { }
     public bool DeleteSession(IWin32Window owner, SessionSummary session) => false;
     public void ShowOverall(IWin32Window owner, IReadOnlyList<SessionSummary> sessions) { }
+    public void ShowDayRanking(IWin32Window owner, DateTime day) { }
   }
 }

@@ -157,6 +157,9 @@ public class DbDayRanking
   public string Name { get; set; } = "";
   public DayRankingMeasure Measure { get; set; }
 
+  /// <summary>Saved and published by itself as the day's races finish (After each session).</summary>
+  public bool Auto { get; set; }
+
   public DateTime CreatedAt { get; set; } = DateTime.Now;
   public DateTime? PublishedAt { get; set; }
   public string? PublishedUrl { get; set; }

@@ -91,6 +91,16 @@ public partial class Form1
         SheetSaver.DayFolder(after.Folder, race.StartTime.Date, plan?.Name), order, race.Name);
 
       _raceDb.MarkFinished(raceId, after.Publish && OutboxCanPublish, after.SaveSheets, after.Pdf, folder);
+
+      if (after.AllClassesList && race.SessionType == SessionType.Race)
+      {
+        var ranking = _raceDb.EnsureDayRanking(race.StartTime.Date, DayRankingDefaultName, after.AllClassesMeasure);
+        if (!ranking.Auto)
+        {
+          ranking.Auto = true;
+          _raceDb.UpdateDayRanking(ranking);
+        }
+      }
     }
     catch (Exception ex)
     {
@@ -108,8 +118,9 @@ public partial class Form1
     {
       var races = _raceDb.RacesWithWorkToDo();
       var overalls = OverallCandidates();
+      var dayRankings = DayRankingCandidates();
       var canPublish = OutboxCanPublish && DateTime.Now >= _outboxRetryAt;
-      var item = OutboxPolicy.Next(races, overalls, DateTime.Now, _outboxParked, canPublish);
+      var item = OutboxPolicy.Next(races, overalls, DateTime.Now, _outboxParked, canPublish, dayRankings);
 
       var waiting = races.Count(OutboxPolicy.WaitingToPublish);
       if (item == null && SendProgrammeIfChanged()) return;
@@ -134,6 +145,12 @@ public partial class Form1
           break;
         case OutboxWork.PublishOverall:
           PublishOverallQuietly(overalls.First(o => o.OverallId == item.Id), item);
+          break;
+        case OutboxWork.SaveDayRanking:
+          SaveDayRankingSheets(dayRankings.First(o => o.OverallId == item.Id), item);
+          break;
+        case OutboxWork.PublishDayRanking:
+          PublishDayRankingQuietly(dayRankings.First(o => o.OverallId == item.Id), item);
           break;
       }
     }
@@ -162,6 +179,24 @@ public partial class Form1
                      (planned ?? motos.Count >= 2);
       candidates.Add(new OverallCandidate(overall.Id, motos, complete, OutboxPolicy.StampOf(overall, motos),
         overall.PublishedStamp, overall.SavedStamp));
+    }
+    return candidates;
+  }
+
+  /// <summary>
+  /// The Masters of all classes kept by themselves, with the day's races -
+  /// team races left out, as the list leaves them out. Worth saving and
+  /// publishing from the second race on: a list of one race is that race.
+  /// </summary>
+  private List<OverallCandidate> DayRankingCandidates()
+  {
+    var candidates = new List<OverallCandidate>();
+    foreach (var ranking in _raceDb.ListDayRankings().Where(r => r.Auto))
+    {
+      var races = _raceDb.RacesOfDay(ranking.Day).Where(r => r.TeamEvent != true).ToList();
+      if (races.Count == 0) continue;
+      candidates.Add(new OverallCandidate(ranking.Id, races, races.Count >= 2, OutboxPolicy.StampOf(ranking, races),
+        ranking.PublishedStamp, ranking.SavedStamp));
     }
     return candidates;
   }
@@ -267,6 +302,37 @@ public partial class Form1
     }));
   }
 
+  private void SaveDayRankingSheets(OverallCandidate candidate, OutboxItem item)
+  {
+    var ranking = _raceDb.ListDayRankings().FirstOrDefault(r => r.Id == candidate.OverallId);
+    if (ranking == null) return;
+
+    var first = candidate.Motos.First();
+    var folder = first.SheetsFolder != null ? Path.GetDirectoryName(first.SheetsFolder)!
+      : SheetSaver.DayFolder(AfterSessionNow.Folder, first.StartTime.Date, null);
+    var pdf = candidate.Motos.Any(m => m.AutoSavePdf != false);
+    var result = ScoreDayRanking(ranking);
+
+    _outboxBusy = true;
+    Task.Run(() =>
+    {
+      using var generator = new DayRankingReportGenerator();
+      return generator.SaveSheets(result, ranking.Name, folder, pdf);
+    }).ContinueWith(task => BeginInvoke(() =>
+    {
+      _outboxBusy = false;
+      if (task.Exception is { } ex)
+      {
+        _outboxParked.Add(item.Key);
+        RaiseNotice(NoticeLevel.Warning, $"'{ranking.Name}' could not be saved: {ex.GetBaseException().Message}");
+        return;
+      }
+
+      _raceDb.SetDayRankingStamps(ranking.Id, saved: item.Stamp);
+      AddMessage($"💾 '{ranking.Name}' saved to {folder}");
+    }));
+  }
+
   // ---- Publishing ------------------------------------------------------------
 
   private void PublishSessionQuietly(DbRace race, OutboxItem item)
@@ -329,6 +395,44 @@ public partial class Form1
         }
 
         OutboxFailed(item, $"the overall '{overall.Name}'", outcome);
+      }));
+  }
+
+  private void PublishDayRankingQuietly(OverallCandidate candidate, OutboxItem item)
+  {
+    var ranking = _raceDb.ListDayRankings().FirstOrDefault(r => r.Id == candidate.OverallId);
+    if (ranking == null) return;
+
+    var payload = BuildDayRankingPayload(ranking, candidate.Motos);
+    _outboxBusy = true;
+    var publisher = OutboxPublisher;
+    Task.Run(() => publisher.PublishDayRankingAsync(payload, null, CancellationToken.None))
+      .ContinueWith(task => BeginInvoke(() =>
+      {
+        _outboxBusy = false;
+        var outcome = task.IsCompletedSuccessfully
+          ? task.Result
+          : new PublishOutcome(PublishStatus.ServerError, task.Exception?.GetBaseException().Message ?? "failed");
+
+        if (outcome.Ok)
+        {
+          _raceDb.MarkDayRankingPublished(ranking.Id, DateTime.Now, outcome.Url ?? "");
+          _raceDb.SetDayRankingStamps(ranking.Id, published: item.Stamp);
+          _outboxFailures = 0;
+          AddMessage($"🌐 '{ranking.Name}' published to {OutboxWhere} by itself.");
+          return;
+        }
+
+        // A website from before the list: nothing to put right here, and
+        // nothing worth a warning on race day. The sheets still have it.
+        if (outcome.Status == PublishStatus.NotSupported)
+        {
+          _outboxParked.Add(item.Key);
+          AddDiagnostic($"Outbox: the website does not take '{ranking.Name}' yet; it is saved on the laptop only.");
+          return;
+        }
+
+        OutboxFailed(item, $"'{ranking.Name}'", outcome);
       }));
   }
 
