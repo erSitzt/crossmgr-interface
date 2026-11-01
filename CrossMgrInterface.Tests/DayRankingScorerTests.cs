@@ -98,8 +98,8 @@ public class DayRankingScorerTests
   public void TheTwoMeasuresCanDisagree()
   {
     var result = Score(Race("Moto 1",
-      Rider("A", "1", "Anna Berger", "MX1", 130, 110, 140, 140).Build(),
-      Rider("B", "2", "Ben Fischer", "MX1", 130, 120, 121, 122).Build()));
+      Rider("A", "1", "Anna Berger", "MX1", 130, 120, 130, 130).Build(),
+      Rider("B", "2", "Ben Fischer", "MX1", 130, 121, 122, 123).Build()));
 
     Assert.Equal(new[] { "Anna Berger", "Ben Fischer" }, result.Ordered(DayRankingMeasure.BestLap).Select(e => e.Name));
     Assert.Equal(new[] { "Ben Fischer", "Anna Berger" }, result.Ordered(DayRankingMeasure.AverageLap).Select(e => e.Name));
@@ -199,17 +199,52 @@ public class DayRankingScorerTests
   }
 
   [Fact]
-  public void ABestLapFarQuickerThanAnyOtherIsFlagged()
+  public void ABestLapFarQuickerThanAnyOtherIsNotTakenAndFlagged()
   {
     // As one beginner on 31 October 2026: 2:10 once, otherwise never under 2:36.
     var result = Score(Race("Moto 1",
-      Rider("A", "41", "Paul Wendt", "Beginners", 165, 157, 130, 158, 158, 157).Build(),
-      // Two laps near the best: a fast rider, nothing to check.
-      Rider("B", "52", "Kai Lorenz", "Hobby", 135, 117, 163, 114, 139, 114).Build()));
+      Rider("A", "41", "Paul Wendt", "Beginners", 165, 157, 130, 158, 158, 157).Build()));
 
-    Assert.True(Find(result, "Paul Wendt").CheckBestLap);
-    Assert.Contains("check it", Find(result, "Paul Wendt").Warning);
-    Assert.False(Find(result, "Kai Lorenz").CheckBestLap);
+    var paul = Assert.Single(result.Entries);
+    Assert.Equal(TimeSpan.FromSeconds(157), paul.BestLap);
+    Assert.Equal(1, paul.QuickLapsLeftOut);
+    Assert.Contains("Not taken as best lap", paul.Warning);
+    // The lap still happened: the average keeps it.
+    Assert.Equal(TimeSpan.FromSeconds(152), paul.AverageLap);
+  }
+
+  [Fact]
+  public void SeveralMisreadLapsAreAllLeftOut()
+  {
+    // As a Hobby rider on 31 October 2026: crossings read at irregular moments,
+    // laps adding up to a steady 2:15 but two of them "1:53". Each misread lap
+    // has a near twin, so comparing with the next best lap would not see them.
+    var result = Score(Race("Moto 1",
+      Rider("A", "52", "Kai Lorenz", "Hobby", 135, 117.5, 162.9, 113.7, 139.1, 159.1, 135.5, 136.2, 114.0).Build()));
+
+    var kai = Assert.Single(result.Entries);
+    Assert.Equal(3, kai.QuickLapsLeftOut);
+    Assert.Equal(TimeSpan.FromSeconds(135.5), kai.BestLap);
+    Assert.Equal(7, kai.BestLapNumber);
+  }
+
+  [Fact]
+  public void AFastRiderWithSteadyLapsKeepsTheirBest()
+  {
+    var result = Score(Race("Moto 1",
+      Rider("A", "1", "Lena Lizenz", "Lizenz", 125, 112, 115, 114, 116, 118, 117).Build()));
+
+    var lena = Assert.Single(result.Entries);
+    Assert.Equal(TimeSpan.FromSeconds(112), lena.BestLap);
+    Assert.Equal(0, lena.QuickLapsLeftOut);
+    Assert.Null(lena.Warning);
+  }
+
+  [Fact]
+  public void WithTooFewLapsToKnowWhatIsUsualEveryLapCounts()
+  {
+    var result = Score(Race("Moto 1", Rider("A", "1", "Anna Berger", "MX1", 130, 100, 140).Build()));
+    Assert.Equal(TimeSpan.FromSeconds(100), Assert.Single(result.Entries).BestLap);
   }
 
   [Fact]

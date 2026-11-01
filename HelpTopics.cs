@@ -1021,10 +1021,13 @@ public static class HelpTopics
         "others when sorted by average.",
         "On equal best laps, whoever set it first is ahead. On equal averages, the better best lap.",
         "Best lap in says which race and which lap the best lap was."),
+      Para("A lap more than 12 % quicker than the rider's usual lap is not taken as their best lap: it is " +
+           "nearly always a transponder read at the wrong moment, not a lap anyone rode. Such a rider is " +
+           "highlighted, with the laps left out, so the transponder can be checked. The laps still count " +
+           "towards the average - added up, they are the rider's real time."),
       Para("A rider is followed from race to race by their transponder, also when they rode in two classes. A " +
-           "row is highlighted when something should be checked: a best lap far quicker than any other lap the " +
-           "rider rode (a cut, or someone else's read), one number on two riders of a class, or one transponder " +
-           "ridden by two riders of different classes."),
+           "row is also highlighted for one number on two riders of a class, or one transponder ridden by two " +
+           "riders of different classes."),
 
       Heading("Printing, publishing, keeping it by itself"),
       Bullets(
