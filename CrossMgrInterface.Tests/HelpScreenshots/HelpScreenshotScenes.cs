@@ -17,7 +17,8 @@ internal static class HelpScreenshotScenes
   {
     "race-day", "new-race-wizard", "fix-laps", "unknown-transponder",
     "track-map", "circuit-editor", "past-sessions", "reader-settings", "demo-picker",
-    "publish-results", "rider-list", "spectator-screen", "overall-results", "day-plan", "new-plan"
+    "publish-results", "rider-list", "spectator-screen", "overall-results", "day-plan", "new-plan",
+    "master-all-classes"
   };
 
   public static HelpScene Build(string name) => name switch
@@ -37,6 +38,7 @@ internal static class HelpScreenshotScenes
     "overall-results" => OverallResults(),
     "day-plan" => DayPlanScene(),
     "new-plan" => NewPlanScene(),
+    "master-all-classes" => AllClasses(),
     _ => throw new ArgumentException($"There is no help screenshot scene called {name}.", nameof(name))
   };
 
@@ -441,6 +443,45 @@ internal static class HelpScreenshotScenes
     {
       Form = new OverallResultsDialog(new SampleOverall(result), overall) { ClientSize = new Size(900, 560) }
     };
+  }
+
+  /// <summary>
+  /// A day of the race demo's riders with each class in its races of its own -
+  /// MX1 for 20 minutes, MX2 for 15 - so the list shows the two classes in among
+  /// each other, which is the point of it.
+  /// </summary>
+  private static HelpScene AllClasses()
+  {
+    var start = new DateTime(2026, 9, 12, 13, 30, 0);
+    var races = new List<OverallMoto>();
+    foreach (var moto in new[] { 1, 2 })
+      foreach (var cls in new[] { "MX1", "MX2" })
+      {
+        var minutes = cls == "MX1" ? 20 : 15;
+        var rules = new RaceRules { SessionType = SessionType.Race, Duration = TimeSpan.FromMinutes(minutes), AdditionalLaps = 1 };
+        var at = start.AddMinutes(races.Count * 30);
+        races.Add(new OverallMoto($"Moto {moto} - {cls}",
+          MotoField(moto).Where(r => r.Category == cls).ToDictionary(r => r.TagID, r => r), rules, at, at.AddMinutes(23)));
+      }
+
+    var result = DayRankingScorer.Score(Form1.DayRankingDefaultName, races, DayRankingMeasure.BestLap);
+    var ranking = new DbDayRanking { Id = 1, Day = start.Date, Name = Form1.DayRankingDefaultName };
+    return new HelpScene
+    {
+      Form = new DayRankingDialog(new SampleDayRanking(result), ranking) { ClientSize = new Size(1040, 560) }
+    };
+  }
+
+  private sealed class SampleDayRanking : IDayRankingHost
+  {
+    private readonly DayRankingResult _result;
+    public SampleDayRanking(DayRankingResult result) => _result = result;
+
+    public DayRankingResult Score(DbDayRanking ranking) => _result;
+    public void Save(DbDayRanking ranking) { }
+    public void PrintResults(IWin32Window owner, DbDayRanking ranking, DayRankingResult result) { }
+    public bool PublishingAvailable => true;
+    public void Publish(IWin32Window owner, DbDayRanking ranking) { }
   }
 
   private sealed class SampleOverall : IOverallResultsHost

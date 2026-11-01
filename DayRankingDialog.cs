@@ -50,7 +50,7 @@ public sealed class DayRankingDialog : Form
     MinimizeBox = false;
     MaximizeBox = true;
     ShowInTaskbar = false;
-    ClientSize = new Size(1000, 640);
+    ClientSize = new Size(1040, 640);
     MinimumSize = new Size(780, 440);
     Font = new Font("Segoe UI", 9F);
 
@@ -208,7 +208,7 @@ public sealed class DayRankingDialog : Form
     {
       var column = _grid.Columns[_grid.Columns.Add($"c{i}", headers[i])];
       column.SortMode = DataGridViewColumnSortMode.NotSortable;
-      column.Width = i switch { 0 => 48, 1 => 52, 2 => 200, 3 => 100, 5 => 190, 7 => 52, _ => 86 };
+      column.Width = i switch { 0 => 44, 1 => 44, 2 => 180, 3 => 70, 5 => 150, 7 => 46, 8 => 64, _ => 84 };
       if (i is 0 or 1 or 4 or 6 or 7 or 8) column.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
     }
 

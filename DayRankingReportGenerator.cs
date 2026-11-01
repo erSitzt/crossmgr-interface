@@ -112,11 +112,14 @@ public sealed class DayRankingReportGenerator : IDisposable
       BestLapIn(result, entry),
       entry.AverageLap.HasValue ? TimeFormat.Precise(entry.AverageLap.Value) : "",
       entry.TimedLaps.ToString(),
-      placed && leader.HasValue && time.HasValue && time.Value > leader.Value
-        ? "+" + TimeFormat.Precise(time.Value - leader.Value)
-        : ""
+      placed && leader.HasValue && time.HasValue && time.Value > leader.Value ? Gap(time.Value - leader.Value) : ""
     };
   }
+
+  /// <summary>"+1.799" - seconds, as a lap time's difference is read out; minutes only past one.</summary>
+  public static string Gap(TimeSpan gap) => gap < TimeSpan.FromMinutes(1)
+    ? "+" + gap.TotalSeconds.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)
+    : "+" + TimeFormat.Precise(gap);
 
   /// <summary>The time every gap on the list is measured from.</summary>
   public static TimeSpan? Leader(DayRankingResult result, DayRankingMeasure measure) =>
