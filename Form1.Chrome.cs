@@ -568,8 +568,6 @@ public partial class Form1
     // order, and offering one beside Results... invites printing the wrong sheet.
     _menuGatePick.Visible = IsQualifying;
 
-    // Practice and qualifying both: a tag can still be re-fitted before the race.
-    _menuTransponders.Visible = IsTimedSession;
     lock (ridersLock) _menuHeldRiders.Visible = SessionClassGate.Restricts(sessionClasses);
     _menuStartReader.Enabled = !isListening;
     _menuStopReader.Enabled = isListening;

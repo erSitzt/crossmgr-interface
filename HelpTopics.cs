@@ -328,7 +328,7 @@ public static class HelpTopics
         "Riders (Ctrl+2) - every rider with laps and times, and a Status column. Right-click a rider to fix " +
         "laps, identify a transponder or stop counting it. Filter by: shows one class.",
         "Qualifying - timed qualifying only: the gate pick order as it stands.",
-        "Transponders - timed qualifying and free practice only: transponders that are read badly or not at all.",
+        "Transponders - every session: transponders that are read badly or not at all.",
         "Track (Ctrl+3) - the circuit on a map with every rider's estimated position."),
 
       Heading("Advanced tabs"),
@@ -791,13 +791,15 @@ public static class HelpTopics
 
   private static HelpTopic TransponderCheck() => Topic(HelpTopicIds.TransponderCheck, DuringASession,
     "Transponder check",
-    "Finds the transponders that are not being read properly - in practice or qualifying, while there is " +
-    "still time to fix them.",
+    "Finds the transponders that are not being read properly - in practice and qualifying while there is " +
+    "still time to re-fit them, and in a race while the moto is still running.",
     new[]
     {
-      Para("Shown for timed qualifying and free practice: the Transponders tab while the session runs, and " +
-           "Race > Transponder check... for the sheet. It covers everyone who crossed and everyone on the " +
-           "rider list who did not."),
+      Para("The Transponders tab is there in every session, and Race > Transponder check... prints the " +
+           "sheet. It covers everyone who crossed and everyone on the rider list in the session's classes who " +
+           "did not."),
+      Para("In a race, look at it once the field has been round: a rider shown as never read or gone quiet may " +
+           "still be out there, uncounted. Check the tag before the next moto."),
       Keys(
         ("Never read", "no reads at all - check the tag is fitted, working, and somewhere the loop can see it"),
         ("Went quiet", "read, then silent for more than three laps while the others rode on - ask whether they pulled in or the tag stopped"),
@@ -883,7 +885,7 @@ public static class HelpTopics
       Keys(
         ("Race", "Results... (Ctrl+P) - the classification"),
         ("Timed qualifying", "Gate pick order... - the order riders choose their gates"),
-        ("Practice, qualifying", "Transponder check... - tags that need attention")),
+        ("Any session", "Transponder check... - tags that need attention")),
 
       Heading("Preview, print or export"),
       Para("Each asks for a title - the session's name unless changed - and whether to preview, print or export."),
@@ -960,9 +962,12 @@ public static class HelpTopics
         "Most points wins. On equal points the better place in the last moto decides.",
         "Riders without points follow, the lowest sum of places first. A rider placed in no moto is still " +
         "listed, at the bottom, without a place."),
-      Para("Riders are matched between the motos by class and start number, not by transponder, so a spare " +
-           "transponder in Moto 2 changes nothing. A number that appears under two different names is " +
-           "highlighted - check the rider list before handing the sheet out."),
+      Para("Riders are matched between the motos by their transponder. A rider on a spare transponder in " +
+           "Moto 2 is found by class, start number and name instead, so give the spare in the rider list " +
+           "the same number and name."),
+      Para("A row is highlighted when something should be checked before the sheet is handed out: a rider whose " +
+           "name changed between the motos, or two riders of one class with the same number. Riders sharing a " +
+           "number are still scored apart - give one of them another number in the rider list."),
       Tip("The points table is at the top of the window, for a club that scores differently. Type the points " +
           "for 1st, 2nd, 3rd ... separated by commas. It is kept with this overall only."),
 

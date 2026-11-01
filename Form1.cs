@@ -191,9 +191,11 @@ public partial class Form1 : Form
     // leaderboard is an invitation to read the wrong sheet.
     if (IsQualifying && tabPageQualifying != null) desired.Add(tabPageQualifying);
 
-    // Any timed session. Practice is the session whose whole point is finding
-    // bad tags, and qualifying is the last chance to fix one before the race.
-    if (IsTimedSession && tabPageTransponder != null) desired.Add(tabPageTransponder);
+    // Every session. Practice is the session whose whole point is finding bad
+    // tags and qualifying the last chance to fix one before the race - but a
+    // tag can also stop in a race, and there the tab is what lets someone
+    // notice while the moto is still running rather than at the prize giving.
+    if (tabPageTransponder != null) desired.Add(tabPageTransponder);
 
     desired.Add(tabPageTrack);
 

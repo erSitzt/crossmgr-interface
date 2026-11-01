@@ -141,16 +141,16 @@ public sealed class OverallResult
 /// points of that place. There is deliberately no minimum share of the
 /// winner's laps; neither rulebook has one for a motocross moto.
 ///
-/// Riders are matched between motos by class and start number, not by
-/// transponder: a spare transponder in the second moto is common, a change of
-/// number is not.
+/// Riders are matched between motos by transponder - each rider has their
+/// own for the day - and a rider on a spare one by start number and name.
+/// See <see cref="EntryFor"/>.
 /// </summary>
 public static class OverallScorer
 {
   public static OverallResult Score(string title, IReadOnlyList<OverallMoto> motos, OverallRules rules)
   {
     var generator = new RaceReportGenerator();
-    var entries = new Dictionary<string, EntryBuilder>(StringComparer.OrdinalIgnoreCase);
+    var entries = new List<EntryBuilder>();
 
     for (var m = 0; m < motos.Count; m++)
     {
@@ -179,7 +179,9 @@ public static class OverallScorer
       TeamEvent = motos.Any(m => m.Rules.TeamEvent)
     };
 
-    foreach (var group in entries.Values.GroupBy(e => e.Category, StringComparer.OrdinalIgnoreCase)
+    NoteSharedNumbers(entries);
+
+    foreach (var group in entries.GroupBy(e => e.Category, StringComparer.OrdinalIgnoreCase)
                .OrderBy(g => g.Key.Length == 0 ? 1 : 0).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
     {
       result.Classes.Add(new OverallClass { Name = group.Key, Entries = Rank(group.Select(e => e.Build())) });
@@ -189,8 +191,10 @@ public static class OverallScorer
   }
 
   private static void ScoreClass(List<RiderResult> sheet, Dictionary<string, RiderInfo> riders, int moto,
-    int motoCount, OverallRules rules, Dictionary<string, EntryBuilder> entries)
+    int motoCount, OverallRules rules, List<EntryBuilder> entries)
   {
+    var tagsInMoto = sheet.Select(r => r.TagID).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     var place = 0;
     foreach (var row in sheet)
     {
@@ -215,25 +219,62 @@ public static class OverallScorer
       }
 
       riders.TryGetValue(row.TagID, out var rider);
-      var key = KeyFor(row, rider);
-      if (!entries.TryGetValue(key, out var entry))
+      var entry = EntryFor(entries, row, moto, tagsInMoto);
+      if (entry == null)
       {
         entry = new EntryBuilder(motoCount) { Category = row.Category ?? "" };
-        entries[key] = entry;
+        entries.Add(entry);
       }
       entry.Add(moto, cell, row, rider);
     }
   }
 
   /// <summary>
-  /// Class and start number. A team is its team key; a rider nobody gave a
-  /// number to can only be followed by transponder.
+  /// The entry this row continues from an earlier moto of the class, or null
+  /// for a rider not seen before.
+  ///
+  /// On a race day each rider has their own transponder, so the transponder
+  /// says who it is; a team is followed by its team key the same way. A rider
+  /// whose transponder failed rides the next moto on a spare, and is found by
+  /// start number and name instead - but only while their old transponder is
+  /// not out in this moto too. The number alone is not enough: at a club day it
+  /// can be on two riders. On 31 October 2026 two beginners were both #231,
+  /// matching by number put the second over the first, and a rider on the
+  /// podium of both motos was missing from the overall.
   /// </summary>
-  private static string KeyFor(RiderResult row, RiderInfo? rider)
+  private static EntryBuilder? EntryFor(List<EntryBuilder> entries, RiderResult row, int moto,
+    HashSet<string> tagsInMoto)
   {
-    if (row.IsTeam) return $"{row.Category}|team|{row.TagID}";
+    var open = entries
+      .Where(e => !e.Has(moto) && string.Equals(e.Category, row.Category ?? "", StringComparison.OrdinalIgnoreCase))
+      .ToList();
+
+    var sameTag = open.FirstOrDefault(e => e.IsTeam == row.IsTeam && e.HasTag(row.TagID));
+    if (sameTag != null || row.IsTeam) return sameTag;
+
     var number = row.RiderNumber?.Trim() ?? "";
-    return number.Length > 0 ? $"{row.Category}|{number}" : $"{row.Category}|tag|{row.TagID}";
+    if (number.Length == 0 || string.IsNullOrWhiteSpace(row.RiderName)) return null;
+
+    return open.FirstOrDefault(e => !e.IsTeam
+      && string.Equals(e.Number, number, StringComparison.OrdinalIgnoreCase)
+      && e.HasName(row.RiderName)
+      && !e.Tags.Any(tagsInMoto.Contains));
+  }
+
+  /// <summary>Riders of one class kept apart under one number are each told about the other.</summary>
+  private static void NoteSharedNumbers(List<EntryBuilder> entries)
+  {
+    var groups = entries.Where(e => !e.IsTeam && e.Number.Length > 0)
+      .GroupBy(e => (Category: e.Category.ToUpperInvariant(), Number: e.Number.ToUpperInvariant()))
+      .Where(g => g.Count() > 1);
+
+    foreach (var group in groups)
+    {
+      var names = string.Join(" and ", group.Select(e => e.DisplayName));
+      foreach (var entry in group)
+        entry.SharedNumber = $"Number {entry.Number} was given to {names} - scored as different riders. " +
+                             "Check the rider list.";
+    }
   }
 
   /// <summary>
@@ -284,6 +325,8 @@ public static class OverallScorer
   private sealed class EntryBuilder
   {
     private readonly OverallMotoCell[] _cells;
+    private readonly bool[] _rode;
+    private readonly HashSet<string> _tags = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _names = new();
     private string _number = "";
     private string _name = "";
@@ -294,20 +337,36 @@ public static class OverallScorer
     public EntryBuilder(int motoCount)
     {
       _cells = Enumerable.Repeat(OverallMotoCell.Absent, motoCount).ToArray();
+      _rode = new bool[motoCount];
     }
 
     public string Category { get; init; } = "";
+    public string Number => _number.Trim();
+    public bool IsTeam => _isTeam;
+    public string DisplayName => _name.Length > 0 ? _name : $"transponder {_tags.FirstOrDefault()}";
+
+    /// <summary>Set when another rider of the class has the same number. See NoteSharedNumbers.</summary>
+    public string? SharedNumber { get; set; }
+
+    public bool Has(int moto) => _rode[moto];
+    public bool HasTag(string tag) => _tags.Contains(tag);
+    public IEnumerable<string> Tags => _tags;
+
+    public bool HasName(string? name) =>
+      !string.IsNullOrWhiteSpace(name) && _names.Contains(name.Trim(), StringComparer.OrdinalIgnoreCase);
 
     public void Add(int moto, OverallMotoCell cell, RiderResult row, RiderInfo? rider)
     {
       _cells[moto] = cell;
+      _rode[moto] = true;
+      _tags.Add(row.TagID);
 
       // The latest moto has the name as last corrected, so it wins.
       _number = row.RiderNumber ?? "";
       if (!string.IsNullOrWhiteSpace(row.RiderName))
       {
-        _name = row.RiderName;
-        if (!_names.Contains(row.RiderName, StringComparer.OrdinalIgnoreCase)) _names.Add(row.RiderName);
+        _name = row.RiderName.Trim();
+        if (!_names.Contains(_name, StringComparer.OrdinalIgnoreCase)) _names.Add(_name);
       }
       _team = row.Team ?? "";
       _isTeam = row.IsTeam;
@@ -326,7 +385,11 @@ public static class OverallScorer
       // Two names on one number is usually a typo in a rider list, but it can
       // be two riders sharing a number, and adding their points together would
       // hand one of them a result that is not theirs. Say so rather than guess.
-      Warning = _names.Count > 1 ? $"Number {_number} has different names: {string.Join(" / ", _names)}" : null
+      Warning = string.Join(" ", new[]
+      {
+        _names.Count > 1 ? $"Number {_number} has different names: {string.Join(" / ", _names)}" : null,
+        SharedNumber
+      }.OfType<string>()) is { Length: > 0 } warning ? warning : null
     };
   }
 }

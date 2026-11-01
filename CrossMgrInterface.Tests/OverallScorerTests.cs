@@ -164,15 +164,95 @@ public class OverallScorerTests
   }
 
   [Fact]
-  public void OneNumberUnderTwoNamesIsFlagged()
+  public void ANameCorrectedBetweenMotosIsOneRiderAndFlagged()
+  {
+    var result = Score(
+      Moto("Moto 1", RiderBuilder.Rider("A", "7", "Ana Berger").Laps(10, 40).Build()),
+      Moto("Moto 2", RiderBuilder.Rider("A", "7", "Anna Berger").Laps(10, 40).Build()));
+
+    var entry = Assert.Single(OnlyClass(result).Entries);
+    Assert.Equal(("Anna Berger", 50), (entry.Name, entry.Points));
+    Assert.Contains("different names: Ana Berger / Anna Berger", entry.Warning);
+  }
+
+  [Fact]
+  public void AnotherRiderOnTheSameNumberIsNotAddedToTheFirst()
   {
     var result = Score(
       Moto("Moto 1", RiderBuilder.Rider("A", "7", "Anna Berger").Laps(10, 40).Build()),
       Moto("Moto 2", RiderBuilder.Rider("B", "7", "Ben Fischer").Laps(10, 40).Build()));
 
-    var entry = Assert.Single(OnlyClass(result).Entries);
-    Assert.Contains("Anna Berger", entry.Warning);
-    Assert.Contains("Ben Fischer", entry.Warning);
+    var entries = OnlyClass(result).Entries;
+    Assert.Equal(new[] { 25, 25 }, entries.Select(e => e.Points));
+    Assert.All(entries, e => Assert.Contains("Number 7 was given to Anna Berger and Ben Fischer", e.Warning));
+  }
+
+  // 31 October 2026: two beginners were both #231 in the rider list. The
+  // second overwrote the first, and a rider on the podium of both motos was
+  // missing from the overall.
+  [Fact]
+  public void TwoRidersGivenOneNumberAreScoredApart()
+  {
+    var result = Score(
+      Moto("Moto 1",
+        RiderBuilder.Rider("A", "1", "Anna Berger").Laps(8, 40).Build(),
+        RiderBuilder.Rider("B", "231", "Ben Fischer").Laps(8, 41).Build(),
+        RiderBuilder.Rider("C", "231", "Carla Hoff").Laps(8, 42).Build()),
+      Moto("Moto 2",
+        RiderBuilder.Rider("A", "1", "Anna Berger").Laps(8, 40).Build(),
+        RiderBuilder.Rider("C", "231", "Carla Hoff").Laps(8, 41).Build(),
+        RiderBuilder.Rider("B", "231", "Ben Fischer").Laps(8, 42).Build()));
+
+    var entries = OnlyClass(result).Entries;
+    Assert.Equal(3, entries.Count);
+    var ben = entries.Single(e => e.Name == "Ben Fischer");
+    var carla = entries.Single(e => e.Name == "Carla Hoff");
+    Assert.Equal(new[] { "2", "3" }, ben.Motos.Select(m => m.Text));
+    Assert.Equal(new[] { "3", "2" }, carla.Motos.Select(m => m.Text));
+    Assert.Equal((42, 42), (ben.Points, carla.Points));
+    Assert.All(new[] { ben, carla }, e => Assert.Contains("Ben Fischer and Carla Hoff", e.Warning));
+    Assert.DoesNotContain("different names", ben.Warning);
+  }
+
+  [Fact]
+  public void ASharedNumberStillFollowsARiderOnASpareTransponderByName()
+  {
+    var result = Score(
+      Moto("Moto 1",
+        RiderBuilder.Rider("B", "231", "Ben Fischer").Laps(8, 40).Build(),
+        RiderBuilder.Rider("C", "231", "Carla Hoff").Laps(8, 41).Build()),
+      Moto("Moto 2",
+        RiderBuilder.Rider("SPARE", "231", "Ben Fischer").Laps(8, 41).Build(),
+        RiderBuilder.Rider("C", "231", "Carla Hoff").Laps(8, 40).Build()));
+
+    var entries = OnlyClass(result).Entries;
+    Assert.Equal(2, entries.Count);
+    Assert.Equal(new[] { "1", "2" }, entries.Single(e => e.Name == "Ben Fischer").Motos.Select(m => m.Text));
+  }
+
+  [Fact]
+  public void ARiderWhoseNumberIsSharedOnlyInTheSecondMotoKeepsTheirFirst()
+  {
+    var result = Score(
+      Moto("Moto 1", RiderBuilder.Rider("B", "231", "Ben Fischer").Laps(8, 40).Build()),
+      Moto("Moto 2",
+        RiderBuilder.Rider("C", "231", "Carla Hoff").Laps(8, 40).Build(),
+        RiderBuilder.Rider("B", "231", "Ben Fischer").Laps(8, 41).Build()));
+
+    var entries = OnlyClass(result).Entries;
+    Assert.Equal(new[] { "1", "2" }, entries.Single(e => e.Name == "Ben Fischer").Motos.Select(m => m.Text));
+    Assert.Equal(new[] { "-", "1" }, entries.Single(e => e.Name == "Carla Hoff").Motos.Select(m => m.Text));
+  }
+
+  [Fact]
+  public void TheSameNumberInTwoClassesIsTwoRiders()
+  {
+    var result = Score(
+      Moto("Moto 1",
+        RiderBuilder.Rider("A", "7", "Anna Berger").Category("MX1").Laps(8, 40).Build(),
+        RiderBuilder.Rider("B", "7", "Ben Fischer").Category("MX2").Laps(8, 40).Build()));
+
+    Assert.All(result.Classes, c => Assert.Null(Assert.Single(c.Entries).Warning));
   }
 
   [Fact]
