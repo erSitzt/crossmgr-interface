@@ -47,6 +47,13 @@ public interface IResultsPublisher
                                     CancellationToken cancellationToken);
 
   /// <summary>Sends an overall. Its motos must be on the website already: it links to them.</summary>
+  /// <summary>
+  /// The list of every class of a race day. A website from before it answers
+  /// 404, which comes back as <see cref="PublishStatus.NotSupported"/>.
+  /// </summary>
+  Task<PublishOutcome> PublishDayRankingAsync(PublishedDayRanking ranking, IProgress<PublishProgress>? progress,
+    CancellationToken cancellationToken);
+
   Task<PublishOutcome> PublishOverallAsync(PublishedOverall overall, IProgress<PublishProgress>? progress,
                                            CancellationToken cancellationToken);
 
@@ -151,6 +158,11 @@ public sealed class HttpResultsPublisher : IResultsPublisher
     IProgress<PublishProgress>? progress, CancellationToken cancellationToken) =>
     PutAsync($"sessions/{Uri.EscapeDataString(session.Session.PublicId)}",
       () => PublishPayloadBuilder.Serialise(session), progress, cancellationToken);
+
+  public Task<PublishOutcome> PublishDayRankingAsync(PublishedDayRanking ranking,
+    IProgress<PublishProgress>? progress, CancellationToken cancellationToken) =>
+    PutAsync($"day-rankings/{Uri.EscapeDataString(ranking.Ranking.PublicId)}",
+      () => PublishPayloadBuilder.Serialise(ranking), progress, cancellationToken);
 
   public Task<PublishOutcome> PublishOverallAsync(PublishedOverall overall,
     IProgress<PublishProgress>? progress, CancellationToken cancellationToken) =>

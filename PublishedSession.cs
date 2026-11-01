@@ -332,6 +332,62 @@ public sealed record PublishedOverallMoto
 }
 
 /// <summary>
+/// Every rider of every class of a race day, ranked on lap times (see
+/// DayRankingScorer). Its own address, like an overall, and republished after
+/// each race of the day; the races are named by their public ids.
+/// </summary>
+public sealed record PublishedDayRanking
+{
+  public int SchemaVersion { get; init; } = PublishSchema.Version;
+  public required PublishedDayRankingHeader Ranking { get; init; }
+
+  /// <summary>The races' <see cref="DbRace.PublicId"/>s, in the order they were run.</summary>
+  public required IReadOnlyList<string> Sessions { get; init; }
+
+  public required IReadOnlyList<PublishedDayRankingEntry> Entries { get; init; }
+  public required PublishedClient Client { get; init; }
+}
+
+public sealed record PublishedDayRankingHeader
+{
+  /// <summary>See <see cref="DbDayRanking.PublicId"/>.</summary>
+  public required string PublicId { get; init; }
+  public required string Title { get; init; }
+
+  /// <summary>"bestLap" or "averageLap": the order the club chose to show first.</summary>
+  public required string Measure { get; init; }
+
+  /// <summary>False while races of the day are still to be run.</summary>
+  public bool Final { get; init; }
+
+  /// <summary>From a demo: see <see cref="PublishedSessionHeader.Demo"/>.</summary>
+  public bool? Demo { get; init; }
+
+  public DateTimeOffset GeneratedAt { get; init; }
+  public IReadOnlyList<PublishedCondition> Conditions { get; init; } = Array.Empty<PublishedCondition>();
+}
+
+public sealed record PublishedDayRankingEntry
+{
+  public int? BestRank { get; init; }
+  public int? AverageRank { get; init; }
+  public string Number { get; init; } = "";
+  public string Name { get; init; } = "";
+  public string? Category { get; init; }
+  public string? Team { get; init; }
+  public long? BestLapMs { get; init; }
+
+  /// <summary>An index into <see cref="PublishedDayRanking.Sessions"/>.</summary>
+  public int? BestLapSession { get; init; }
+  public int? BestLapNumber { get; init; }
+  public long? AverageLapMs { get; init; }
+  public int TimedLaps { get; init; }
+
+  /// <summary>Empty for a rider with a time; "dns" or "noTime" for one without.</summary>
+  public string Status { get; init; } = "";
+}
+
+/// <summary>
 /// A day's programme, as the websites show it to spectators: what has run,
 /// what is on, what is next and when. Sent whenever it changes, latest wins.
 /// Deliberately nothing about riders - a timetable is public the day before.

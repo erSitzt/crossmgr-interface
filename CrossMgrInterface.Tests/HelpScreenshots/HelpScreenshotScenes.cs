@@ -572,6 +572,10 @@ internal static class HelpScreenshotScenes
       CancellationToken cancellationToken) =>
       Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published."));
 
+    public Task<PublishOutcome> PublishDayRankingAsync(PublishedDayRanking ranking, IProgress<PublishProgress>? progress,
+      CancellationToken cancellationToken) =>
+      Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published."));
+
     public Task<PublishOutcome> PublishPlanAsync(PublishedPlan plan, CancellationToken cancellationToken) =>
       Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published."));
 
