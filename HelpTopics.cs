@@ -960,9 +960,12 @@ public static class HelpTopics
         "Most points wins. On equal points the better place in the last moto decides.",
         "Riders without points follow, the lowest sum of places first. A rider placed in no moto is still " +
         "listed, at the bottom, without a place."),
-      Para("Riders are matched between the motos by class and start number, not by transponder, so a spare " +
-           "transponder in Moto 2 changes nothing. A number that appears under two different names is " +
-           "highlighted - check the rider list before handing the sheet out."),
+      Para("Riders are matched between the motos by their transponder. A rider on a spare transponder in " +
+           "Moto 2 is found by class, start number and name instead, so give the spare in the rider list " +
+           "the same number and name."),
+      Para("A row is highlighted when something should be checked before the sheet is handed out: a rider whose " +
+           "name changed between the motos, or two riders of one class with the same number. Riders sharing a " +
+           "number are still scored apart - give one of them another number in the rider list."),
       Tip("The points table is at the top of the window, for a club that scores differently. Type the points " +
           "for 1st, 2nd, 3rd ... separated by commas. It is kept with this overall only."),
 
