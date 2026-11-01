@@ -63,6 +63,9 @@ public sealed class AppSettings
   public string? SpectatorScreen { get; set; }
   public bool SpectatorFullScreen { get; set; } = true;
 
+  /// <summary>Between sessions, the spectator screen takes turns with the Master of all classes.</summary>
+  public bool SpectatorAllClasses { get; set; }
+
   // Race setup. A club runs the same format all day, so re-entering it after
   // every restart is pure friction - and silently falling back to a 20-minute
   // default is worse than friction.

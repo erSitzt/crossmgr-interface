@@ -75,3 +75,33 @@ public class DayRankingPublishTests
     Assert.True(payload.Ranking.Demo);
   }
 }
+
+/// <summary>The Master of all classes on the spectator screen.</summary>
+public class DayRankingSpectatorTests
+{
+  [Fact]
+  public void TheBoardListsEveryClassOnTheChosenMeasure()
+  {
+    OverallMoto Race(string title, params RiderInfo[] riders) =>
+      new(title, riders.ToDictionary(r => r.TagID, r => r), new RaceRules { Duration = TimeSpan.FromMinutes(15) },
+        RiderBuilder.RaceStart, RiderBuilder.RaceStart.AddMinutes(20));
+
+    var result = DayRankingScorer.Score("Master of all classes", new[]
+    {
+      Race("Moto 1 - Hobby", RiderBuilder.Rider("H", "5", "Hans Hobby").Category("Hobby").Lap(130).Laps(3, 115).Build()),
+      Race("Moto 1 - Lizenz", RiderBuilder.Rider("L", "1", "Lena Lizenz").Category("Lizenz").Lap(125).Laps(3, 110).Build(),
+        RiderBuilder.Rider("D", "2", "Dora Dns").Category("Lizenz").Dns().Build())
+    }, DayRankingMeasure.BestLap);
+
+    var board = SpectatorBoardBuilder.BuildAllClasses(result, rowLimit: 2, nextUp: "Moto 2 - Hobby  ~14:06");
+
+    Assert.True(board.AllClasses);
+    Assert.Equal("Best lap", board.State);
+    Assert.Equal(new[] { "1", "2" }, board.Rows.Select(r => r.Position));
+    Assert.Equal(new[] { "Lizenz", "Hobby" }, board.Rows.Select(r => r.Class));
+    // As the qualifying board writes a gap to pole.
+    Assert.Equal($"+{5.0:F2}", board.Rows[1].Gap);
+    Assert.Equal(1, board.MoreCount);
+    Assert.Equal("Moto 2 - Hobby  ~14:06", board.NextUp);
+  }
+}

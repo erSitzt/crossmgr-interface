@@ -43,6 +43,9 @@ public sealed record SpectatorRow
   public string LastLap { get; init; } = "";
   public string BestLap { get; init; } = "";
 
+  /// <summary>On the Master of all classes only: the average lap.</summary>
+  public string AverageLap { get; init; } = "";
+
   /// <summary>Gap to the leader in a race, to pole in a timed session.</summary>
   public string Gap { get; init; } = "";
 
@@ -80,6 +83,9 @@ public sealed record SpectatorBoard
 
   public bool Timed { get; init; }
   public bool ShowClass { get; init; }
+
+  /// <summary>The Master of all classes rather than a session: Class, Best lap, Avg lap and Gap.</summary>
+  public bool AllClasses { get; init; }
 
   /// <summary>Headers that change with the session: "Pos"/"Pick", "Gap"/"Gap to pole".</summary>
   public string PositionHeader { get; init; } = "Pos";
@@ -156,6 +162,49 @@ public static class SpectatorBoardBuilder
         : $"{Label(fastest.Value.Rider)}   {BoardText.LapTime(fastest.Value.Lap.LapTime)}   lap {fastest.Value.Lap.LapNumber}",
       Recent = started ? Recent(inputs.Field) : Array.Empty<SpectatorCrossing>(),
       NextUp = started && inputs.State != RaceDayState.Finished ? null : inputs.NextUp
+    };
+  }
+
+  /// <summary>
+  /// The Master of all classes as a board: shown between sessions, taking
+  /// turns with the last session's, so the crowd sees where everyone stands
+  /// against every class while the gate is being set up.
+  /// </summary>
+  public static SpectatorBoard BuildAllClasses(DayRankingResult result, int? rowLimit, string? nextUp)
+  {
+    var measure = result.Measure;
+    var leader = DayRankingReportGenerator.Leader(result, measure);
+    var rows = result.Ordered(measure).Select(e =>
+    {
+      var rank = e.RankBy(measure);
+      var time = e.TimeBy(measure);
+      return new SpectatorRow
+      {
+        Position = rank?.ToString() ?? "-",
+        Number = e.Number,
+        Name = e.Name.Length > 0 ? e.Name : e.Number.Length > 0 ? "" : "unidentified rider",
+        Class = e.Category,
+        BestLap = e.BestLap.HasValue ? BoardText.LapTime(e.BestLap) : "NO TIME",
+        AverageLap = BoardText.LapTime(e.AverageLap),
+        Gap = rank > 1 && time.HasValue && leader.HasValue ? $"+{(time.Value - leader.Value).TotalSeconds:F2}" : "",
+        Podium = rank is >= 1 and <= 3 ? rank.Value : 0,
+        Out = !rank.HasValue
+      };
+    }).ToList();
+
+    var limit = rowLimit ?? int.MaxValue;
+    return new SpectatorBoard
+    {
+      Title = result.Title,
+      Clock = "",
+      ClockSub = "",
+      State = measure == DayRankingMeasure.AverageLap ? "Average lap" : "Best lap",
+      AllClasses = true,
+      PositionHeader = "Pos",
+      GapHeader = "Gap",
+      Rows = rows.Take(limit).ToList(),
+      MoreCount = Math.Max(0, rows.Count - limit),
+      NextUp = nextUp
     };
   }
 

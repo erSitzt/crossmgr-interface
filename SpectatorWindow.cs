@@ -42,6 +42,7 @@ public sealed class SpectatorWindow : Form
   private readonly ToolStripMenuItem _top20 = new("Top 20");
   private readonly ToolStripMenuItem _all = new("All riders");
   private readonly ToolStripMenuItem _fullScreenItem = new("Full screen");
+  private readonly ToolStripMenuItem _allClassesItem = new("Master of all classes between sessions") { CheckOnClick = true };
 
   /// <summary>How many rows was chosen, or which screen it is on: the main window remembers both.</summary>
   public event EventHandler? PreferencesChanged;
@@ -66,6 +67,14 @@ public sealed class SpectatorWindow : Form
 
   public bool IsFullScreen => _fullScreen;
 
+  /// <summary>Between sessions, take turns with the list of every class of the day.</summary>
+  [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+  public bool ShowAllClasses
+  {
+    get => _allClassesItem.Checked;
+    set => _allClassesItem.Checked = value;
+  }
+
   public SpectatorWindow()
   {
     Text = "Spectator screen";
@@ -84,6 +93,7 @@ public sealed class SpectatorWindow : Form
     _all.Click += (_, _) => ChooseRows(null);
     _fullScreenItem.ShortcutKeyDisplayString = "F11";
     _fullScreenItem.Click += (_, _) => SetFullScreen(!_fullScreen);
+    _allClassesItem.CheckedChanged += (_, _) => PreferencesChanged?.Invoke(this, EventArgs.Empty);
 
     var nextScreen = new ToolStripMenuItem("Move to next screen") { ShortcutKeyDisplayString = "Ctrl+Right" };
     nextScreen.Click += (_, _) => MoveToNextScreen();
@@ -97,7 +107,8 @@ public sealed class SpectatorWindow : Form
     ContextMenuStrip = new ContextMenuStrip();
     ContextMenuStrip.Items.AddRange(new ToolStripItem[]
     {
-      _top10, _top20, _all, new ToolStripSeparator(), _fullScreenItem, nextScreen, new ToolStripSeparator(), close
+      _top10, _top20, _all, new ToolStripSeparator(), _allClassesItem, new ToolStripSeparator(), _fullScreenItem,
+      nextScreen, new ToolStripSeparator(), close
     });
     ContextMenuStrip.Opening += (_, _) => _fullScreenItem.Checked = _fullScreen;
 
@@ -305,6 +316,15 @@ public sealed class SpectatorWindow : Form
       new("#", 0.8f, StringAlignment.Center, r => r.Number),
       new("Rider", 4.2f, StringAlignment.Near, r => r.Name)
     };
+
+    if (board.AllClasses)
+    {
+      columns.Add(new("Class", 1.4f, StringAlignment.Near, r => r.Class));
+      columns.Add(new("Best lap", 1.4f, StringAlignment.Far, r => r.BestLap));
+      columns.Add(new("Avg lap", 1.4f, StringAlignment.Far, r => r.AverageLap));
+      columns.Add(new(board.GapHeader, 1.4f, StringAlignment.Far, r => r.Gap));
+      return columns;
+    }
 
     if (board.ShowClass)
     {
