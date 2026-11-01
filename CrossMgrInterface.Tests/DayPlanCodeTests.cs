@@ -344,6 +344,58 @@ public class DayPlanCodeTests
     Assert.Contains("newer version", version2.Error);
   }
 
+  [Fact]
+  public void TheMasterOfAllClassesGoesInTheExtensionBlockAndOldCodesStayAsTheyWere()
+  {
+    var off = DayPlanCode.Decode(TeamRaceCode).Plan!;
+    Assert.False(off.After.AllClassesList);
+    Assert.Equal(TeamRaceCode, DayPlanCode.Encode(off));
+
+    foreach (var (measure, value) in new[] { (DayRankingMeasure.BestLap, (byte)0), (DayRankingMeasure.AverageLap, (byte)1) })
+    {
+      var on = DayPlanCode.Decode(TeamRaceCode).Plan!;
+      on.After.AllClassesList = true;
+      on.After.AllClassesMeasure = measure;
+      var code = DayPlanCode.Encode(on);
+
+      // Tag 1, one byte, the measure, the end of the block.
+      Assert.Equal(new byte[] { 1, 1, value, 0 }, DayPlanCode.PayloadOf(code)[^4..]);
+      var read = DayPlanCode.Decode(code).Plan!;
+      Assert.Equal((true, measure), (read.After.AllClassesList, read.After.AllClassesMeasure));
+      Assert.Equal(code, DayPlanCode.Encode(read));
+    }
+  }
+
+  [Fact]
+  public void AMasterOfAllClassesWithMoreToItThanThisVersionKnowsStillReads()
+  {
+    // Tag 1 with three bytes: a measure this version does not know, and two more.
+    var read = DayPlanCode.Decode(WithExtension(1));
+    Assert.NotNull(read.Plan);
+    Assert.True(read.Plan!.After.AllClassesList);
+    Assert.Equal(DayRankingMeasure.BestLap, read.Plan.After.AllClassesMeasure);
+  }
+
+  [Fact]
+  public void TheSameExtensionTwiceIsAMistypedCode()
+  {
+    var on = DayPlanCode.Decode(TeamRaceCode).Plan!;
+    on.After.AllClassesList = true;
+    var payload = DayPlanCode.PayloadOf(DayPlanCode.Encode(on));
+    var body = payload[2..^1].Concat(new byte[] { 1, 1, 0, 0 }).ToArray();
+    var twice = DayPlanCode.Wrap(new byte[] { 1 }.Concat(DayPlanCode.Varint((uint)body.Length)).Concat(body).ToArray());
+
+    Assert.Null(DayPlanCode.Decode(twice).Plan);
+  }
+
+  [Fact]
+  public void AMeasureWithoutTheListIsNotPartOfTheCode()
+  {
+    var plan = DayPlanCode.Decode(TeamRaceCode).Plan!;
+    plan.After.AllClassesMeasure = DayRankingMeasure.AverageLap;
+    Assert.Equal(TeamRaceCode, DayPlanCode.Encode(plan));
+  }
+
   // ---- helpers ------------------------------------------------------------------
 
   private static IEnumerable<string> Chunks(string text, int size)
@@ -358,6 +410,8 @@ public class DayPlanCodeTests
     Assert.Equal(expected.TypicalLapSeconds, actual.TypicalLapSeconds);
     Assert.Equal((expected.After.Publish, expected.After.SaveSheets, expected.After.Pdf, expected.After.LiveTiming),
       (actual.After.Publish, actual.After.SaveSheets, actual.After.Pdf, actual.After.LiveTiming));
+    Assert.Equal((expected.After.AllClassesList, expected.After.AllClassesMeasure),
+      (actual.After.AllClassesList, actual.After.AllClassesMeasure));
     Assert.Equal(expected.Sessions.Count, actual.Sessions.Count);
     for (var i = 0; i < expected.Sessions.Count; i++)
     {
@@ -385,6 +439,9 @@ public class DayPlanCodeTests
       After = new AfterSession { Publish = rng.Next(2) == 0, SaveSheets = rng.Next(2) == 0, Pdf = rng.Next(2) == 0,
         LiveTiming = rng.Next(2) == 0, Folder = "C:\\x" }
     };
+    // From what is already drawn, so the random plans before this switch stay the same plans.
+    plan.After.AllClassesList = Math.Abs(plan.ChangeoverMinutes) % 3 == 0;
+    plan.After.AllClassesMeasure = plan.TypicalLapSeconds % 2 == 0 ? DayRankingMeasure.AverageLap : DayRankingMeasure.BestLap;
 
     var count = rng.Next(0, 15);
     for (var i = 0; i < count; i++)

@@ -136,6 +136,39 @@ public class DbRace
 /// and an overall can be put together from finished sessions afterwards.
 /// See <see cref="OverallScorer"/>.
 /// </summary>
+/// <summary>
+/// The list of every rider of every class of one race day (see DayRankingScorer).
+///
+/// Its own collection rather than a kind of overall: an overall's motos belong
+/// to it alone - a race is moved out of one overall when added to another -
+/// while this list counts every race of the day. The races are not stored: the
+/// list is whatever races of its day have finished, so it grows by itself.
+/// </summary>
+public class DbDayRanking
+{
+  public int Id { get; set; }
+
+  /// <summary>The website identity, minted once, so the address stays the same all day.</summary>
+  public string PublicId { get; set; } = "";
+
+  /// <summary>The race day, as a local date.</summary>
+  public DateTime Day { get; set; }
+
+  public string Name { get; set; } = "";
+  public DayRankingMeasure Measure { get; set; }
+
+  /// <summary>Saved and published by itself as the day's races finish (After each session).</summary>
+  public bool Auto { get; set; }
+
+  public DateTime CreatedAt { get; set; } = DateTime.Now;
+  public DateTime? PublishedAt { get; set; }
+  public string? PublishedUrl { get; set; }
+
+  /// <summary>The races and their revisions it was last published and saved with. See DbRace.Revision.</summary>
+  public string? PublishedStamp { get; set; }
+  public string? SavedStamp { get; set; }
+}
+
 public class DbOverall
 {
   public int Id { get; set; }
@@ -307,6 +340,7 @@ public class RaceDataService : IDisposable
   private ILiteCollection<DbRaceEvent> _events;
   private ILiteCollection<DbLapDifference> _lapDiffs;
   private ILiteCollection<DbOverall> _overalls;
+  private ILiteCollection<DbDayRanking> _dayRankings;
 
   public int CurrentRaceId { get; private set; }
 
@@ -369,7 +403,7 @@ public class RaceDataService : IDisposable
   private static string NewPublicId() => Guid.NewGuid().ToString("N");
 
   [MemberNotNull(nameof(_db), nameof(_races), nameof(_riders), nameof(_laps),
-                 nameof(_positions), nameof(_events), nameof(_lapDiffs), nameof(_overalls))]
+                 nameof(_positions), nameof(_events), nameof(_lapDiffs), nameof(_overalls), nameof(_dayRankings))]
   private void Initialise(string dbPath)
   {
     _db = new LiteDatabase(dbPath);
@@ -381,6 +415,7 @@ public class RaceDataService : IDisposable
     _events = _db.GetCollection<DbRaceEvent>("events");
     _lapDiffs = _db.GetCollection<DbLapDifference>("lap_differences");
     _overalls = _db.GetCollection<DbOverall>("overalls");
+    _dayRankings = _db.GetCollection<DbDayRanking>("day_rankings");
 
     // Touching an index forces the first real read, so a damaged file fails here.
     _riders.EnsureIndex(x => x.RaceId);
@@ -1263,6 +1298,55 @@ public class RaceDataService : IDisposable
     overall.PublishedAt = at;
     overall.PublishedUrl = url;
     _overalls.Update(overall);
+  }
+
+  /// <summary>
+  /// The races the list of every class of <paramref name="day"/> counts:
+  /// finished races, in the order they were run. Practice and qualifying are
+  /// not races; a team race is left out by the scorer, which says so.
+  /// </summary>
+  public List<DbRace> RacesOfDay(DateTime day) => _races.FindAll()
+    .Where(r => r.SessionType == SessionType.Race && r.IsFinished && r.StartTime.Date == day.Date)
+    .OrderBy(r => r.StartTime)
+    .ToList();
+
+  /// <summary>The day's list, made on first asking with the given name and measure.</summary>
+  public DbDayRanking EnsureDayRanking(DateTime day, string name, DayRankingMeasure measure)
+  {
+    var existing = GetDayRanking(day);
+    if (existing != null) return existing;
+
+    var ranking = new DbDayRanking { PublicId = NewPublicId(), Day = day.Date, Name = name, Measure = measure };
+    ranking.Id = _dayRankings.Insert(ranking);
+    return ranking;
+  }
+
+  public DbDayRanking? GetDayRanking(DateTime day) =>
+    _dayRankings.FindAll().FirstOrDefault(r => r.Day.Date == day.Date);
+
+  public List<DbDayRanking> ListDayRankings() =>
+    _dayRankings.FindAll().OrderByDescending(r => r.Day).ToList();
+
+  public void UpdateDayRanking(DbDayRanking ranking) => _dayRankings.Update(ranking);
+
+  public void SetDayRankingStamps(int id, string? published = null, string? saved = null)
+  {
+    var ranking = _dayRankings.FindById(id);
+    if (ranking == null) return;
+
+    if (published != null) ranking.PublishedStamp = published;
+    if (saved != null) ranking.SavedStamp = saved;
+    _dayRankings.Update(ranking);
+  }
+
+  public void MarkDayRankingPublished(int id, DateTime at, string url)
+  {
+    var ranking = _dayRankings.FindById(id);
+    if (ranking == null) return;
+
+    ranking.PublishedAt = at;
+    ranking.PublishedUrl = url;
+    _dayRankings.Update(ranking);
   }
 
   #endregion

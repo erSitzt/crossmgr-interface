@@ -25,6 +25,16 @@ public sealed class AfterSession
   /// <summary>Switch live timing on when a session's clock starts. It switches itself off at the finish.</summary>
   public bool LiveTiming { get; set; }
 
+  /// <summary>
+  /// Keep the Master of all classes - every rider of every race of the day,
+  /// ranked on lap times - and save and publish it with the races, again after
+  /// each one. See DayRankingScorer.
+  /// </summary>
+  public bool AllClassesList { get; set; }
+
+  /// <summary>What that list is ranked on.</summary>
+  public DayRankingMeasure AllClassesMeasure { get; set; }
+
   public static AfterSession ForNewPlan() => new() { Publish = true, SaveSheets = true, Pdf = true, LiveTiming = true };
 
   public AfterSession Copy() => new()
@@ -33,7 +43,9 @@ public sealed class AfterSession
     SaveSheets = SaveSheets,
     Folder = Folder,
     Pdf = Pdf,
-    LiveTiming = LiveTiming
+    LiveTiming = LiveTiming,
+    AllClassesList = AllClassesList,
+    AllClassesMeasure = AllClassesMeasure
   };
 
   public bool AnyOn => Publish || SaveSheets || LiveTiming;

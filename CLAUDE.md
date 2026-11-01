@@ -53,6 +53,7 @@ Then:
 | `overall-results` | Overall results of two motos, per class | `OverallResultsDialog.cs`, `OverallScorer.cs`, `OverallReportGenerator.cs` | overall |
 | `day-plan` | Plan the day window with a club day planned | `PlanDialog.cs`, `DayPlan.cs` | day-plan |
 | `new-plan` | New day plan window on the MX club day preset | `NewPlanDialog.cs`, `PresetCatalog.cs` | presets |
+| `master-all-classes` | Master of all classes over a day of MX1 and MX2 races | `DayRankingDialog.cs`, `DayRankingScorer.cs`, `DayRankingReportGenerator.cs` | all-classes |
 
 Also:
 

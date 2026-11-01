@@ -21,7 +21,8 @@ public partial class Form1
 
     var window = new SpectatorWindow
     {
-      RowLimit = _settings.SpectatorRows > 0 ? _settings.SpectatorRows : null
+      RowLimit = _settings.SpectatorRows > 0 ? _settings.SpectatorRows : null,
+      ShowAllClasses = _settings.SpectatorAllClasses
     };
 
     // Not owned: an owned window always sits in front of its owner, which on a
@@ -67,6 +68,7 @@ public partial class Form1
     _settings.SpectatorRows = window.RowLimit ?? 0;
     _settings.SpectatorScreen = window.ScreenName;
     _settings.SpectatorFullScreen = window.IsFullScreen;
+    _settings.SpectatorAllClasses = window.ShowAllClasses;
     _settings.Save();
   }
 
@@ -87,6 +89,14 @@ public partial class Form1
   {
     var window = _spectator;
     if (window is not { IsDisposed: false }) return;
+
+    // Between sessions, every 20 seconds, the day's list across all classes.
+    if (window.ShowAllClasses && (!raceStarted || raceFinished) && DateTime.Now.Second / 20 % 2 == 1 &&
+        AllClassesBoard(window.RowLimit) is { } allClasses)
+    {
+      window.ShowBoard(allClasses);
+      return;
+    }
 
     var started = raceStarted;
     List<RiderInfo> field;
@@ -133,6 +143,43 @@ public partial class Form1
     });
 
     window.ShowBoard(board);
+  }
+
+  private DayRankingResult? _spectatorAllClasses;
+  private DateTime _spectatorAllClassesAt;
+
+  /// <summary>
+  /// The Master of all classes of today, read from the database at most once
+  /// a minute: the screen is drawn every second, and the list only changes
+  /// when a race finishes or is corrected.
+  /// </summary>
+  private SpectatorBoard? AllClassesBoard(int? rowLimit)
+  {
+    try
+    {
+      if (_spectatorAllClasses == null || DateTime.Now - _spectatorAllClassesAt > TimeSpan.FromMinutes(1))
+      {
+        _spectatorAllClassesAt = DateTime.Now;
+        var races = _raceDb.RacesOfDay(DateTime.Today);
+        _spectatorAllClasses = races.Count < 2
+          ? null
+          : ScoreDayRanking(_raceDb.GetDayRanking(DateTime.Today) ?? new DbDayRanking
+          {
+            Day = DateTime.Today,
+            Name = DayRankingDefaultName,
+            Measure = _settings.AfterSession.AllClassesMeasure
+          });
+      }
+    }
+    catch (Exception ex)
+    {
+      AddDiagnostic($"Spectator screen: could not read the list of all classes: {ex.Message}");
+      _spectatorAllClasses = null;
+    }
+
+    return _spectatorAllClasses is { Entries.Count: > 0 } result
+      ? SpectatorBoardBuilder.BuildAllClasses(result, rowLimit, PlanNextUpText())
+      : null;
   }
 
   private sealed class SpectatorViewAdapter : IRaceView

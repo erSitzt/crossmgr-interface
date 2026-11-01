@@ -264,5 +264,7 @@ public partial class Form1
     public bool DeleteSession(IWin32Window owner, SessionSummary session) => _form.DeleteStoredSession(owner, session);
     public void ShowOverall(IWin32Window owner, IReadOnlyList<SessionSummary> sessions) =>
       _form.ShowOverallFor(owner, sessions.Select(s => s.Race).ToList());
+
+    public void ShowDayRanking(IWin32Window owner, DateTime day) => _form.ShowDayRanking(owner, day);
   }
 }

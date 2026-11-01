@@ -28,7 +28,7 @@ public static class HelpTopics
     QuickStart(), DayPlan(), Presets(), Demo(), Screens(),
     Race(), Qualifying(), Practice(), Waves(), Teams(),
     RaceDay(), Fixing(), Unknown(), TransponderCheck(), Track(),
-    Results(), Overall(), Publish(), PastSessions(),
+    Results(), Overall(), AllClasses(), Publish(), PastSessions(),
     RiderLists(), Reader(), Settings(), Shortcuts(), Troubleshooting()
   };
 
@@ -172,6 +172,9 @@ public static class HelpTopics
         "numbered in the order they ran - the results sheet and one per class, as Excel and as PDF. Saved again " +
         "after a correction; a file open in Excel is left alone and the new one saved beside it.",
         "Live timing: switched on when a session's clock starts. It switches itself off at the finish, as always."),
+      Para("A fourth switch, off in a new plan: Keep the Master of all classes. It ranks every rider of every " +
+           "race of the day on lap times, saves the list with the day's sheets and publishes it after the races, " +
+           "again after each one. See Master of all classes."),
       Para("The same switches exist for sessions set up by hand: Race > After each session.... They are off " +
            "until you turn them on."),
       Para("With publishing on, the day's programme goes to the websites as well, and again whenever a session " +
@@ -670,9 +673,12 @@ public static class HelpTopics
         "chequered flag marks riders who have finished.",
         "Before the start it lists who is entered.",
         "With a day plan, before the start and after the finish the bottom line says what is next on track and when.",
-        "It shows full names - it is a screen at the track, not the website."),
+        "It shows full names - it is a screen at the track, not the website.",
+        "With Master of all classes between sessions ticked (right-click), before a start and after a finish it " +
+        "takes turns, every 20 seconds, with the day's list of every class on lap times."),
       Keys(
-        ("Right-click", "The menu: Top 10, Top 20, All riders, full screen, next screen, close"),
+        ("Right-click", "The menu: Top 10, Top 20, All riders, Master of all classes between sessions, full " +
+                        "screen, next screen, close"),
         ("1 / 2 / A", "Top 10 / Top 20 / all riders - with all, the rows shrink to fit, in two columns on a wide screen"),
         ("F11 or double-click", "Full screen on and off; Esc leaves full screen"),
         ("Ctrl+Right", "Move it to the next screen")),
@@ -986,6 +992,52 @@ public static class HelpTopics
     },
     HelpTopicIds.Results, HelpTopicIds.PastSessions, HelpTopicIds.Publish, HelpTopicIds.Race);
 
+  private static HelpTopic AllClasses() => Topic(HelpTopicIds.AllClasses, AfterASession,
+    "Master of all classes",
+    "Every rider of every race of the day in one list, all classes together, ranked on lap times - so a fast " +
+    "rider of a lower class can see they were quicker than half the class above.",
+    new[]
+    {
+      Picture("master-all-classes", "The Master of all classes: every rider of the day's races, ranked on best lap."),
+      Para("Each class rides its own races, and they are not the same length, so laps and total time say nothing " +
+           "between classes. A lap is the same circuit for everyone, so the list compares lap times. It changes " +
+           "nobody's class result."),
+
+      Heading("Opening it"),
+      Keys(
+        ("Race > Master of all classes...", "today's list, or the last day races were run"),
+        ("Race > Past sessions...", "select any race of the day and press All classes...")),
+
+      Heading("How it is ranked"),
+      Bullets(
+        "Every finished race of the day counts, all classes. Practice and qualifying do not, and neither do " +
+        "team races - a team's laps are ridden by several people.",
+        "Rank by: Best lap is the fastest lap a rider rode in any race of the day. Average lap is the mean of " +
+        "all their laps. The window shows both columns and is sorted by the one chosen; that order is what is " +
+        "printed and published.",
+        "Lap 1 of each race is left out of both: it runs from the start, not once round the circuit. These are " +
+        "the same Best lap and Avg lap the race sheets print.",
+        "An average needs at least 3 laps. A rider with fewer still has a best lap and is listed below the " +
+        "others when sorted by average.",
+        "On equal best laps, whoever set it first is ahead. On equal averages, the better best lap.",
+        "Best lap in says which race and which lap the best lap was."),
+      Para("A rider is followed from race to race by their transponder, also when they rode in two classes. A " +
+           "row is highlighted when something should be checked: a best lap far quicker than any other lap the " +
+           "rider rode (a cut, or someone else's read), one number on two riders of a class, or one transponder " +
+           "ridden by two riders of different classes."),
+
+      Heading("Printing, publishing, keeping it by itself"),
+      Bullets(
+        "Results... previews, prints or exports it. The Excel file has a worksheet in each order.",
+        "Publish... puts it on the results website, where riders can switch between best and average lap and " +
+        "narrow it to their class while keeping their place among everyone. Races not published yet are offered first.",
+        "With Keep the Master of all classes in Race > After each session... (or a day plan), it is saved with " +
+        "the day's sheets and published by itself after the races, again after each one, at the same address.",
+        "The spectator screen can show it between sessions: right-click it and tick Master of all classes " +
+        "between sessions.")
+    },
+    HelpTopicIds.Overall, HelpTopicIds.Results, HelpTopicIds.PastSessions, HelpTopicIds.Publish);
+
   private static HelpTopic Publish() => Topic(HelpTopicIds.Publish, AfterASession,
     "Putting results on the website",
     "One button sends a finished session to your club's results website, where riders can look themselves " +
@@ -1108,6 +1160,8 @@ public static class HelpTopics
         "Publish... - puts it on the club's results website. Only shown once a website has been set up.",
         "Overall results... - adds up two or more motos into the result of the day. Select the motos with " +
         "Ctrl+click first; for motos that already count together, one of them is enough. See Overall results.",
+        "All classes... - every rider of every race of the selected race's day in one list, ranked on lap " +
+        "times. See Master of all classes.",
         "Open - makes it the session on screen, to look at its laps or correct them. Not while another session is running. " +
         "With a day plan, the plan waits while it is on screen; Set up now goes back to the plan.",
         "Rename... - changes the name printed on its sheet.",

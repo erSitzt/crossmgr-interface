@@ -99,6 +99,9 @@ public static class PublishPayloadBuilder
   public static string Serialise(PublishedSession session) =>
     JsonSerializer.Serialize(session, PublishSchema.Json);
 
+  public static string Serialise(PublishedDayRanking ranking) =>
+    JsonSerializer.Serialize(ranking, PublishSchema.Json);
+
   public static string Serialise(PublishedOverall overall) =>
     JsonSerializer.Serialize(overall, PublishSchema.Json);
 
@@ -205,6 +208,44 @@ public static class PublishPayloadBuilder
           Points = m.Points
         }).ToList()
       }).ToList()
+    }).ToList(),
+    Client = new PublishedClient("CrossMgrInterface", clientVersion ?? CrossMgrInterface.AppVersion.Display)
+  };
+
+  /// <summary>
+  /// The list of every class of the day as the website is told it. Names
+  /// follow the same rules as a session's, and no transponder code goes out.
+  /// </summary>
+  public static PublishedDayRanking BuildDayRanking(DayRankingResult result, string publicId,
+    IReadOnlyList<string> sessionPublicIds, bool publishNamesByDefault = true,
+    NameStyle hiddenNameStyle = NameStyle.FirstNameInitial, string? clientVersion = null, bool demo = false) => new()
+  {
+    Ranking = new PublishedDayRankingHeader
+    {
+      PublicId = publicId,
+      Title = result.Title,
+      Measure = result.Measure == DayRankingMeasure.AverageLap ? "averageLap" : "bestLap",
+      Final = result.Final,
+      Demo = demo ? true : null,
+      GeneratedAt = Moment(result.GeneratedAt) ?? DateTimeOffset.Now,
+      Conditions = result.Describe().Select(l => new PublishedCondition(l.Caption, l.Value)).ToList()
+    },
+    Sessions = sessionPublicIds.ToList(),
+    Entries = result.Entries.Select(e => new PublishedDayRankingEntry
+    {
+      BestRank = e.BestRank,
+      AverageRank = e.AverageRank,
+      Number = e.Number,
+      Name = string.IsNullOrWhiteSpace(e.Name) ? UnidentifiedRider
+        : e.Rider == null ? e.Name : NamePrivacy.Publish(e.Rider, publishNamesByDefault, hiddenNameStyle),
+      Category = Text(e.Category),
+      Team = Text(e.Team),
+      BestLapMs = Ms(e.BestLap),
+      BestLapSession = e.BestLapSession,
+      BestLapNumber = e.BestLapNumber,
+      AverageLapMs = Ms(e.AverageLap),
+      TimedLaps = e.TimedLaps,
+      Status = e.BestLap.HasValue ? "" : e.Dns ? "dns" : "noTime"
     }).ToList(),
     Client = new PublishedClient("CrossMgrInterface", clientVersion ?? CrossMgrInterface.AppVersion.Display)
   };

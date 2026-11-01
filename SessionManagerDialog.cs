@@ -35,6 +35,9 @@ public interface ISessionManagerHost
   /// towards, or a new one after asking.
   /// </summary>
   void ShowOverall(IWin32Window owner, IReadOnlyList<SessionSummary> sessions);
+
+  /// <summary>Every rider of every class of the races of <paramref name="day"/>, in one list.</summary>
+  void ShowDayRanking(IWin32Window owner, DateTime day);
 }
 
 /// <summary>
@@ -57,6 +60,7 @@ public sealed class SessionManagerDialog : Form
   private readonly Button _results = new();
   private readonly Button _publish = new();
   private readonly Button _overall = new();
+  private readonly Button _allClasses = new();
   private readonly Button _open = new();
   private readonly Button _rename = new();
   private readonly Button _delete = new();
@@ -183,6 +187,7 @@ public sealed class SessionManagerDialog : Form
     Configure(_publish, "Publish...", () => PublishSelected());
     _publish.Visible = _host.PublishingAvailable;
     Configure(_overall, "Overall results...", () => ShowOverall());
+    Configure(_allClasses, "All classes...", () => ShowDayRanking());
     Configure(_open, "Open", () => OpenSelected());
     Configure(_rename, "Rename...", () => RenameSelected());
     Configure(_delete, "Delete...", () => DeleteSelected());
@@ -196,7 +201,7 @@ public sealed class SessionManagerDialog : Form
       DialogResult = DialogResult.Cancel
     };
 
-    column.Controls.AddRange(new Control[] { _results, _publish, _overall, _open, _rename, _delete, close });
+    column.Controls.AddRange(new Control[] { _results, _publish, _overall, _allClasses, _open, _rename, _delete, close });
     CancelButton = close;
     return column;
 
@@ -257,7 +262,8 @@ public sealed class SessionManagerDialog : Form
 
     _hint.Text = any
       ? "Double-click a session to print its results. The session in bold is the one on screen now.\n" +
-        "For the overall of a day, select its motos with Ctrl+click and press Overall results."
+        "For the overall of a day, select its motos with Ctrl+click and press Overall results.\n" +
+        "All classes... ranks every rider of the selected race's day on lap times."
       : "";
 
     UpdateButtons();
@@ -287,6 +293,9 @@ public sealed class SessionManagerDialog : Form
     var all = AllSelected;
     _overall.Enabled = all.Count > 0 && all.All(s => s.Race.SessionType == SessionType.Race) &&
                        (all.Count >= 2 || all[0].Overall != null);
+
+    // Any race: the list is of its whole day.
+    _allClasses.Enabled = all.Count > 0 && all[0].Race.SessionType == SessionType.Race;
 
     _results.Enabled = selected != null;
 
@@ -343,6 +352,13 @@ public sealed class SessionManagerDialog : Form
 
     _host.ShowOverall(this, all);
     Reload(selectId: all[0].Race.Id);
+  }
+
+  private void ShowDayRanking()
+  {
+    var all = AllSelected;
+    if (all.Count == 0) return;
+    _host.ShowDayRanking(this, all[0].Race.StartTime.Date);
   }
 
   private void OpenSelected()

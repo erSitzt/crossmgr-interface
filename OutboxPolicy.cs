@@ -1,7 +1,7 @@
 namespace CrossMgrInterface;
 
 /// <summary>One thing the outbox can do.</summary>
-public enum OutboxWork { SaveSheets, PublishSession, SaveOverall, PublishOverall }
+public enum OutboxWork { SaveSheets, PublishSession, SaveOverall, PublishOverall, SaveDayRanking, PublishDayRanking }
 
 /// <summary>What to do next, for which session or overall, and at which revision - recorded once it is done.</summary>
 public sealed record OutboxItem(OutboxWork Work, int Id, int Revision, string? Stamp = null)
@@ -24,7 +24,9 @@ public sealed record OverallCandidate(int OverallId, IReadOnlyList<DbRace> Motos
 /// first, so the website fills up in the order the day ran. An overall last
 /// of all, and only once every one of its motos is on the website in its
 /// latest form - the website links an overall to its motos, and an overall
-/// sent ahead of a correction to one of them would add up the old laps.
+/// sent ahead of a correction to one of them would add up the old laps. The
+/// Master of all classes after the overalls, on the same terms, over every
+/// race of its day.
 ///
 /// A session is not published until it has been finished a couple of
 /// minutes: the last stray read usually turns up in that time, and an
@@ -35,8 +37,10 @@ public static class OutboxPolicy
   public static readonly TimeSpan Settle = TimeSpan.FromMinutes(2);
 
   public static OutboxItem? Next(IReadOnlyList<DbRace> races, IReadOnlyList<OverallCandidate> overalls, DateTime now,
-    IReadOnlySet<string> parked, bool canPublish)
+    IReadOnlySet<string> parked, bool canPublish, IReadOnlyList<OverallCandidate>? dayRankings = null)
   {
+    dayRankings ??= Array.Empty<OverallCandidate>();
+
     foreach (var race in races.OrderBy(r => r.StartTime))
     {
       if (race is not { IsFinished: true, AutoSaveSheets: true } || (race.SheetsRevision ?? -1) >= race.Revision) continue;
@@ -49,6 +53,14 @@ public static class OutboxPolicy
       if (overall.Stamp == overall.SavedStamp) continue;
       if (overall.Motos.Any(m => m.AutoSaveSheets == true && (m.SheetsRevision ?? -1) < m.Revision)) continue;
       var item = new OutboxItem(OutboxWork.SaveOverall, overall.OverallId, 0, overall.Stamp);
+      if (!parked.Contains(item.Key)) return item;
+    }
+
+    foreach (var ranking in dayRankings.Where(o => o.Complete && o.Motos.Any(m => m.AutoSaveSheets == true)))
+    {
+      if (ranking.Stamp == ranking.SavedStamp) continue;
+      if (ranking.Motos.Any(m => m.AutoSaveSheets == true && (m.SheetsRevision ?? -1) < m.Revision)) continue;
+      var item = new OutboxItem(OutboxWork.SaveDayRanking, ranking.OverallId, 0, ranking.Stamp);
       if (!parked.Contains(item.Key)) return item;
     }
 
@@ -70,6 +82,16 @@ public static class OutboxPolicy
       if (!parked.Contains(item.Key)) return item;
     }
 
+    // Every race of the day has to be on the website first: the list links each
+    // rider's best lap to the race it was set in.
+    foreach (var ranking in dayRankings.Where(o => o.Complete && o.Motos.Any(m => m.AutoPublish == true)))
+    {
+      if (ranking.Stamp == ranking.PublishedStamp) continue;
+      if (ranking.Motos.Any(m => m.PublishedAt == null || (m.PublishedRevision ?? -1) < m.Revision)) continue;
+      var item = new OutboxItem(OutboxWork.PublishDayRanking, ranking.OverallId, 0, ranking.Stamp);
+      if (!parked.Contains(item.Key)) return item;
+    }
+
     return null;
   }
 
@@ -80,6 +102,10 @@ public static class OutboxPolicy
   public static string StampOf(DbOverall overall, IReadOnlyList<DbRace> motos) =>
     string.Join(",", motos.Select(m => $"{m.Id}:{m.Revision}")) + "|" +
     string.Join(",", OverallRules.FromOverall(overall).Points) + "|" + overall.Name;
+
+  /// <summary>The Master of all classes' races and their revisions, its measure and name.</summary>
+  public static string StampOf(DbDayRanking ranking, IReadOnlyList<DbRace> races) =>
+    string.Join(",", races.Select(r => $"{r.Id}:{r.Revision}")) + "|" + ranking.Measure + "|" + ranking.Name;
 
   /// <summary>Waits a little longer each time the website cannot be reached, never more than five minutes.</summary>
   public static TimeSpan Backoff(int failures) =>

@@ -16,6 +16,8 @@ public sealed class AfterSessionDialog : Form
   private readonly Button _choose = new();
   private readonly CheckBox _pdf = new();
   private readonly CheckBox _live = new();
+  private readonly CheckBox _allClasses = new();
+  private readonly ComboBox _allClassesMeasure = new();
 
   /// <param name="forPlan">Says which sessions the switches are for: today's plan's, or every one set up by hand.</param>
   public AfterSessionDialog(AfterSession after, bool publishingConfigured, bool liveConfigured, string? forPlan)
@@ -28,7 +30,7 @@ public sealed class AfterSessionDialog : Form
     MinimizeBox = false;
     MaximizeBox = false;
     ShowInTaskbar = false;
-    ClientSize = new Size(560, 400);
+    ClientSize = new Size(560, 480);
     Font = new Font("Segoe UI", 9.5F);
 
     var flow = new FlowLayoutPanel
@@ -87,6 +89,22 @@ public sealed class AfterSessionDialog : Form
       ? "It switches itself off at the finish, as always. Switched off by hand, it stays off for that session."
       : "Set up live timing first: Race > Results website...."));
 
+    _allClasses.Text = "Keep the Master of all classes";
+    _allClasses.Checked = after.AllClassesList;
+    _allClasses.CheckedChanged += (_, _) => ApplyEnabled();
+    flow.Controls.Add(Box(_allClasses));
+
+    var measureRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(20, 0, 0, 0) };
+    measureRow.Controls.Add(new Label { Text = "Ranked on", AutoSize = true, Margin = new Padding(0, 6, 6, 0) });
+    _allClassesMeasure.DropDownStyle = ComboBoxStyle.DropDownList;
+    _allClassesMeasure.Width = 140;
+    _allClassesMeasure.Items.AddRange(new object[] { "Best lap", "Average lap" });
+    _allClassesMeasure.SelectedIndex = after.AllClassesMeasure == DayRankingMeasure.AverageLap ? 1 : 0;
+    measureRow.Controls.Add(_allClassesMeasure);
+    flow.Controls.Add(measureRow);
+    flow.Controls.Add(Note("Every rider of every race of the day in one list, all classes, ranked on lap times. " +
+                           "Saved and published with the races, and again after each one."));
+
     var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 46, Padding = new Padding(10, 6, 10, 6) };
     var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Size = new Size(90, 30) };
     var ok = new Button { Text = "OK", Size = new Size(90, 30) };
@@ -124,6 +142,7 @@ public sealed class AfterSessionDialog : Form
     _folder.Enabled = _save.Checked;
     _choose.Enabled = _save.Checked;
     _pdf.Enabled = _save.Checked;
+    _allClassesMeasure.Enabled = _allClasses.Checked;
   }
 
   private void ChooseFolder()
@@ -147,6 +166,8 @@ public sealed class AfterSessionDialog : Form
       : folder;
     _after.Pdf = _pdf.Checked;
     _after.LiveTiming = _live.Enabled ? _live.Checked : _after.LiveTiming;
+    _after.AllClassesList = _allClasses.Checked;
+    _after.AllClassesMeasure = _allClassesMeasure.SelectedIndex == 1 ? DayRankingMeasure.AverageLap : DayRankingMeasure.BestLap;
 
     DialogResult = DialogResult.OK;
     Close();

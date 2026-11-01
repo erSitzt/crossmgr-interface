@@ -30,6 +30,14 @@ public sealed class DemoPublisher : IResultsPublisher
     return Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published.", $"{Site}/overall/demo"));
   }
 
+  public Task<PublishOutcome> PublishDayRankingAsync(PublishedDayRanking ranking, IProgress<PublishProgress>? progress,
+    CancellationToken cancellationToken)
+  {
+    _say($"🎬 Demo: '{ranking.Ranking.Title}' would now go up on the results website " +
+         $"({ranking.Entries.Count} riders).");
+    return Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published.", $"{Site}/overall/demo"));
+  }
+
   public Task<PublishOutcome> PublishPlanAsync(PublishedPlan plan, CancellationToken cancellationToken) =>
     Task.FromResult(new PublishOutcome(PublishStatus.Published, "Published.", $"{Site}/live"));
 

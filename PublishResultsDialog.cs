@@ -9,9 +9,12 @@ public sealed record PublishRequest
   /// <summary>An overall of several motos, sent instead of a session.</summary>
   public PublishedOverall? Overall { get; init; }
 
+  /// <summary>The list of every class of the day, sent instead of a session.</summary>
+  public PublishedDayRanking? DayRanking { get; init; }
+
   public required string SiteName { get; init; }
 
-  public string Title => Overall?.Overall.Title ?? Session?.Session.Title ?? "";
+  public string Title => Overall?.Overall.Title ?? DayRanking?.Ranking.Title ?? Session?.Session.Title ?? "";
 
   /// <summary>Riders and laps, for the summary. Counted rather than recomputed.</summary>
   public int Riders { get; init; }
@@ -161,6 +164,13 @@ public sealed class PublishResultsDialog : Form
       lines.Add("");
       lines.Add("Riders' names, numbers, classes, places and points are sent.");
     }
+    else if (_request.DayRanking is { } ranking)
+    {
+      lines.Add($"{_request.Riders} riders of every class, from {ranking.Sessions.Count} race(s).");
+      lines.Add("Each race keeps its own page; the list links to them.");
+      lines.Add("");
+      lines.Add("Riders' names, numbers, classes and lap times are sent.");
+    }
     else
     {
       lines.Add($"{_request.Riders} riders, {_request.Laps} laps.");
@@ -210,7 +220,9 @@ public sealed class PublishResultsDialog : Form
     {
       var outcome = _request.Overall != null
         ? await _publisher.PublishOverallAsync(_request.Overall, progress, _cancel.Token)
-        : await _publisher.PublishAsync(_request.Session!, progress, _cancel.Token);
+        : _request.DayRanking != null
+          ? await _publisher.PublishDayRankingAsync(_request.DayRanking, progress, _cancel.Token)
+          : await _publisher.PublishAsync(_request.Session!, progress, _cancel.Token);
       Finish(outcome);
     }
     catch (Exception ex)
