@@ -43,8 +43,11 @@ public sealed class DayRankingEntry
   /// <summary>Did not start in any race of the day they were entered in.</summary>
   public bool Dns { get; init; }
 
-  /// <summary>The best lap is much faster than any other: worth a look before it is read out.</summary>
-  public bool CheckBestLap { get; init; }
+  /// <summary>
+  /// Laps far quicker than the rider's usual lap, not taken as their best lap
+  /// (see <see cref="DayRankingScorer.PlausibleShare"/>). Flagged to be checked.
+  /// </summary>
+  public int QuickLapsLeftOut { get; init; }
 
   /// <summary>The rider as entered in the latest race, so the website can name them as they agreed.</summary>
   public RiderInfo? Rider { get; init; }
@@ -96,6 +99,8 @@ public sealed class DayRankingResult
   {
     ("Riders", "every rider of every race of the day, all classes; practice, qualifying and team races are not counted"),
     ("Laps", "lap 1 of each race is left out - it runs from the start, not once round the circuit"),
+    ("Best lap", "the fastest of those laps; a lap more than 12 % quicker than the rider's usual lap is not taken as " +
+                 "their best - such a lap is a misread, not a lap - and is flagged to be checked"),
     ("Average lap", $"the mean of those laps over all races; ranked with at least {DayRankingScorer.MinimumLapsForAverage} of them"),
     ("Ties", "on best lap, whoever set it first; on average lap, the better best lap")
   };
@@ -128,12 +133,16 @@ public static class DayRankingScorer
   public const int MinimumLapsForAverage = 3;
 
   /// <summary>
-  /// A best lap this much faster than the rider's next best is flagged. On
-  /// 31 October 2026 one beginner's best lap was 27 s quicker than any other
-  /// lap he rode that day - a cut, or a read that belonged to someone else -
-  /// and would have been read out as the 21st fastest of the day.
+  /// A lap quicker than this share of the rider's usual (median) lap is not
+  /// taken as their best lap. On 31 October 2026 a Hobby rider's transponder
+  /// was read at irregular moments: 1:57, 2:42, 1:53, 2:19, 2:39 ... - laps
+  /// adding up to his steady 2:15 pace, but with two "1:53"s that put him
+  /// third of 60 riders on best lap, as quick as the Lizenz leaders. Comparing
+  /// with the next best lap would not see it - there were three of them - the
+  /// usual lap does. On that day it left out laps of exactly two riders, both
+  /// misread. The laps still count towards the average: their sum is real.
   /// </summary>
-  private const double CheckLapRatio = 0.92;
+  public const double PlausibleShare = 0.88;
 
   public static DayRankingResult Score(string title, IReadOnlyList<OverallMoto> races, DayRankingMeasure measure,
     bool final = true)
@@ -232,11 +241,18 @@ public static class DayRankingScorer
     }
   }
 
+  private static TimeSpan Median(IEnumerable<TimeSpan> values)
+  {
+    var sorted = values.OrderBy(v => v).ToList();
+    var middle = sorted.Count / 2;
+    return sorted.Count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+
   private sealed class Builder : MatchedRider
   {
     private readonly List<(int Session, RiderLap Lap)> _laps = new();
+    private readonly List<(int Session, RiderLap Lap)> _candidates = new();
     private readonly List<string> _classes = new();
-    private (int Session, RiderLap Lap)? _best;
     private string _team = "";
     private RiderInfo? _rider;
     private bool _sawDns;
@@ -264,10 +280,10 @@ public static class DayRankingScorer
       foreach (var lap in rider.Laps.Skip(1).Where(l => l.LapTime.HasValue))
         _laps.Add((session, lap));
 
-      // The sheet's own best lap: it already leaves out a team's handovers
-      // and a lap suspected of being two riders.
-      if (rider.BestLap is { } best && (_best == null || best.LapTime < _best.Value.Lap.LapTime))
-        _best = (session, best);
+      // What the sheet's best lap is chosen from: not a lap suspected of
+      // being two riders. (Team races are not on this list at all.)
+      foreach (var lap in rider.Laps.Skip(1).Where(l => l.LapTime.HasValue && !l.IsSuspectedOverlap))
+        _candidates.Add((session, lap));
     }
 
     public DayRankingEntry Build()
@@ -276,20 +292,26 @@ public static class DayRankingScorer
         ? null
         : TimeSpan.FromMilliseconds(_laps.Average(l => l.Lap.LapTime!.Value.TotalMilliseconds));
 
-      var check = false;
-      if (_best is { } best && _laps.Count >= MinimumLapsForAverage)
-      {
-        var next = _laps.Where(l => !ReferenceEquals(l.Lap, best.Lap)).Min(l => l.Lap.LapTime!.Value);
-        check = best.Lap.LapTime!.Value.TotalMilliseconds < next.TotalMilliseconds * CheckLapRatio;
-      }
+      // Too few laps to know what is usual, and every lap counts.
+      TimeSpan? usual = _laps.Count >= MinimumLapsForAverage ? Median(_laps.Select(l => l.Lap.LapTime!.Value)) : null;
+      var tooQuick = usual is { } u
+        ? _candidates.Where(c => c.Lap.LapTime!.Value.TotalMilliseconds < u.TotalMilliseconds * PlausibleShare).ToList()
+        : new List<(int Session, RiderLap Lap)>();
+      var best = _candidates.Except(tooQuick)
+        .OrderBy(c => c.Lap.LapTime)
+        .ThenBy(c => c.Session)
+        .ThenBy(c => c.Lap.CrossingTime)
+        .Select(c => ((int Session, RiderLap Lap)?)c)
+        .FirstOrDefault();
 
       var warnings = new List<string>();
       if (Names.Count > 1) warnings.Add($"Number {RawNumber} has different names: {string.Join(" / ", Names)}");
       if (SharedNumber != null) warnings.Add(SharedNumber);
       if (SharedTransponder != null) warnings.Add(SharedTransponder);
-      if (check)
-        warnings.Add($"Best lap {TimeFormat.Precise(_best!.Value.Lap.LapTime!.Value)} is far quicker than any other lap " +
-                     "this rider rode - check it.");
+      if (tooQuick.Count > 0)
+        warnings.Add(
+          $"Not taken as best lap: {string.Join(", ", tooQuick.OrderBy(c => c.Lap.LapTime).Select(c => TimeFormat.Precise(c.Lap.LapTime!.Value)))} " +
+          $"- far quicker than this rider's usual {TimeFormat.Precise(usual!.Value)}. A misread? Check the transponder.");
 
       return new DayRankingEntry
       {
@@ -298,14 +320,14 @@ public static class DayRankingScorer
         Team = _team,
         Category = Category,
         Classes = _classes.Count > 1 ? _classes.ToList() : Array.Empty<string>(),
-        BestLap = _best?.Lap.LapTime,
-        BestLapSession = _best?.Session,
-        BestLapNumber = _best?.Lap.LapNumber,
-        BestLapAt = _best?.Lap.CrossingTime,
+        BestLap = best?.Lap.LapTime,
+        BestLapSession = best?.Session,
+        BestLapNumber = best?.Lap.LapNumber,
+        BestLapAt = best?.Lap.CrossingTime,
         AverageLap = average,
         TimedLaps = _laps.Count,
         Dns = _sawDns && !_started,
-        CheckBestLap = check,
+        QuickLapsLeftOut = tooQuick.Count,
         Rider = _rider,
         Warning = warnings.Count > 0 ? string.Join(" ", warnings) : null
       };
