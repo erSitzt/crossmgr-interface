@@ -23,6 +23,11 @@ public sealed class DayRankingReportGenerator : IDisposable
   public DayRankingReportGenerator()
   {
     _printDocument = new PrintDocument();
+    // Landscape: nine columns, three of them times and one a race's name, do
+    // not fit across A4 standing up without cutting the times short. Asked for
+    // each page, because choosing a printer - the PDF one included - replaces
+    // the document's default page settings.
+    _printDocument.QueryPageSettings += (_, e) => e.PageSettings.Landscape = true;
     _printDocument.PrintPage += PrintDocument_PrintPage;
   }
 
@@ -164,7 +169,7 @@ public sealed class DayRankingReportGenerator : IDisposable
   private const float ColumnGap = 6f;
 
   // Pos, #, Rider, Class, Best, Best in, Avg, Laps, Gap.
-  private static readonly float[] Weights = { 0.055f, 0.055f, 0.23f, 0.11f, 0.095f, 0.19f, 0.095f, 0.06f, 0.11f };
+  private static readonly float[] Weights = { 0.05f, 0.05f, 0.23f, 0.10f, 0.09f, 0.21f, 0.09f, 0.06f, 0.12f };
 
   private void PrintDocument_PrintPage(object? sender, PrintPageEventArgs e)
   {
