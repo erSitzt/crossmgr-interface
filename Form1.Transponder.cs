@@ -3,8 +3,11 @@ namespace CrossMgrInterface;
 /// <summary>
 /// The transponder check: which riders the loop is reading reliably.
 ///
-/// Lives on the practice and qualifying sessions, because that is when a tag can
-/// still be re-fitted. By the race it is too late to do anything but explain.
+/// Shown in every session. Practice and qualifying are when a tag can still be
+/// re-fitted before it costs anyone a result; in a race it tells the officials
+/// during the moto that a rider is not being read, so the tag can be looked at
+/// before the next one. On 31 October 2026 two riders' tags went unread through
+/// both motos and nobody knew until the results were out.
 /// </summary>
 public partial class Form1
 {

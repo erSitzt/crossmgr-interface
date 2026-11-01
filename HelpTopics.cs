@@ -328,7 +328,7 @@ public static class HelpTopics
         "Riders (Ctrl+2) - every rider with laps and times, and a Status column. Right-click a rider to fix " +
         "laps, identify a transponder or stop counting it. Filter by: shows one class.",
         "Qualifying - timed qualifying only: the gate pick order as it stands.",
-        "Transponders - timed qualifying and free practice only: transponders that are read badly or not at all.",
+        "Transponders - every session: transponders that are read badly or not at all.",
         "Track (Ctrl+3) - the circuit on a map with every rider's estimated position."),
 
       Heading("Advanced tabs"),
@@ -791,13 +791,15 @@ public static class HelpTopics
 
   private static HelpTopic TransponderCheck() => Topic(HelpTopicIds.TransponderCheck, DuringASession,
     "Transponder check",
-    "Finds the transponders that are not being read properly - in practice or qualifying, while there is " +
-    "still time to fix them.",
+    "Finds the transponders that are not being read properly - in practice and qualifying while there is " +
+    "still time to re-fit them, and in a race while the moto is still running.",
     new[]
     {
-      Para("Shown for timed qualifying and free practice: the Transponders tab while the session runs, and " +
-           "Race > Transponder check... for the sheet. It covers everyone who crossed and everyone on the " +
-           "rider list who did not."),
+      Para("The Transponders tab is there in every session, and Race > Transponder check... prints the " +
+           "sheet. It covers everyone who crossed and everyone on the rider list in the session's classes who " +
+           "did not."),
+      Para("In a race, look at it once the field has been round: a rider shown as never read or gone quiet may " +
+           "still be out there, uncounted. Check the tag before the next moto."),
       Keys(
         ("Never read", "no reads at all - check the tag is fitted, working, and somewhere the loop can see it"),
         ("Went quiet", "read, then silent for more than three laps while the others rode on - ask whether they pulled in or the tag stopped"),
@@ -883,7 +885,7 @@ public static class HelpTopics
       Keys(
         ("Race", "Results... (Ctrl+P) - the classification"),
         ("Timed qualifying", "Gate pick order... - the order riders choose their gates"),
-        ("Practice, qualifying", "Transponder check... - tags that need attention")),
+        ("Any session", "Transponder check... - tags that need attention")),
 
       Heading("Preview, print or export"),
       Para("Each asks for a title - the session's name unless changed - and whether to preview, print or export."),
